@@ -1,0 +1,15 @@
+.dart_tool
+.git
+.github
+.idea
+.playwright-mcp
+.vscode
+build
+coverage
+stitch_reference
+.env
+.env.*
+!.env.example
+*.log
+*.iml
+README.md

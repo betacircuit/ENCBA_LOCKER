@@ -1,47 +1,46 @@
-FROM debian:bookworm-slim AS flutter
+# syntax=docker/dockerfile:1
+FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS build
 
 ARG FLUTTER_VERSION=3.44.9
+ARG FLUTTER_SHA256=a9120fa4a01048bdef438ddc3a2d4b7389662ea98a95db86eeaf10382bc4efcb
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git libglu1-mesa unzip xz-utils zip && \
+      ca-certificates curl git xz-utils && \
     rm -rf /var/lib/apt/lists/* && \
-    git clone --depth 1 --branch "$FLUTTER_VERSION" \
-      https://github.com/flutter/flutter.git /opt/flutter
+    curl --fail --location \
+      --retry 5 --retry-delay 3 --retry-all-errors \
+      --connect-timeout 20 \
+      --output /tmp/flutter.tar.xz \
+      "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" && \
+    echo "${FLUTTER_SHA256}  /tmp/flutter.tar.xz" | sha256sum --check --strict && \
+    tar --extract --xz --file /tmp/flutter.tar.xz --directory /opt && \
+    rm /tmp/flutter.tar.xz && \
+    git config --global --add safe.directory /opt/flutter
 
-ENV PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:${PATH}"
-RUN flutter config --enable-web && \
-    for attempt in 1 2 3; do \
-      if flutter precache --web; then \
-        exit 0; \
-      fi; \
-      echo "Flutter precache attempt ${attempt} failed; retrying with a clean download cache"; \
-      rm -rf /opt/flutter/bin/cache/downloads; \
-      sleep $((attempt * 5)); \
-    done; \
-    exit 1
-
-FROM flutter AS build
+ENV PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:${PATH}" \
+    CI=true
 
 WORKDIR /app
 ARG SUPABASE_URL
 ARG SUPABASE_PUBLISHABLE_KEY
 
 COPY pubspec.yaml pubspec.lock ./
-RUN flutter pub get
+RUN flutter --version && flutter pub get --enforce-lockfile
 
 COPY . .
 RUN test -n "$SUPABASE_URL" && \
     test -n "$SUPABASE_PUBLISHABLE_KEY" && \
-    flutter build web --release \
+    flutter build web --release --no-pub \
       --dart-define="SUPABASE_URL=$SUPABASE_URL" \
       --dart-define="SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY"
 
-FROM nginx:1.29.1-alpine
+FROM nginx:1.29.1-alpine@sha256:42a516af16b852e33b7682d5ef8acbd5d13fe08fecadc7ed98605ba5e3b26ab8
+
+ENV PORT=10000 \
+    NGINX_ENVSUBST_FILTER=PORT
 
 COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/build/web /usr/share/nginx/html
 
 EXPOSE 10000
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD wget -q --spider http://127.0.0.1:${PORT:-10000}/healthz || exit 1
-
 CMD ["nginx", "-g", "daemon off;"]
