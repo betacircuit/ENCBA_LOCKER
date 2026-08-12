@@ -33,7 +33,7 @@ class SupabaseAuthRepository {
     }
     try {
       final response = await _client.auth.signUp(
-        email: profile.email.trim().toLowerCase(),
+        email: _internalEmail(profile.name),
         password: password,
         data: {
           'name': profile.name,
@@ -59,15 +59,15 @@ class SupabaseAuthRepository {
     }
   }
 
-  Future<UserProfile> signIn(String email, String password) async {
+  Future<UserProfile> signIn(String loginName, String password) async {
     try {
       final response = await _client.auth.signInWithPassword(
-        email: email.trim().toLowerCase(),
+        email: _internalEmail(loginName),
         password: password,
       );
       final user = response.user;
       if (user == null) {
-        throw const EncbaAuthException('이메일 또는 비밀번호를 확인해 주세요.');
+        throw const EncbaAuthException('실명 또는 비밀번호를 확인해 주세요.');
       }
       return await _profileFor(user.id);
     } on supabase.AuthException catch (error) {
@@ -114,7 +114,7 @@ class SupabaseAuthRepository {
             );
       }
       final updates = <String, dynamic>{
-        'name': profile.name,
+        'display_name': profile.displayName ?? profile.name,
         'phone': profile.phone,
         'position': profile.position,
         'jersey_number': profile.jerseyNumber,
@@ -156,8 +156,8 @@ class SupabaseAuthRepository {
       final row = await _client
           .from('profiles')
           .select(
-            'id,email,name,student_year,generation,phone,position,'
-            'jersey_number,membership_status,badge,avatar_path,is_admin,'
+            'id,email,name,display_name,student_year,generation,phone,position,'
+            'jersey_number,membership_status,badge,avatar_path,is_admin,is_schedule_manager,'
             'profile_teams(teams(code))',
           )
           .eq('id', userId)
@@ -200,20 +200,28 @@ class SupabaseAuthRepository {
 
   String _profileCacheKey(String userId) => 'encba.profile.$userId.v1';
 
+  String _internalEmail(String loginName) {
+    final canonical = loginName.trim();
+    final encoded = base64Url
+        .encode(utf8.encode(canonical))
+        .replaceAll('=', '');
+    return 'encba.$encoded@members.encba.local';
+  }
+
   int _studentYear(String value) =>
       int.tryParse(value.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
 
   String _friendlyAuthMessage(String message) {
     final lower = message.toLowerCase();
     if (lower.contains('invalid login credentials')) {
-      return '이메일 또는 비밀번호를 확인해 주세요.';
+      return '실명 또는 비밀번호를 확인해 주세요.';
     }
     if (lower.contains('email not confirmed')) {
-      return '이메일 인증을 완료한 뒤 로그인해 주세요.';
+      return 'Supabase에서 이메일 확인을 끈 뒤 다시 가입해 주세요.';
     }
     if (lower.contains('already registered') ||
         lower.contains('already been registered')) {
-      return '이미 가입된 이메일입니다.';
+      return '이미 가입된 실명 계정입니다.';
     }
     if (lower.contains('rate limit')) {
       return '요청이 너무 많습니다. 잠시 뒤 다시 시도해 주세요.';

@@ -22,7 +22,7 @@ abstract final class EncbaColors {
 String encbaFontFor(String text, {bool display = false}) {
   final hasKorean = RegExp(r'[가-힣]').hasMatch(text);
   if (hasKorean) return 'Jua';
-  return display ? 'BlackHanSans' : 'GowunDodum';
+  return display ? 'BlackHanSans' : 'Arial';
 }
 
 class AppTheme {

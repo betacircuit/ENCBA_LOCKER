@@ -14,7 +14,7 @@ class LockerSnapshot {
   });
 
   final List<LockerEvent> events;
-  final Map<String, AttendanceStatus> attendance;
+  final Map<String, String> attendance;
   final List<VideoItem> videos;
   final Set<String> likedVideoIds;
   final bool fromCache;
@@ -23,7 +23,7 @@ class LockerSnapshot {
 class SupabaseLockerRepository {
   SupabaseLockerRepository(this._client, this._store);
 
-  String get _cacheKey => 'encba.remote-snapshot.$_userId.v1';
+  String get _cacheKey => 'encba.remote-snapshot.$_userId.v2';
   final SupabaseClient _client;
   final LocalStore _store;
 
@@ -32,36 +32,44 @@ class SupabaseLockerRepository {
 
   Future<LockerSnapshot> load() async {
     try {
-      final result = await Future.wait([
+      final result = await Future.wait<dynamic>([
         _client
             .from('events')
             .select('*,places(name),profiles!events_created_by_fkey(name)')
             .gte('ends_at', DateTime.now().toUtc().toIso8601String())
             .isFilter('cancelled_at', null)
             .order('starts_at')
-            .limit(300),
+            .limit(300)
+            .then<dynamic>((value) => value),
         _client
             .from('event_attendance')
-            .select('event_id,status')
-            .eq('profile_id', _userId),
+            .select('event_id,choice')
+            .eq('profile_id', _userId)
+            .then<dynamic>((value) => value),
         _client
             .from('videos')
             .select('*,profiles!videos_uploaded_by_fkey(name)')
             .order('created_at', ascending: false)
-            .limit(200),
+            .limit(200)
+            .then<dynamic>((value) => value),
         _client
             .from('video_likes')
             .select('video_id')
-            .eq('profile_id', _userId),
+            .eq('profile_id', _userId)
+            .then<dynamic>((value) => value),
+        _client.rpc('list_locked_event_stubs').then<dynamic>((value) => value),
       ]);
-      final events = (result[0] as List)
-          .map((row) => _eventFromRow(Map<String, dynamic>.from(row as Map)))
-          .toList();
+      final events = <LockerEvent>[
+        ...(result[0] as List).map(
+          (row) => _eventFromRow(Map<String, dynamic>.from(row as Map)),
+        ),
+        ...(result[4] as List).map(
+          (row) => _eventFromRow(Map<String, dynamic>.from(row as Map)),
+        ),
+      ]..sort((a, b) => a.start.compareTo(b.start));
       final attendance = {
         for (final row in result[1] as List)
-          (row as Map)['event_id'] as String: AttendanceStatus.values.byName(
-            row['status'] as String,
-          ),
+          (row as Map)['event_id'] as String: row['choice'] as String,
       };
       final videos = (result[2] as List)
           .map((row) => _videoFromRow(Map<String, dynamic>.from(row as Map)))
@@ -95,7 +103,8 @@ class SupabaseLockerRepository {
     var request = _client
         .from('profiles')
         .select(
-          'name,student_year,generation,phone,position,membership_status,badge,profile_teams(teams(code))',
+          'name,display_name,student_year,generation,phone,position,jersey_number,'
+          'membership_status,badge,profile_teams(teams(code))',
         )
         .eq('membership_status', membership.toLowerCase());
     final normalizedQuery = query.trim();
@@ -120,7 +129,7 @@ class SupabaseLockerRepository {
           .map((team) => team['code'] as String)
           .toList();
       return MemberProfile(
-        name: map['name'] as String,
+        name: map['display_name'] as String? ?? map['name'] as String,
         studentId: '${map['student_year']}학번',
         generation: map['generation'] as int,
         status: (map['membership_status'] as String).toUpperCase(),
@@ -129,6 +138,7 @@ class SupabaseLockerRepository {
         note: '',
         badge: map['badge'] as String?,
         phone: map['phone'] as String? ?? '',
+        jerseyNumber: map['jersey_number'] as int? ?? 0,
       );
     }).toList();
   }
@@ -153,6 +163,52 @@ class SupabaseLockerRepository {
       );
     }).toList();
   }
+
+  Future<AnnouncementItem> addAnnouncement({
+    required String title,
+    required String body,
+    required bool pinned,
+  }) async {
+    final row = await _client
+        .from('announcements')
+        .insert({
+          'title': title,
+          'body': body,
+          'pinned': pinned,
+          'created_by': _userId,
+          'updated_by': _userId,
+        })
+        .select(
+          'id,title,body,published_at,profiles!announcements_created_by_fkey(name,display_name)',
+        )
+        .single();
+    final profile = row['profiles'] as Map?;
+    return AnnouncementItem(
+      id: row['id'] as String,
+      title: row['title'] as String,
+      body: row['body'] as String,
+      author:
+          profile?['display_name'] as String? ??
+          profile?['name'] as String? ??
+          '운영진',
+      publishedAt: DateTime.parse(row['published_at'] as String).toLocal(),
+    );
+  }
+
+  RealtimeChannel subscribeToAnnouncements(
+    void Function(Map<String, dynamic> record) onInsert,
+  ) => _client
+      .channel('encba-announcements')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'announcements',
+        callback: (payload) => onInsert(payload.newRecord),
+      )
+      .subscribe();
+
+  Future<void> unsubscribe(RealtimeChannel channel) =>
+      _client.removeChannel(channel);
 
   Future<List<OperationAssignment>> loadOperations() async {
     final rows = await _client
@@ -186,8 +242,11 @@ class SupabaseLockerRepository {
     final rows = await _client
         .from('homecoming_contacts')
         .select(
-          'id,senior_name,generation,phone,contact_status,parking_required,parking_registered',
+          'id,source_row,senior_name,generation,home_or_office_phone,phone,'
+          'contact_status,parking_required,parking_registered,follow_up_allowed,'
+          'follow_up_on,notes,homecoming_campaigns!inner(is_active)',
         )
+        .eq('homecoming_campaigns.is_active', true)
         .order('generation', ascending: false)
         .limit(300);
     return rows
@@ -200,6 +259,13 @@ class SupabaseLockerRepository {
             generation: row['generation'] as int?,
             parkingRequired: row['parking_required'] as bool?,
             parkingRegistered: row['parking_registered'] as bool? ?? false,
+            homeOrOfficePhone: row['home_or_office_phone'] as String?,
+            followUpAllowed: row['follow_up_allowed'] as bool?,
+            followUpOn: row['follow_up_on'] == null
+                ? null
+                : DateTime.parse(row['follow_up_on'] as String),
+            notes: row['notes'] as String?,
+            sourceRow: row['source_row'] as int?,
           ),
         )
         .toList();
@@ -224,24 +290,110 @@ class SupabaseLockerRepository {
     }).toList();
   }
 
-  Future<void> updateHomecomingContacted(
-    String id, {
-    required bool contacted,
-  }) => _client
+  Future<void> updateHomecomingContact(HomecomingContact contact) => _client
       .from('homecoming_contacts')
       .update({
-        'contact_status': contacted ? 'contacted' : 'pending',
-        'last_contacted_at': contacted
+        'contact_status': contact.status,
+        'parking_required': contact.parkingRequired,
+        'parking_registered': contact.parkingRegistered,
+        'follow_up_allowed': contact.followUpAllowed,
+        'follow_up_on': contact.followUpOn?.toIso8601String().split('T').first,
+        'notes': contact.notes,
+        'last_contacted_at': contact.handled
             ? DateTime.now().toUtc().toIso8601String()
             : null,
       })
-      .eq('id', id);
+      .eq('id', contact.id);
 
-  Future<void> vote(String eventId, AttendanceStatus status) async {
+  Future<HomecomingCampaign?> loadActiveHomecomingCampaign() async {
+    final rows = await _client
+        .from('homecoming_campaigns')
+        .select()
+        .eq('is_active', true)
+        .limit(1);
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return HomecomingCampaign(
+      id: row['id'] as String,
+      title: row['title'] as String,
+      academicYear: row['academic_year'] as int,
+      term: row['term'] as int,
+      eventDate: DateTime.parse(row['event_date'] as String),
+      startsAt: row['starts_at'] as String,
+      endsAt: row['ends_at'] as String,
+      venue: row['venue'] as String,
+      isActive: row['is_active'] as bool,
+      afterpartyNote: row['afterparty_note'] as String,
+      sourceFileName: row['source_file_name'] as String?,
+    );
+  }
+
+  Future<HomecomingCampaign> activateHomecomingCampaign({
+    required int academicYear,
+    required int term,
+    required DateTime eventDate,
+    required String startsAt,
+    required String endsAt,
+    required String venue,
+  }) async {
+    await _client
+        .from('homecoming_campaigns')
+        .update({'is_active': false})
+        .eq('is_active', true);
+    await _client
+        .from('homecoming_campaigns')
+        .upsert({
+          'academic_year': academicYear,
+          'term': term,
+          'title': '$academicYear-$term 홈커밍',
+          'event_date': eventDate.toIso8601String().split('T').first,
+          'starts_at': startsAt,
+          'ends_at': endsAt,
+          'venue': venue,
+          'is_active': true,
+          'created_by': _userId,
+        }, onConflict: 'academic_year,term')
+        .select()
+        .single();
+    return (await loadActiveHomecomingCampaign())!;
+  }
+
+  Future<void> importHomecomingContacts({
+    required String campaignId,
+    required String fileName,
+    required List<Map<String, dynamic>> contacts,
+  }) async {
+    await _client
+        .from('homecoming_campaigns')
+        .update({'source_file_name': fileName})
+        .eq('id', campaignId);
+    await _client
+        .from('homecoming_contacts')
+        .delete()
+        .eq('campaign_id', campaignId);
+    for (var offset = 0; offset < contacts.length; offset += 100) {
+      final end = (offset + 100).clamp(0, contacts.length);
+      await _client
+          .from('homecoming_contacts')
+          .insert(
+            contacts
+                .sublist(offset, end)
+                .map((row) => {...row, 'campaign_id': campaignId})
+                .toList(),
+          );
+    }
+  }
+
+  Future<void> vote(
+    String eventId,
+    String choice, {
+    String? absenceReason,
+  }) async {
     await _client.from('event_attendance').upsert({
       'event_id': eventId,
       'profile_id': _userId,
-      'status': status.name,
+      'choice': choice,
+      'absence_reason': absenceReason,
       'responded_at': DateTime.now().toUtc().toIso8601String(),
     }, onConflict: 'event_id,profile_id');
   }
@@ -255,7 +407,10 @@ class SupabaseLockerRepository {
       'place_label': event.place,
       'court': event.court,
       'target_team': event.targetTeam,
-      'uniform_color': _uniformToDatabase(event.uniformColor),
+      'uniform_colors': event.uniformColors
+          .map(_uniformToDatabase)
+          .whereType<String>()
+          .toList(),
       'memo': event.memo,
       'capacity': event.capacity,
       'response_enabled': event.responseEnabled,
@@ -263,6 +418,8 @@ class SupabaseLockerRepository {
       'recurrence_rule': event.isRecurring
           ? {'frequency': 'weekly', 'count': 12, 'editable_instances': true}
           : null,
+      'poll_options': event.pollOptions,
+      'visibility': event.visibility,
       'updated_by': _userId,
     };
     final isUuid = RegExp(
@@ -361,6 +518,79 @@ class SupabaseLockerRepository {
     return _videoCommentFromRow(row);
   }
 
+  Future<void> recordVideoWatch({
+    required String videoId,
+    required int watchedSeconds,
+    required int lastPositionSeconds,
+    required bool completed,
+  }) => _client.rpc(
+    'record_video_watch',
+    params: {
+      'requested_video_id': videoId,
+      'watched_delta_seconds': watchedSeconds,
+      'requested_position_seconds': lastPositionSeconds,
+      'requested_completed': completed,
+    },
+  );
+
+  Future<List<VideoWatchSummary>> loadVideoWatchSummary(String videoId) async {
+    final rows = await _client
+        .from('video_watch_sessions')
+        .select(
+          'watched_seconds,last_position_seconds,completed,profiles(name,display_name)',
+        )
+        .eq('video_id', videoId)
+        .order('watched_seconds', ascending: false);
+    return rows.map((row) {
+      final profile = row['profiles'] as Map?;
+      return VideoWatchSummary(
+        name:
+            profile?['display_name'] as String? ??
+            profile?['name'] as String? ??
+            '부원',
+        watchedSeconds: row['watched_seconds'] as int? ?? 0,
+        lastPositionSeconds: row['last_position_seconds'] as int? ?? 0,
+        completed: row['completed'] as bool? ?? false,
+      );
+    }).toList();
+  }
+
+  Future<void> applyExternalEvent(String eventId) =>
+      _client.from('event_roster').upsert({
+        'event_id': eventId,
+        'profile_id': _userId,
+        'status': 'applied',
+      }, onConflict: 'event_id,profile_id');
+
+  Future<List<EventRosterMember>> loadEventRoster(String eventId) async {
+    final rows = await _client
+        .from('event_roster')
+        .select('profile_id,status,profiles(name,display_name)')
+        .eq('event_id', eventId)
+        .order('created_at');
+    return rows.map((row) {
+      final profile = row['profiles'] as Map?;
+      return EventRosterMember(
+        profileId: row['profile_id'] as String,
+        name:
+            profile?['display_name'] as String? ??
+            profile?['name'] as String? ??
+            '부원',
+        status: row['status'] as String,
+      );
+    }).toList();
+  }
+
+  Future<void> setEventRosterStatus({
+    required String eventId,
+    required String profileId,
+    required String status,
+  }) => _client
+      .from('event_roster')
+      .update({'status': status, 'updated_by': _userId})
+      .eq('event_id', eventId)
+      .eq('profile_id', profileId);
+
   VideoCommentItem _videoCommentFromRow(Map<String, dynamic> row) {
     final profile = row['profiles'] as Map?;
     return VideoCommentItem(
@@ -386,7 +616,10 @@ class SupabaseLockerRepository {
       court: row['court'] as String?,
       kind: _kindFromDatabase(row['kind'] as String),
       memo: row['memo'] as String,
-      uniformColor: _uniformFromDatabase(row['uniform_color'] as String?),
+      uniformColors: (row['uniform_colors'] as List? ?? const [])
+          .map((value) => _uniformFromDatabase(value as String))
+          .whereType<String>()
+          .toList(),
       capacity: row['capacity'] as int?,
       attending: row['attending_count'] as int? ?? 0,
       targetTeam: row['target_team'] as String? ?? '전체',
@@ -397,6 +630,11 @@ class SupabaseLockerRepository {
       responseDeadlineOverride: DateTime.parse(
         row['response_deadline'] as String,
       ).toLocal(),
+      pollOptions: List<String>.from(
+        row['poll_options'] as List? ?? const ['참석', '불참', '미정'],
+      ),
+      visibility: row['visibility'] as String? ?? 'team',
+      isLocked: row['locked'] as bool? ?? false,
     );
   }
 
@@ -421,7 +659,7 @@ class SupabaseLockerRepository {
     jsonEncode({
       'events': snapshot.events.map((event) => event.toJson()).toList(),
       'attendance': snapshot.attendance.map(
-        (key, value) => MapEntry(key, value.name),
+        (key, value) => MapEntry(key, value),
       ),
       'videos': snapshot.videos.map((video) => video.toJson()).toList(),
       'likes': snapshot.likedVideoIds.toList(),
@@ -440,10 +678,9 @@ class SupabaseLockerRepository {
                   LockerEvent.fromJson(Map<String, dynamic>.from(item as Map)),
             )
             .toList(),
-        attendance: Map<String, dynamic>.from(json['attendance'] as Map).map(
-          (key, value) =>
-              MapEntry(key, AttendanceStatus.values.byName(value as String)),
-        ),
+        attendance: Map<String, dynamic>.from(
+          json['attendance'] as Map,
+        ).map((key, value) => MapEntry(key, value as String)),
         videos: (json['videos'] as List)
             .map(
               (item) =>

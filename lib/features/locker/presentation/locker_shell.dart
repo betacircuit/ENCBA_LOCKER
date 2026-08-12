@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:encba_locker/core/theme/app_theme.dart';
@@ -6,6 +7,8 @@ import 'package:encba_locker/features/auth/presentation/edit_profile_screen.dart
 import 'package:encba_locker/features/locker/application/locker_controller.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/presentation/event_screens.dart';
+import 'package:encba_locker/features/locker/services/homecoming_import_service.dart';
+import 'package:encba_locker/features/locker/services/web_notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -142,6 +145,7 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(lockerControllerProvider);
     final user = ref.watch(authControllerProvider).user!;
+    final canManageSchedule = user.isAdmin || user.isScheduleManager;
     final events = [...state.events]
       ..sort((a, b) => a.start.compareTo(b.start));
     final upcoming = events
@@ -150,7 +154,7 @@ class HomeScreen extends ConsumerWidget {
     final nextEvent = upcoming.firstOrNull;
     return _Page(
       header: _Header(
-        eyebrow: '${user.name} · #${user.jerseyNumber} ${user.position}',
+        eyebrow: '${user.visibleName} · #${user.jerseyNumber} ${user.position}',
         title: 'ENCBA LOCKER',
         action: Row(
           mainAxisSize: MainAxisSize.min,
@@ -161,6 +165,12 @@ class HomeScreen extends ConsumerWidget {
               height: 48,
               fit: BoxFit.contain,
             ),
+            if (user.isAdmin)
+              IconButton(
+                tooltip: '공지 등록',
+                onPressed: () => _showAnnouncementEditor(context, ref),
+                icon: const Icon(Icons.add_alert_outlined),
+              ),
             IconButton(
               tooltip: '알림',
               onPressed: () {
@@ -183,8 +193,8 @@ class HomeScreen extends ConsumerWidget {
           _EmptyState(
             icon: Icons.calendar_month_outlined,
             title: '예정된 일정이 없습니다',
-            action: user.isAdmin ? '일정 추가' : null,
-            onTap: user.isAdmin ? () => _openEditor(context) : null,
+            action: canManageSchedule ? '일정 추가' : null,
+            onTap: canManageSchedule ? () => _openEditor(context) : null,
           )
         else
           EventTicket(
@@ -274,11 +284,16 @@ class GamesScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(lockerControllerProvider);
-    final isAdmin = ref.watch(authControllerProvider).user!.isAdmin;
+    final gameUser = ref.watch(authControllerProvider).user!;
+    final isAdmin = gameUser.isAdmin || gameUser.isScheduleManager;
     final selected = state.gameSegment;
     final selectedSub = state.gameSubSegment;
     final categories = switch (selected) {
-      0 => const [('아농', EventKind.morning), ('내부 경기', EventKind.internal)],
+      0 => const [
+        ('아농', EventKind.morning),
+        ('내부 경기', EventKind.internal),
+        ('픽업게임', EventKind.pickup),
+      ],
       1 => const [('1부', EventKind.ibDivision1), ('2부', EventKind.ibDivision2)],
       _ => const [
         ('연습 경기', EventKind.scrimmage),
@@ -289,6 +304,7 @@ class GamesScreen extends ConsumerWidget {
     final filtered = state.events.where((event) {
       return event.kind == categories[selectedSub].$2;
     }).toList();
+    final ibLocked = selected == 1 && _isAcademicBreak(DateTime.now());
     return _Page(
       header: const _Header(eyebrow: 'GAME DAY', title: '경기'),
       children: [
@@ -313,7 +329,12 @@ class GamesScreen extends ConsumerWidget {
               .selectGameSubSegment,
         ),
         const SizedBox(height: 20),
-        if (filtered.isEmpty)
+        if (ibLocked)
+          const _EmptyState(
+            icon: Icons.lock_clock_outlined,
+            title: '방학 중에는 IB가 잠깁니다',
+          )
+        else if (filtered.isEmpty)
           _EmptyState(
             icon: Icons.sports_basketball_outlined,
             title: '예정된 경기가 없습니다',
@@ -423,12 +444,13 @@ class ScheduleScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final events = ref.watch(lockerControllerProvider).events;
-    final isAdmin = ref.watch(authControllerProvider).user!.isAdmin;
+    final user = ref.watch(authControllerProvider).user!;
+    final canManage = user.isAdmin || user.isScheduleManager;
     return _Page(
       header: _Header(
-        eyebrow: '2026 · 2학기',
+        eyebrow: _academicLabel(DateTime.now()),
         title: '일정',
-        action: isAdmin
+        action: canManage
             ? IconButton(
                 tooltip: '일정 추가',
                 onPressed: () => _openEditor(context),
@@ -454,7 +476,7 @@ class ScheduleScreen extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 8),
-        if (isAdmin)
+        if (canManage)
           FilledButton.icon(
             onPressed: () => _openEditor(context),
             icon: const Icon(Icons.add_rounded),
@@ -483,7 +505,7 @@ class ProfileScreen extends ConsumerWidget {
       ),
       children: [
         _ProfileCard(
-          name: user.name,
+          name: user.visibleName,
           meta:
               '${user.studentId} · ${user.generation}기 · #${user.jerseyNumber} ${user.position}',
           teams: user.teams,
@@ -500,6 +522,21 @@ class ProfileScreen extends ConsumerWidget {
         const SizedBox(height: 24),
         const _SectionHeader(title: '내 메뉴'),
         const SizedBox(height: 10),
+        _MenuTile(
+          icon: Icons.notifications_active_outlined,
+          title: '웹 알림 켜기',
+          subtitle: '브라우저가 열려 있을 때 공지 알림',
+          onTap: () async {
+            final enabled = await WebNotificationService().enableAndTest();
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(enabled ? '웹 알림을 켰습니다.' : '브라우저 알림 권한이 필요합니다.'),
+                ),
+              );
+            }
+          },
+        ),
         _MenuTile(
           icon: Icons.groups_2_outlined,
           title: '멤버 디렉토리',
@@ -630,7 +667,7 @@ class MemberDetailScreen extends StatelessWidget {
         ),
         const SizedBox(height: 5),
         Text(
-          '${member.studentId} · ${member.generation}기 · ${member.position}',
+          '${member.studentId} · ${member.generation}기 · #${member.jerseyNumber} ${member.position}',
           textAlign: TextAlign.center,
           style: const TextStyle(color: EncbaColors.muted),
         ),
@@ -721,59 +758,348 @@ class HomecomingScreen extends ConsumerStatefulWidget {
 }
 
 class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
+  bool _importing = false;
+
   @override
   Widget build(BuildContext context) {
     final isAdmin = ref.watch(authControllerProvider).user?.isAdmin ?? false;
-    final contacts = ref.watch(lockerControllerProvider).homecomingContacts;
+    final state = ref.watch(lockerControllerProvider);
+    final campaign = state.homecomingCampaign;
+    final contacts = state.homecomingContacts;
     final complete = contacts.where((item) => item.handled).length;
     return Scaffold(
       appBar: AppBar(title: const Text('홈커밍 연락 보드')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Text(
-            '$complete / ${contacts.length} 응답 처리',
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            '연락 상태와 주차권 요청을 한 번에 관리합니다.',
-            style: TextStyle(color: EncbaColors.muted),
-          ),
-          const SizedBox(height: 18),
-          ...contacts.map(
-            (contact) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Card(
-                child: CheckboxListTile(
-                  value: contact.contacted,
-                  onChanged:
-                      isAdmin &&
-                          contact.status != 'confirmed' &&
-                          contact.status != 'declined'
-                      ? (value) => ref
-                            .read(lockerControllerProvider.notifier)
-                            .setHomecomingContacted(contact.id, value == true)
-                      : null,
-                  title: Text(
-                    '${contact.name} 선배',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+          if (campaign == null) ...[
+            const SizedBox(height: 70),
+            const Icon(
+              Icons.lock_outline_rounded,
+              size: 42,
+              color: EncbaColors.muted,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '홈커밍 준비 기간이 아닙니다',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '관리자가 이번 학기 캠페인을 열면 연락 보드가 활성화됩니다.',
+              textAlign: TextAlign.center,
+            ),
+            if (isAdmin) ...[
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: _activateCampaign,
+                icon: const Icon(Icons.lock_open_rounded),
+                label: const Text('이번 학기 홈커밍 열기'),
+              ),
+            ],
+          ] else ...[
+            Text(campaign.title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text(
+              '${campaign.eventDate.month}월 ${campaign.eventDate.day}일 · ${campaign.startsAt.substring(0, 5)}–${campaign.endsAt.substring(0, 5)} · ${campaign.venue}',
+            ),
+            const SizedBox(height: 18),
+            Text(
+              '$complete / ${contacts.length} 응답 처리',
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+            const SizedBox(height: 6),
+            LinearProgressIndicator(
+              value: contacts.isEmpty ? 0 : complete / contacts.length,
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _showManuals,
+                    icon: const Icon(Icons.menu_book_outlined),
+                    label: const Text('연락 매뉴얼'),
                   ),
-                  subtitle: Text(
-                    contact.parkingRequired == true &&
-                            !contact.parkingRegistered
-                        ? '주차권 필요 · ${_homecomingStatus(contact.status)}'
-                        : _homecomingStatus(contact.status),
+                ),
+                if (isAdmin) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _importing ? null : _importExcel,
+                      icon: const Icon(Icons.upload_file_outlined),
+                      label: Text(_importing ? '가져오는 중…' : '엑셀 가져오기'),
+                    ),
                   ),
-                  secondary: IconButton(
-                    onPressed: () => _launch('sms:${contact.phone}'),
-                    icon: const Icon(Icons.sms_outlined),
+                ],
+              ],
+            ),
+            const SizedBox(height: 18),
+            ...contacts.map(
+              (contact) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 10, 12),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${contact.name} 선배',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 17,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${contact.generation == null ? '학번 미상' : '${contact.generation}학번'} · ${contact.phone}',
+                                    style: const TextStyle(
+                                      color: EncbaColors.muted,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: '전화',
+                              onPressed: () => _launch('tel:${contact.phone}'),
+                              icon: const Icon(Icons.phone_outlined),
+                            ),
+                            IconButton(
+                              tooltip: '문자',
+                              onPressed: () => _sendSms(contact, campaign),
+                              icon: const Icon(Icons.sms_outlined),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          initialValue: contact.status,
+                          decoration: const InputDecoration(labelText: '응답 상태'),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'pending',
+                              child: Text('미연락'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'contacted',
+                              child: Text('미정 · 재연락'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'confirmed',
+                              child: Text('참석'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'declined',
+                              child: Text('불참'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              _saveContact(
+                                contact.copyWith(
+                                  status: value,
+                                  followUpAllowed: value == 'contacted'
+                                      ? true
+                                      : contact.followUpAllowed,
+                                  followUpOn: value == 'contacted'
+                                      ? DateTime.now().add(
+                                          const Duration(days: 7),
+                                        )
+                                      : contact.followUpOn,
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                        CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          value: contact.parkingRequired ?? false,
+                          title: const Text('주차권 필요'),
+                          onChanged: (value) => _saveContact(
+                            contact.copyWith(parkingRequired: value),
+                          ),
+                        ),
+                        if (contact.parkingRequired == true)
+                          CheckboxListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            value: contact.parkingRegistered,
+                            title: const Text('주차권 처리 완료'),
+                            onChanged: (value) => _saveContact(
+                              contact.copyWith(parkingRegistered: value),
+                            ),
+                          ),
+                        if (contact.followUpOn != null)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '다시 연락: ${contact.followUpOn!.month}.${contact.followUpOn!.day}',
+                              style: const TextStyle(color: EncbaColors.late),
+                            ),
+                          ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () => _editContactNotes(contact),
+                            icon: const Icon(Icons.edit_note_rounded),
+                            label: Text(
+                              contact.notes?.trim().isNotEmpty == true
+                                  ? '기록 보기'
+                                  : '메모 추가',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveContact(HomecomingContact contact) async {
+    await ref
+        .read(lockerControllerProvider.notifier)
+        .updateHomecomingContact(contact);
+  }
+
+  Future<void> _editContactNotes(HomecomingContact contact) async {
+    var notes = contact.notes ?? '';
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${contact.name} 선배 연락 기록'),
+        content: TextFormField(
+          initialValue: notes,
+          autofocus: true,
+          minLines: 4,
+          maxLines: 8,
+          maxLength: 2000,
+          onChanged: (value) => notes = value,
+          decoration: const InputDecoration(hintText: '통화·답장 내용을 기록해 주세요.'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, notes.trim()),
+            child: const Text('저장'),
           ),
         ],
+      ),
+    );
+    if (value != null) await _saveContact(contact.copyWith(notes: value));
+  }
+
+  Future<void> _activateCampaign() async {
+    final now = DateTime.now();
+    final term = now.month >= 9 ? 2 : 1;
+    final eventDate = await showDatePicker(
+      context: context,
+      initialDate: now.add(const Duration(days: 14)),
+      firstDate: now,
+      lastDate: DateTime(now.year + 1),
+    );
+    if (eventDate == null || !mounted) return;
+    await ref
+        .read(lockerControllerProvider.notifier)
+        .activateHomecomingCampaign(
+          academicYear: now.year,
+          term: term,
+          eventDate: eventDate,
+          startsAt: '14:00',
+          endsAt: '18:00',
+          venue: '서울대학교 기숙사체육관',
+        );
+  }
+
+  Future<void> _importExcel() async {
+    setState(() => _importing = true);
+    try {
+      final parsed = await HomecomingImportService().pickAndParse();
+      if (parsed == null || !mounted) return;
+      final ok = await ref
+          .read(lockerControllerProvider.notifier)
+          .importHomecomingContacts(
+            fileName: parsed.fileName,
+            contacts: parsed.rows,
+          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              ok ? '${parsed.rows.length}명을 가져왔습니다.' : '가져오지 못했습니다.',
+            ),
+          ),
+        );
+      }
+    } on Object catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  Future<void> _sendSms(
+    HomecomingContact contact,
+    HomecomingCampaign campaign,
+  ) async {
+    final user = ref.read(authControllerProvider).user!;
+    final studentYear = user.studentId.replaceAll('학번', '');
+    final body =
+        '${contact.name} 선배님 안녕하십니까? 서울대학교 공대농구동아리 엔크바 $studentYear학번 ${user.name}입니다.\n'
+        '다름이 아니라, 이번 ${campaign.term}학기 엔크바 홈커밍 데이가 ${campaign.eventDate.month}월 ${campaign.eventDate.day}일에 예정되어 있습니다. 참석 확인 차 전화드렸는데 연락이 안되셔서 문자 드립니다.\n'
+        '혹시 홈커밍 데이 때 참석 가능하실까요?\n\n감사합니다.';
+    final uri = Uri(
+      scheme: 'sms',
+      path: contact.phone,
+      queryParameters: {'body': body},
+    );
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  void _showManuals() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: .82,
+        builder: (context, controller) => ListView(
+          controller: controller,
+          padding: const EdgeInsets.all(22),
+          children: const [
+            Text('전화 매뉴얼', style: TextStyle(fontFamily: 'Jua', fontSize: 25)),
+            SizedBox(height: 12),
+            SelectableText(
+              '안녕하세요, 혹시 XXX 선배님 맞으십니까?\n선배님 안녕하십니까, 서울대학교 공대 농구동아리 엔크바 XX학번 XXX입니다.\n다름이 아니라 이번 엔크바 홈커밍 데이가 예정되어 있습니다. 혹시 참석 가능하십니까?\n\n참석: 감사합니다 선배님. 그때 뵙겠습니다. 주차권이 필요하신지, 행사 일주일 전에 다시 연락드려도 되는지 여쭤봅니다.\n\n미정: 다음 주에 다시 확인전화 드려도 괜찮으신지 여쭤봅니다.\n\n불참: 다음 홈커밍 행사에서는 꼭 뵈었으면 좋겠습니다. 감사합니다.\n\n회식 장소: 현재 물색 중이며 확정되는 대로 안내드립니다.',
+            ),
+            SizedBox(height: 24),
+            Text('답장 매뉴얼', style: TextStyle(fontFamily: 'Jua', fontSize: 25)),
+            SizedBox(height: 12),
+            SelectableText(
+              '장소/시간: 서울대학교 기숙사체육관에서 진행되며 이후 뒷풀이 예정입니다.\n\n참석: 감사합니다 선배님. 주차권이 필요한지 여쭤보고 일주일 전 확인 연락 동의를 받습니다.\n\n불참: 다음 홈커밍 데이에는 꼭 뵈었으면 좋겠습니다.\n\n회식: 아직 정해지지 않았고 밴드 공지 후 안내드립니다.',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1122,9 +1448,22 @@ class _VideoThumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget fallback() => Image.asset(
-      'assets/images/basketball_thumbnail.png',
-      fit: BoxFit.cover,
+    Widget fallback() => DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [EncbaColors.navy, EncbaColors.snuBlue],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Center(
+        child: Image.asset(
+          'assets/images/encba_logo.png',
+          width: 86,
+          height: 86,
+          fit: BoxFit.contain,
+        ),
+      ),
     );
     if (video.id.startsWith('highlight') || video.youtubeId.isEmpty) {
       return fallback();
@@ -1171,6 +1510,8 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
   late final YoutubePlayerController _player;
   final _comment = TextEditingController();
   String _capturedTimestamp = '00:00';
+  Timer? _watchTimer;
+  int _lastPositionSeconds = 0;
 
   VideoItem get video => widget.video;
 
@@ -1189,13 +1530,46 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
             .loadVideoComments(video.id),
       );
     }
+    final user = ref.read(authControllerProvider).user;
+    if (user?.isAdmin == true ||
+        video.uploader == user?.visibleName ||
+        video.uploader == user?.name) {
+      Future.microtask(
+        () => ref
+            .read(lockerControllerProvider.notifier)
+            .loadVideoWatchSummary(video.id),
+      );
+    }
+    _watchTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _recordWatch(),
+    );
   }
 
   @override
   void dispose() {
+    _watchTimer?.cancel();
+    unawaited(_recordWatch());
     _comment.dispose();
     _player.close();
     super.dispose();
+  }
+
+  Future<void> _recordWatch() async {
+    final values = await Future.wait([_player.currentTime, _player.duration]);
+    final current = values[0].round();
+    final duration = values[1].round();
+    final delta = (current - _lastPositionSeconds).abs();
+    _lastPositionSeconds = current;
+    if (delta <= 0 || delta > 15) return;
+    await ref
+        .read(lockerControllerProvider.notifier)
+        .recordVideoWatch(
+          videoId: video.id,
+          watchedSeconds: delta,
+          lastPositionSeconds: current,
+          completed: duration > 0 && current >= duration - 5,
+        );
   }
 
   Future<void> _captureTimestamp() async {
@@ -1225,6 +1599,13 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
         .where((item) => item.id == video.id)
         .firstOrNull;
     final comments = locker.videoComments[video.id] ?? const [];
+    final user = ref.watch(authControllerProvider).user;
+    final canSeeWatch =
+        user?.isAdmin == true ||
+        video.uploader == user?.visibleName ||
+        video.uploader == user?.name;
+    final watchSummary =
+        locker.videoWatchSummaries[video.id] ?? const <VideoWatchSummary>[];
     return Scaffold(
       appBar: AppBar(title: Text(video.category)),
       body: ListView(
@@ -1290,6 +1671,26 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
                 ),
               ),
             ),
+          ],
+          if (canSeeWatch) ...[
+            const SizedBox(height: 20),
+            Text('시청 현황', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            if (watchSummary.isEmpty)
+              const Text(
+                '아직 시청 기록이 없습니다.',
+                style: TextStyle(color: EncbaColors.muted),
+              )
+            else
+              ...watchSummary.map(
+                (item) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(item.name),
+                  trailing: Text(
+                    '${item.watchedSeconds ~/ 60}분 ${item.watchedSeconds % 60}초',
+                  ),
+                ),
+              ),
           ],
           const SizedBox(height: 16),
           FilledButton.icon(
@@ -1371,12 +1772,19 @@ String _auditActionLabel(String action) => switch (action) {
   _ => action,
 };
 
-String _homecomingStatus(String status) => switch (status) {
-  'contacted' => '연락 완료',
-  'confirmed' => '참석 확정',
-  'declined' => '참석 어려움',
-  _ => '아직 연락하지 않음',
-};
+bool _isAcademicBreak(DateTime date) {
+  final monthDay = date.month * 100 + date.day;
+  return (monthDay >= 616 && monthDay <= 831) ||
+      monthDay >= 1215 ||
+      monthDay <= 228;
+}
+
+String _academicLabel(DateTime date) {
+  final monthDay = date.month * 100 + date.day;
+  if (monthDay >= 301 && monthDay <= 615) return '${date.year} · 1학기';
+  if (monthDay >= 901 && monthDay <= 1214) return '${date.year} · 2학기';
+  return '${date.year} · 방학';
+}
 
 class _WeekStrip extends StatelessWidget {
   const _WeekStrip();
@@ -1580,7 +1988,7 @@ class _MemberTile extends StatelessWidget {
         ],
       ),
       subtitle: Text(
-        '${member.position} · ${member.teams.join(' / ')} · ${member.note}',
+        '#${member.jerseyNumber} ${member.position} · ${member.teams.join(' / ')} · ${member.note}',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
@@ -1998,6 +2406,77 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
       ),
     ),
   );
+}
+
+Future<void> _showAnnouncementEditor(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  var title = '';
+  var body = '';
+  var pinned = false;
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: const Text('새 공지'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                maxLength: 120,
+                onChanged: (value) => title = value,
+                decoration: const InputDecoration(labelText: '제목 *'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                minLines: 4,
+                maxLines: 8,
+                maxLength: 10000,
+                onChanged: (value) => body = value,
+                decoration: const InputDecoration(labelText: '내용 *'),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: pinned,
+                title: const Text('홈 상단에 고정'),
+                onChanged: (value) => setState(() => pinned = value ?? false),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (title.trim().isNotEmpty && body.trim().isNotEmpty) {
+                Navigator.pop(dialogContext, true);
+              }
+            },
+            child: const Text('등록'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (result == true) {
+    final saved = await ref
+        .read(lockerControllerProvider.notifier)
+        .addAnnouncement(
+          title: title.trim(),
+          body: body.trim(),
+          pinned: pinned,
+        );
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(saved ? '공지를 등록했습니다.' : '공지를 저장하지 못했습니다.')),
+      );
+    }
+  }
 }
 
 String? _youtubeIdFrom(String input) {

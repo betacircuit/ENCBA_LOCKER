@@ -58,6 +58,44 @@ class EventTicket extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final accent = _kindColor(event.kind);
+    if (event.isLocked) {
+      return Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.lock_outline_rounded,
+                  color: EncbaColors.muted,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        event.title,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${event.start.month}.${event.start.day} · 출전 명단 확정 후 공개',
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -182,11 +220,54 @@ class EventDetailScreen extends ConsumerWidget {
     final event =
         events.where((item) => item.id == eventId).firstOrNull ?? initialEvent;
     final isAdmin = ref.watch(authControllerProvider).user?.isAdmin ?? false;
+    final canManage =
+        ref.watch(authControllerProvider).user?.isScheduleManager ?? false;
+    if (event.isLocked) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('외부 경기')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_outline_rounded, size: 40),
+                const SizedBox(height: 14),
+                Text(
+                  event.title,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                const Text('출전 인원이 확정되면 선택된 부원에게만 상세 정보가 열립니다.'),
+                const SizedBox(height: 20),
+                FilledButton(
+                  onPressed: () async {
+                    final ok = await ref
+                        .read(lockerControllerProvider.notifier)
+                        .applyExternalEvent(event.id);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            ok ? '참여 신청을 보냈습니다.' : '신청을 저장하지 못했습니다.',
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  child: const Text('참여 신청'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('일정 상세'),
         actions: [
-          if (isAdmin)
+          if (isAdmin || canManage)
             IconButton(
               tooltip: '일정 수정',
               onPressed: () => Navigator.of(context).push(
@@ -229,6 +310,18 @@ class EventDetailScreen extends ConsumerWidget {
               ),
             ],
           ),
+          if ((isAdmin || canManage) && event.kind == EventKind.external) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => EventRosterScreen(event: event),
+                ),
+              ),
+              icon: const Icon(Icons.how_to_reg_outlined),
+              label: const Text('출전 명단 확정'),
+            ),
+          ],
           const SizedBox(height: 24),
           Container(
             padding: const EdgeInsets.all(16),
@@ -261,6 +354,86 @@ class EventDetailScreen extends ConsumerWidget {
   }
 }
 
+class EventRosterScreen extends ConsumerStatefulWidget {
+  const EventRosterScreen({super.key, required this.event});
+
+  final LockerEvent event;
+
+  @override
+  ConsumerState<EventRosterScreen> createState() => _EventRosterScreenState();
+}
+
+class _EventRosterScreenState extends ConsumerState<EventRosterScreen> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(
+      () => ref
+          .read(lockerControllerProvider.notifier)
+          .loadEventRoster(widget.event.id),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final roster =
+        ref.watch(lockerControllerProvider).eventRosters[widget.event.id] ??
+        const <EventRosterMember>[];
+    return Scaffold(
+      appBar: AppBar(title: const Text('출전 명단 확정')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Text(
+            widget.event.title,
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 6),
+          const Text('참여 신청자를 확정하면 해당 부원에게만 경기 상세가 열립니다.'),
+          const SizedBox(height: 18),
+          if (roster.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Text('아직 참여 신청자가 없습니다.'),
+              ),
+            )
+          else
+            ...roster.map(
+              (member) => Card(
+                child: ListTile(
+                  title: Text(member.name),
+                  subtitle: Text(switch (member.status) {
+                    'confirmed' => '출전 확정',
+                    'declined' => '미선발',
+                    _ => '참여 신청',
+                  }),
+                  trailing: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'confirmed', label: Text('확정')),
+                      ButtonSegment(value: 'declined', label: Text('제외')),
+                    ],
+                    selected: {
+                      member.status == 'applied' ? 'declined' : member.status,
+                    },
+                    showSelectedIcon: false,
+                    onSelectionChanged: (selection) => ref
+                        .read(lockerControllerProvider.notifier)
+                        .setEventRosterStatus(
+                          eventId: widget.event.id,
+                          member: member,
+                          status: selection.first,
+                        ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ExpandedTicket extends StatelessWidget {
   const _ExpandedTicket({required this.event});
   final LockerEvent event;
@@ -284,9 +457,9 @@ class _ExpandedTicket extends StatelessWidget {
             children: [
               EventKindLabel(kind: event.kind, inverted: event.isBattle),
               const Spacer(),
-              if (event.uniformColor != null)
+              if (event.uniformColors.isNotEmpty)
                 Text(
-                  '${event.uniformColor} 유니폼',
+                  '${event.uniformColors.join(' · ')} 유니폼',
                   style: TextStyle(
                     color: event.isBattle ? Colors.white70 : EncbaColors.muted,
                     fontSize: 12,
@@ -355,98 +528,139 @@ class AttendanceSelector extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selected =
-        ref.watch(lockerControllerProvider).attendance[event.id] ??
-        AttendanceStatus.undecided;
+        ref.watch(lockerControllerProvider).attendance[event.id] ?? '미정';
     final isAdmin = ref.watch(authControllerProvider).user?.isAdmin ?? false;
     final isClosed = DateTime.now().isAfter(event.responseDeadline) && !isAdmin;
-    const choices = [
-      (
-        AttendanceStatus.attending,
-        '참석',
-        Icons.check_rounded,
-        EncbaColors.attending,
-      ),
-      (AttendanceStatus.late, '지각', Icons.schedule_rounded, EncbaColors.late),
-      (AttendanceStatus.absent, '불참', Icons.close_rounded, EncbaColors.absent),
-      (
-        AttendanceStatus.undecided,
-        '미정',
-        Icons.more_horiz_rounded,
-        EncbaColors.undecided,
-      ),
-    ];
-    return Row(
-      children: choices.map((choice) {
-        final active = selected == choice.$1;
-        return Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(
-              right: choice.$1 == AttendanceStatus.undecided ? 0 : 7,
-            ),
-            child: Semantics(
-              selected: active,
-              button: true,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(13),
-                onTap: isClosed
-                    ? null
-                    : () async {
-                        final saved = await ref
-                            .read(lockerControllerProvider.notifier)
-                            .vote(event.id, choice.$1);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                saved
-                                    ? '${choice.$2}으로 저장했습니다.'
-                                    : '응답을 저장하지 못했습니다.',
+    final choices = event.pollOptions
+        .map((label) => (label, _choiceIcon(label), _choiceColor(label)))
+        .toList();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = choices.length <= 4 ? choices.length : 2;
+        final width = (constraints.maxWidth - (columns - 1) * 7) / columns;
+        return Wrap(
+          spacing: 7,
+          runSpacing: 7,
+          children: choices.map((choice) {
+            final active = selected == choice.$1;
+            return SizedBox(
+              width: width,
+              child: Semantics(
+                selected: active,
+                button: true,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(13),
+                  onTap: isClosed
+                      ? null
+                      : () async {
+                          String? reason;
+                          if (choice.$1 == '불참') {
+                            reason = await _askAbsenceReason(context);
+                            if (reason == null) return;
+                          }
+                          final saved = await ref
+                              .read(lockerControllerProvider.notifier)
+                              .vote(event.id, choice.$1, absenceReason: reason);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  saved
+                                      ? '${choice.$1}으로 저장했습니다.'
+                                      : '응답을 저장하지 못했습니다.',
+                                ),
                               ),
-                            ),
-                          );
-                        }
-                      },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  height: compact ? 42 : 68,
-                  decoration: BoxDecoration(
-                    color: active
-                        ? choice.$4
-                        : choice.$4.withValues(alpha: .09),
-                    borderRadius: BorderRadius.circular(13),
-                    border: Border.all(
-                      color: choice.$4.withValues(alpha: active ? 1 : .25),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (!compact) ...[
-                        Icon(
-                          choice.$3,
-                          size: 20,
-                          color: active ? Colors.white : choice.$4,
-                        ),
-                        const SizedBox(width: 4),
-                      ],
-                      Text(
-                        choice.$2,
-                        style: TextStyle(
-                          color: active ? Colors.white : choice.$4,
-                          fontSize: compact ? 12 : 13,
-                          fontWeight: FontWeight.w700,
-                        ),
+                            );
+                          }
+                        },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    height: compact ? 42 : 68,
+                    decoration: BoxDecoration(
+                      color: active
+                          ? choice.$3
+                          : choice.$3.withValues(alpha: .09),
+                      borderRadius: BorderRadius.circular(13),
+                      border: Border.all(
+                        color: choice.$3.withValues(alpha: active ? 1 : .25),
                       ),
-                    ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (!compact) ...[
+                          Icon(
+                            choice.$2,
+                            size: 20,
+                            color: active ? Colors.white : choice.$3,
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          choice.$1,
+                          style: TextStyle(
+                            color: active ? Colors.white : choice.$3,
+                            fontSize: compact ? 12 : 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
+            );
+          }).toList(),
         );
-      }).toList(),
+      },
     );
+  }
+
+  IconData _choiceIcon(String value) => switch (value) {
+    '참석' => Icons.check_rounded,
+    '불참' => Icons.close_rounded,
+    '지각' => Icons.schedule_rounded,
+    _ => Icons.more_horiz_rounded,
+  };
+
+  Color _choiceColor(String value) => switch (value) {
+    '참석' => EncbaColors.attending,
+    '불참' => EncbaColors.absent,
+    '지각' => EncbaColors.late,
+    _ => EncbaColors.undecided,
+  };
+
+  Future<String?> _askAbsenceReason(BuildContext context) async {
+    var typedReason = '';
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('불참 사유'),
+        content: TextField(
+          autofocus: true,
+          minLines: 2,
+          maxLines: 4,
+          maxLength: 500,
+          onChanged: (value) => typedReason = value,
+          decoration: const InputDecoration(hintText: '불참 사유를 직접 적어 주세요.'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = typedReason.trim();
+              if (value.isNotEmpty) Navigator.pop(context, value);
+            },
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+    return reason;
   }
 }
 
@@ -467,7 +681,10 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   late String _place;
   late String _court;
   late String _team;
-  late String _uniform;
+  late Set<String> _uniforms;
+  late List<String> _pollOptions;
+  final _pollOption = TextEditingController();
+  late String _visibility;
   late DateTime _start;
   late DateTime _end;
   late bool _recurring;
@@ -491,7 +708,11 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
         : _places.first;
     _court = existing?.court ?? 'A코트';
     _team = existing?.targetTeam ?? '전체';
-    _uniform = existing?.uniformColor ?? '없음';
+    _uniforms = existing?.uniformColors.toSet() ?? <String>{};
+    _pollOptions = [
+      ...existing?.pollOptions ?? const ['참석', '불참', '미정'],
+    ];
+    _visibility = existing?.visibility ?? 'team';
     _start =
         existing?.start ??
         DateTime.now().add(const Duration(days: 1, hours: 1));
@@ -505,16 +726,19 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     _title.dispose();
     _memo.dispose();
     _capacity.dispose();
+    _pollOption.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isAdmin = ref.watch(authControllerProvider).user?.isAdmin ?? false;
-    if (!isAdmin) {
+    final user = ref.watch(authControllerProvider).user;
+    final canManage =
+        (user?.isAdmin ?? false) || (user?.isScheduleManager ?? false);
+    if (!canManage) {
       return Scaffold(
         appBar: AppBar(title: const Text('일정')),
-        body: const Center(child: Text('관리자만 수정할 수 있습니다.')),
+        body: const Center(child: Text('일정 관리자만 수정할 수 있습니다.')),
       );
     }
     final editing = widget.existing != null;
@@ -548,7 +772,12 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                         DropdownMenuItem(value: kind, child: Text(kind.label)),
                   )
                   .toList(),
-              onChanged: (value) => setState(() => _kind = value!),
+              onChanged: (value) => setState(() {
+                _kind = value!;
+                if (_kind == EventKind.training) {
+                  _pollOptions = ['참석', '불참', '미정'];
+                }
+              }),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -624,36 +853,93 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
               validator: _required,
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _capacity,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: '인원 제한',
-                      hintText: '선택',
+            TextFormField(
+              controller: _capacity,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: '인원 제한',
+                hintText: '선택',
+              ),
+            ),
+            if (_kind != EventKind.training && _kind != EventKind.morning) ...[
+              const SizedBox(height: 14),
+              const Text('유니폼 색 *'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: ['검정', '흰색']
+                    .map(
+                      (color) => FilterChip(
+                        label: Text(color),
+                        selected: _uniforms.contains(color),
+                        onSelected: (selected) => setState(() {
+                          selected
+                              ? _uniforms.add(color)
+                              : _uniforms.remove(color);
+                        }),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+            const SizedBox(height: 18),
+            const Text('투표 항목 *'),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 7,
+              runSpacing: 7,
+              children: _pollOptions
+                  .map(
+                    (option) => InputChip(
+                      label: Text(option),
+                      onDeleted:
+                          _kind == EventKind.training ||
+                              _pollOptions.length <= 2
+                          ? null
+                          : () => setState(() => _pollOptions.remove(option)),
+                    ),
+                  )
+                  .toList(),
+            ),
+            if (_kind != EventKind.training) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _pollOption,
+                      decoration: const InputDecoration(
+                        hintText: '예: 토요일 15시 참석',
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _uniform,
-                    decoration: const InputDecoration(labelText: '유니폼'),
-                    items: const ['없음', '검정', '흰색']
-                        .map(
-                          (value) => DropdownMenuItem(
-                            value: value,
-                            child: Text(value),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) => _uniform = value!,
+                  IconButton(
+                    onPressed: () {
+                      final value = _pollOption.text.trim();
+                      if (value.isNotEmpty &&
+                          !_pollOptions.contains(value) &&
+                          _pollOptions.length < 8) {
+                        setState(() => _pollOptions.add(value));
+                        _pollOption.clear();
+                      }
+                    },
+                    icon: const Icon(Icons.add_circle_outline_rounded),
                   ),
+                ],
+              ),
+            ],
+            if (_kind == EventKind.external) ...[
+              const SizedBox(height: 12),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _visibility == 'confirmed_roster',
+                onChanged: (value) => setState(
+                  () => _visibility = value ? 'confirmed_roster' : 'team',
                 ),
-              ],
-            ),
+                title: const Text('확정 출전 인원만 상세 공개'),
+                subtitle: const Text('다른 부원에게는 잠긴 경기로 표시합니다.'),
+              ),
+            ],
             const SizedBox(height: 8),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
@@ -746,6 +1032,14 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       ).showSnackBar(const SnackBar(content: Text('종료 시간은 시작 시간보다 늦어야 합니다.')));
       return;
     }
+    if (_kind != EventKind.training &&
+        _kind != EventKind.morning &&
+        _uniforms.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('경기 유니폼 색을 하나 이상 선택해 주세요.')));
+      return;
+    }
     setState(() => _saving = true);
     final user = ref.read(authControllerProvider).user;
     final event = LockerEvent(
@@ -759,7 +1053,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       court: _place == _places.first ? _court : null,
       kind: _kind,
       memo: _memo.text.trim(),
-      uniformColor: _uniform == '없음' ? null : _uniform,
+      uniformColors: _uniforms.toList(),
       capacity: int.tryParse(_capacity.text.trim()),
       attending: widget.existing?.attending ?? 0,
       targetTeam: _team,
@@ -767,6 +1061,8 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       updatedAt: '방금 전',
       isRecurring: _kind == EventKind.training && _recurring,
       responseEnabled: _responseEnabled,
+      pollOptions: _pollOptions,
+      visibility: _visibility,
     );
     final saved = await ref
         .read(lockerControllerProvider.notifier)
@@ -957,6 +1253,7 @@ Color _kindColor(EventKind kind) => switch (kind) {
   EventKind.training => EncbaColors.snuBlue,
   EventKind.morning => EncbaColors.attending,
   EventKind.internal => EncbaColors.deepBlue,
+  EventKind.pickup => EncbaColors.deepBlue,
   EventKind.ibDivision1 || EventKind.ibDivision2 => const Color(0xFF6D43A6),
   EventKind.scrimmage ||
   EventKind.threeWay ||

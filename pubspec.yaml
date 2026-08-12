@@ -43,6 +43,8 @@ dependencies:
   add_2_calendar: ^3.1.1
   image_picker: ^1.2.3
   youtube_player_iframe: ^6.0.2
+  file_picker: ^11.0.2
+  excel: ^4.0.6
 
 dev_dependencies:
   flutter_test:
@@ -68,15 +70,11 @@ flutter:
 
   assets:
     - assets/images/encba_logo.png
-    - assets/images/basketball_thumbnail.png
 
   fonts:
     - family: Jua
       fonts:
         - asset: assets/fonts/Jua-Regular.ttf
-    - family: GowunDodum
-      fonts:
-        - asset: assets/fonts/GowunDodum-Regular.ttf
     - family: BlackHanSans
       fonts:
         - asset: assets/fonts/BlackHanSans-Regular.ttf

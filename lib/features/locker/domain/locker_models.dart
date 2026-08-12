@@ -1,9 +1,8 @@
-enum AttendanceStatus { attending, late, absent, undecided }
-
 enum EventKind {
   training,
   morning,
   internal,
+  pickup,
   ibDivision1,
   ibDivision2,
   scrimmage,
@@ -18,6 +17,7 @@ extension EventKindUi on EventKind {
     EventKind.training => '정기 훈련',
     EventKind.morning => '아농',
     EventKind.internal => '내부 경기',
+    EventKind.pickup => '픽업게임',
     EventKind.ibDivision1 => 'IB 1부',
     EventKind.ibDivision2 => 'IB 2부',
     EventKind.scrimmage => '연습 경기',
@@ -29,6 +29,7 @@ extension EventKindUi on EventKind {
 
   bool get isMatch => const {
     EventKind.internal,
+    EventKind.pickup,
     EventKind.ibDivision1,
     EventKind.ibDivision2,
     EventKind.scrimmage,
@@ -55,7 +56,7 @@ class LockerEvent {
     required this.kind,
     required this.memo,
     this.court,
-    this.uniformColor,
+    this.uniformColors = const [],
     this.capacity,
     this.attending = 0,
     this.targetTeam = '전체',
@@ -64,6 +65,9 @@ class LockerEvent {
     this.isRecurring = false,
     this.responseEnabled = true,
     this.responseDeadlineOverride,
+    this.pollOptions = const ['참석', '불참', '미정'],
+    this.visibility = 'team',
+    this.isLocked = false,
   });
 
   final String id;
@@ -74,7 +78,7 @@ class LockerEvent {
   final String? court;
   final EventKind kind;
   final String memo;
-  final String? uniformColor;
+  final List<String> uniformColors;
   final int? capacity;
   final int attending;
   final String targetTeam;
@@ -83,6 +87,9 @@ class LockerEvent {
   final bool isRecurring;
   final bool responseEnabled;
   final DateTime? responseDeadlineOverride;
+  final List<String> pollOptions;
+  final String visibility;
+  final bool isLocked;
 
   bool get isBattle => kind.isBattle;
 
@@ -95,7 +102,7 @@ class LockerEvent {
   DateTime get responseDeadline =>
       responseDeadlineOverride ?? start.subtract(responseBuffer);
 
-  LockerEvent copyWith({int? attending}) => LockerEvent(
+  LockerEvent copyWith({int? attending, bool? isLocked}) => LockerEvent(
     id: id,
     title: title,
     start: start,
@@ -104,7 +111,7 @@ class LockerEvent {
     kind: kind,
     memo: memo,
     court: court,
-    uniformColor: uniformColor,
+    uniformColors: uniformColors,
     capacity: capacity,
     attending: attending ?? this.attending,
     targetTeam: targetTeam,
@@ -113,6 +120,9 @@ class LockerEvent {
     isRecurring: isRecurring,
     responseEnabled: responseEnabled,
     responseDeadlineOverride: responseDeadlineOverride,
+    pollOptions: pollOptions,
+    visibility: visibility,
+    isLocked: isLocked ?? this.isLocked,
   );
 
   Map<String, dynamic> toJson() => {
@@ -124,7 +134,7 @@ class LockerEvent {
     'court': court,
     'kind': kind.name,
     'memo': memo,
-    'uniformColor': uniformColor,
+    'uniformColors': uniformColors,
     'capacity': capacity,
     'attending': attending,
     'targetTeam': targetTeam,
@@ -133,6 +143,9 @@ class LockerEvent {
     'isRecurring': isRecurring,
     'responseEnabled': responseEnabled,
     'responseDeadline': responseDeadline.toIso8601String(),
+    'pollOptions': pollOptions,
+    'visibility': visibility,
+    'isLocked': isLocked,
   };
 
   factory LockerEvent.fromJson(Map<String, dynamic> json) => LockerEvent(
@@ -144,7 +157,10 @@ class LockerEvent {
     court: json['court'] as String?,
     kind: EventKind.values.byName(json['kind'] as String),
     memo: json['memo'] as String,
-    uniformColor: json['uniformColor'] as String?,
+    uniformColors: List<String>.from(
+      json['uniformColors'] as List? ??
+          (json['uniformColor'] == null ? const [] : [json['uniformColor']]),
+    ),
     capacity: json['capacity'] as int?,
     attending: json['attending'] as int? ?? 0,
     targetTeam: json['targetTeam'] as String? ?? '전체',
@@ -155,6 +171,11 @@ class LockerEvent {
     responseDeadlineOverride: json['responseDeadline'] == null
         ? null
         : DateTime.parse(json['responseDeadline'] as String),
+    pollOptions: List<String>.from(
+      json['pollOptions'] as List? ?? const ['참석', '불참', '미정'],
+    ),
+    visibility: json['visibility'] as String? ?? 'team',
+    isLocked: json['isLocked'] as bool? ?? false,
   );
 }
 
@@ -169,6 +190,7 @@ class MemberProfile {
     required this.note,
     this.badge,
     this.phone = '010-0000-0000',
+    this.jerseyNumber = 0,
   });
 
   final String name;
@@ -180,6 +202,7 @@ class MemberProfile {
   final String note;
   final String? badge;
   final String phone;
+  final int jerseyNumber;
 }
 
 class AnnouncementItem {
@@ -223,6 +246,11 @@ class HomecomingContact {
     this.generation,
     this.parkingRequired,
     this.parkingRegistered = false,
+    this.homeOrOfficePhone,
+    this.followUpAllowed,
+    this.followUpOn,
+    this.notes,
+    this.sourceRow,
   });
   final String id;
   final String name;
@@ -231,17 +259,94 @@ class HomecomingContact {
   final int? generation;
   final bool? parkingRequired;
   final bool parkingRegistered;
+  final String? homeOrOfficePhone;
+  final bool? followUpAllowed;
+  final DateTime? followUpOn;
+  final String? notes;
+  final int? sourceRow;
 
   bool get contacted => status == 'contacted' || status == 'confirmed';
   bool get handled => status != 'pending';
-  HomecomingContact copyWith({String? status}) => HomecomingContact(
+  HomecomingContact copyWith({
+    String? status,
+    bool? parkingRequired,
+    bool? parkingRegistered,
+    bool? followUpAllowed,
+    DateTime? followUpOn,
+    String? notes,
+  }) => HomecomingContact(
     id: id,
     name: name,
     phone: phone,
     status: status ?? this.status,
     generation: generation,
-    parkingRequired: parkingRequired,
-    parkingRegistered: parkingRegistered,
+    parkingRequired: parkingRequired ?? this.parkingRequired,
+    parkingRegistered: parkingRegistered ?? this.parkingRegistered,
+    homeOrOfficePhone: homeOrOfficePhone,
+    followUpAllowed: followUpAllowed ?? this.followUpAllowed,
+    followUpOn: followUpOn ?? this.followUpOn,
+    notes: notes ?? this.notes,
+    sourceRow: sourceRow,
+  );
+}
+
+class HomecomingCampaign {
+  const HomecomingCampaign({
+    required this.id,
+    required this.title,
+    required this.academicYear,
+    required this.term,
+    required this.eventDate,
+    required this.startsAt,
+    required this.endsAt,
+    required this.venue,
+    required this.isActive,
+    this.afterpartyNote = '회식 장소는 아직 정해지지 않았습니다.',
+    this.sourceFileName,
+  });
+
+  final String id;
+  final String title;
+  final int academicYear;
+  final int term;
+  final DateTime eventDate;
+  final String startsAt;
+  final String endsAt;
+  final String venue;
+  final bool isActive;
+  final String afterpartyNote;
+  final String? sourceFileName;
+}
+
+class VideoWatchSummary {
+  const VideoWatchSummary({
+    required this.name,
+    required this.watchedSeconds,
+    required this.lastPositionSeconds,
+    required this.completed,
+  });
+
+  final String name;
+  final int watchedSeconds;
+  final int lastPositionSeconds;
+  final bool completed;
+}
+
+class EventRosterMember {
+  const EventRosterMember({
+    required this.profileId,
+    required this.name,
+    required this.status,
+  });
+
+  final String profileId;
+  final String name;
+  final String status;
+
+  EventRosterMember copyWith({String? status}) => EventRosterMember(
+    profileId: profileId,
+    name: name,
+    status: status ?? this.status,
   );
 }
 

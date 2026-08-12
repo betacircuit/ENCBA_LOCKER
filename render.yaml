@@ -7,7 +7,7 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /healthz
-    autoDeployTrigger: commit
+    autoDeployTrigger: off
     envVars:
       - key: SUPABASE_URL
         sync: false

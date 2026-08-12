@@ -13,7 +13,6 @@ class AuthScreen extends ConsumerStatefulWidget {
 
 class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _email = TextEditingController();
   final _password = TextEditingController();
   final _passwordConfirm = TextEditingController();
   final _name = TextEditingController();
@@ -28,7 +27,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   @override
   void dispose() {
     for (final controller in [
-      _email,
       _password,
       _passwordConfirm,
       _name,
@@ -69,28 +67,12 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     child: Column(
                       children: [
                         if (_signUp) ...[
-                          Row(
-                            children: [
-                              Expanded(
-                                flex: 3,
-                                child: _Field(
-                                  controller: _name,
-                                  label: '이름',
-                                  validator: _required,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                flex: 2,
-                                child: _Field(
-                                  controller: _studentId,
-                                  label: '학번',
-                                  hint: '22',
-                                  keyboardType: TextInputType.number,
-                                  validator: _required,
-                                ),
-                              ),
-                            ],
+                          _Field(
+                            controller: _studentId,
+                            label: '학번',
+                            hint: '22',
+                            keyboardType: TextInputType.number,
+                            validator: _required,
                           ),
                           const SizedBox(height: 12),
                           Row(
@@ -151,14 +133,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           const SizedBox(height: 12),
                         ],
                         _Field(
-                          controller: _email,
-                          label: '이메일',
-                          keyboardType: TextInputType.emailAddress,
-                          autofillHints: const [AutofillHints.email],
-                          validator: (value) =>
-                              value != null && value.contains('@')
-                              ? null
-                              : '이메일 형식을 확인해 주세요.',
+                          controller: _name,
+                          label: '실명',
+                          hint: '가입 명단과 동일하게 입력',
+                          autofillHints: const [AutofillHints.name],
+                          validator: _required,
                         ),
                         const SizedBox(height: 12),
                         _Field(
@@ -252,7 +231,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     if (_signUp) {
       await controller.signUp(
         UserProfile(
-          email: _email.text.trim().toLowerCase(),
+          email: '',
           name: _name.text.trim(),
           studentId: '${_studentId.text.trim()}학번',
           generation: int.parse(_generation.text.trim()),
@@ -265,7 +244,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         _password.text,
       );
     } else {
-      await controller.signIn(_email.text, _password.text);
+      await controller.signIn(_name.text.trim(), _password.text);
     }
   }
 }
@@ -299,7 +278,7 @@ class _ClubMark extends StatelessWidget {
           Text(
             'ENGINEERING BASKETBALL · SINCE 1977',
             style: TextStyle(
-              fontFamily: 'GowunDodum',
+              fontFamily: 'Arial',
               fontSize: 8.5,
               letterSpacing: .8,
               color: EncbaColors.muted,

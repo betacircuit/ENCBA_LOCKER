@@ -3,6 +3,7 @@ class UserProfile {
     this.id,
     required this.email,
     required this.name,
+    this.displayName,
     required this.studentId,
     required this.generation,
     required this.phone,
@@ -13,11 +14,13 @@ class UserProfile {
     this.badge,
     this.photoBase64,
     this.isAdmin = false,
+    this.isScheduleManager = false,
   });
 
   final String? id;
   final String email;
   final String name;
+  final String? displayName;
   final String studentId;
   final int generation;
   final String phone;
@@ -28,10 +31,12 @@ class UserProfile {
   final String? badge;
   final String? photoBase64;
   final bool isAdmin;
+  final bool isScheduleManager;
 
   UserProfile copyWith({
     String? id,
     String? name,
+    String? displayName,
     String? studentId,
     int? generation,
     String? phone,
@@ -43,11 +48,13 @@ class UserProfile {
     String? photoBase64,
     bool clearPhoto = false,
     bool? isAdmin,
+    bool? isScheduleManager,
   }) {
     return UserProfile(
       id: id ?? this.id,
       email: email,
       name: name ?? this.name,
+      displayName: displayName ?? this.displayName,
       studentId: studentId ?? this.studentId,
       generation: generation ?? this.generation,
       phone: phone ?? this.phone,
@@ -58,6 +65,7 @@ class UserProfile {
       badge: badge ?? this.badge,
       photoBase64: clearPhoto ? null : photoBase64 ?? this.photoBase64,
       isAdmin: isAdmin ?? this.isAdmin,
+      isScheduleManager: isScheduleManager ?? this.isScheduleManager,
     );
   }
 
@@ -65,6 +73,7 @@ class UserProfile {
     'id': id,
     'email': email,
     'name': name,
+    'displayName': displayName,
     'studentId': studentId,
     'generation': generation,
     'phone': phone,
@@ -75,12 +84,14 @@ class UserProfile {
     'badge': badge,
     'photoBase64': photoBase64,
     'isAdmin': isAdmin,
+    'isScheduleManager': isScheduleManager,
   };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
     id: json['id'] as String?,
     email: json['email'] as String,
     name: json['name'] as String,
+    displayName: json['displayName'] as String?,
     studentId: json['studentId'] as String,
     generation: json['generation'] as int,
     phone: json['phone'] as String,
@@ -91,12 +102,14 @@ class UserProfile {
     badge: json['badge'] as String?,
     photoBase64: json['photoBase64'] as String?,
     isAdmin: json['isAdmin'] as bool? ?? false,
+    isScheduleManager: json['isScheduleManager'] as bool? ?? false,
   );
 
   factory UserProfile.fromSupabase(Map<String, dynamic> row) => UserProfile(
     id: row['id'] as String,
     email: row['email'] as String,
     name: row['name'] as String,
+    displayName: row['display_name'] as String?,
     studentId: '${row['student_year']}학번',
     generation: row['generation'] as int,
     phone: row['phone'] as String? ?? '',
@@ -107,5 +120,9 @@ class UserProfile {
     badge: row['badge'] as String?,
     photoBase64: row['photo_base64'] as String?,
     isAdmin: row['is_admin'] as bool? ?? false,
+    isScheduleManager: row['is_schedule_manager'] as bool? ?? false,
   );
+
+  String get visibleName =>
+      (displayName?.trim().isNotEmpty ?? false) ? displayName!.trim() : name;
 }

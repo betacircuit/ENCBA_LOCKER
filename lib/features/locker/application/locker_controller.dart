@@ -2,6 +2,7 @@ import 'package:encba_locker/core/storage/local_store.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/locker/data/supabase_locker_repository.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
+import 'package:encba_locker/features/locker/services/web_notification_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -23,6 +24,9 @@ class LockerState {
     this.announcements = const [],
     this.operations = const [],
     this.homecomingContacts = const [],
+    this.homecomingCampaign,
+    this.videoWatchSummaries = const {},
+    this.eventRosters = const {},
     this.auditEntries = const [],
     this.isOfflineCache = false,
     this.error,
@@ -35,7 +39,7 @@ class LockerState {
   final int videoSegment;
   final int memberSegment;
   final int unreadNotifications;
-  final Map<String, AttendanceStatus> attendance;
+  final Map<String, String> attendance;
   final List<LockerEvent> events;
   final List<VideoItem> videos;
   final Set<String> likedVideoIds;
@@ -44,6 +48,9 @@ class LockerState {
   final List<AnnouncementItem> announcements;
   final List<OperationAssignment> operations;
   final List<HomecomingContact> homecomingContacts;
+  final HomecomingCampaign? homecomingCampaign;
+  final Map<String, List<VideoWatchSummary>> videoWatchSummaries;
+  final Map<String, List<EventRosterMember>> eventRosters;
   final List<AuditEntry> auditEntries;
   final bool isOfflineCache;
   final String? error;
@@ -56,7 +63,7 @@ class LockerState {
     int? videoSegment,
     int? memberSegment,
     int? unreadNotifications,
-    Map<String, AttendanceStatus>? attendance,
+    Map<String, String>? attendance,
     List<LockerEvent>? events,
     List<VideoItem>? videos,
     Set<String>? likedVideoIds,
@@ -65,6 +72,10 @@ class LockerState {
     List<AnnouncementItem>? announcements,
     List<OperationAssignment>? operations,
     List<HomecomingContact>? homecomingContacts,
+    HomecomingCampaign? homecomingCampaign,
+    bool clearHomecomingCampaign = false,
+    Map<String, List<VideoWatchSummary>>? videoWatchSummaries,
+    Map<String, List<EventRosterMember>>? eventRosters,
     List<AuditEntry>? auditEntries,
     bool? isOfflineCache,
     String? error,
@@ -86,6 +97,11 @@ class LockerState {
     announcements: announcements ?? this.announcements,
     operations: operations ?? this.operations,
     homecomingContacts: homecomingContacts ?? this.homecomingContacts,
+    homecomingCampaign: clearHomecomingCampaign
+        ? null
+        : homecomingCampaign ?? this.homecomingCampaign,
+    videoWatchSummaries: videoWatchSummaries ?? this.videoWatchSummaries,
+    eventRosters: eventRosters ?? this.eventRosters,
     auditEntries: auditEntries ?? this.auditEntries,
     isOfflineCache: isOfflineCache ?? this.isOfflineCache,
     error: clearError ? null : error ?? this.error,
@@ -109,6 +125,7 @@ class LockerController extends StateNotifier<LockerState> {
       );
 
   final SupabaseLockerRepository? _repository;
+  RealtimeChannel? _announcementChannel;
 
   Future<void> _load() async {
     final repository = _repository!;
@@ -133,6 +150,7 @@ class LockerController extends StateNotifier<LockerState> {
           const <HomecomingContact>[],
         ),
         _orDefault(repository.loadAuditLogs(), const <AuditEntry>[]),
+        _orDefault(repository.loadActiveHomecomingCampaign(), null),
       ]);
       state = state.copyWith(
         members: result[0] as List<MemberProfile>,
@@ -140,7 +158,27 @@ class LockerController extends StateNotifier<LockerState> {
         operations: result[2] as List<OperationAssignment>,
         homecomingContacts: result[3] as List<HomecomingContact>,
         auditEntries: result[4] as List<AuditEntry>,
+        homecomingCampaign: result[5] as HomecomingCampaign?,
       );
+      _announcementChannel ??= repository.subscribeToAnnouncements((record) {
+        final announcement = AnnouncementItem(
+          id: record['id'] as String,
+          title: record['title'] as String,
+          body: record['body'] as String,
+          author: '운영진',
+          publishedAt: DateTime.parse(
+            record['published_at'] as String,
+          ).toLocal(),
+        );
+        if (state.announcements.any((item) => item.id == announcement.id)) {
+          return;
+        }
+        state = state.copyWith(
+          announcements: [announcement, ...state.announcements],
+          unreadNotifications: state.unreadNotifications + 1,
+        );
+        WebNotificationService().show(announcement.title, announcement.body);
+      });
     } on Object {
       state = state.copyWith(
         isReady: true,
@@ -149,6 +187,13 @@ class LockerController extends StateNotifier<LockerState> {
         error: '서버 데이터를 불러오지 못했습니다.',
       );
     }
+  }
+
+  @override
+  void dispose() {
+    final channel = _announcementChannel;
+    if (channel != null) _repository?.unsubscribe(channel);
+    super.dispose();
   }
 
   Future<T> _orDefault<T>(Future<T> future, T fallback) async {
@@ -195,18 +240,14 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
-  Future<bool> setHomecomingContacted(String id, bool contacted) async {
+  Future<bool> updateHomecomingContact(HomecomingContact contact) async {
     final previous = state.homecomingContacts;
     final next = previous
-        .map(
-          (item) => item.id == id
-              ? item.copyWith(status: contacted ? 'contacted' : 'pending')
-              : item,
-        )
+        .map((item) => item.id == contact.id ? contact : item)
         .toList();
     state = state.copyWith(homecomingContacts: next);
     try {
-      await _repository?.updateHomecomingContacted(id, contacted: contacted);
+      await _repository?.updateHomecomingContact(contact);
       return true;
     } on Object {
       state = state.copyWith(
@@ -217,14 +258,62 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
-  Future<bool> vote(String eventId, AttendanceStatus value) async {
+  Future<bool> activateHomecomingCampaign({
+    required int academicYear,
+    required int term,
+    required DateTime eventDate,
+    required String startsAt,
+    required String endsAt,
+    required String venue,
+  }) async {
+    try {
+      final campaign = await _repository?.activateHomecomingCampaign(
+        academicYear: academicYear,
+        term: term,
+        eventDate: eventDate,
+        startsAt: startsAt,
+        endsAt: endsAt,
+        venue: venue,
+      );
+      state = state.copyWith(homecomingCampaign: campaign, clearError: true);
+      return campaign != null;
+    } on Object {
+      state = state.copyWith(error: '홈커밍 캠페인을 열지 못했습니다.');
+      return false;
+    }
+  }
+
+  Future<bool> importHomecomingContacts({
+    required String fileName,
+    required List<Map<String, dynamic>> contacts,
+  }) async {
+    final campaign = state.homecomingCampaign;
+    if (campaign == null || _repository == null) return false;
+    try {
+      await _repository.importHomecomingContacts(
+        campaignId: campaign.id,
+        fileName: fileName,
+        contacts: contacts,
+      );
+      final refreshed = await _repository.loadHomecomingContacts();
+      state = state.copyWith(homecomingContacts: refreshed, clearError: true);
+      return true;
+    } on Object {
+      state = state.copyWith(error: '엑셀 연락망을 가져오지 못했습니다.');
+      return false;
+    }
+  }
+
+  Future<bool> vote(
+    String eventId,
+    String value, {
+    String? absenceReason,
+  }) async {
     final previous = state.attendance;
     final previousEvents = state.events;
-    final previousValue = previous[eventId] ?? AttendanceStatus.undecided;
+    final previousValue = previous[eventId] ?? '미정';
     final next = {...state.attendance, eventId: value};
-    final delta =
-        (value == AttendanceStatus.attending ? 1 : 0) -
-        (previousValue == AttendanceStatus.attending ? 1 : 0);
+    final delta = (value == '참석' ? 1 : 0) - (previousValue == '참석' ? 1 : 0);
     final nextEvents = state.events
         .map(
           (event) => event.id == eventId
@@ -236,13 +325,98 @@ class LockerController extends StateNotifier<LockerState> {
         .toList();
     state = state.copyWith(attendance: next, events: nextEvents);
     try {
-      await _repository?.vote(eventId, value);
+      await _repository?.vote(eventId, value, absenceReason: absenceReason);
       return true;
     } on Object {
       state = state.copyWith(
         attendance: previous,
         events: previousEvents,
         error: '참석 응답을 저장하지 못했습니다.',
+      );
+      return false;
+    }
+  }
+
+  Future<void> recordVideoWatch({
+    required String videoId,
+    required int watchedSeconds,
+    required int lastPositionSeconds,
+    required bool completed,
+  }) async {
+    try {
+      await _repository?.recordVideoWatch(
+        videoId: videoId,
+        watchedSeconds: watchedSeconds,
+        lastPositionSeconds: lastPositionSeconds,
+        completed: completed,
+      );
+    } on Object {
+      // 시청 기록 실패가 재생을 방해하지 않도록 다음 주기에 다시 보낸다.
+    }
+  }
+
+  Future<void> loadVideoWatchSummary(String videoId) async {
+    if (_repository == null) return;
+    try {
+      final summary = await _repository.loadVideoWatchSummary(videoId);
+      state = state.copyWith(
+        videoWatchSummaries: {...state.videoWatchSummaries, videoId: summary},
+      );
+    } on Object {
+      state = state.copyWith(error: '시청 현황을 불러오지 못했습니다.');
+    }
+  }
+
+  Future<bool> applyExternalEvent(String eventId) async {
+    try {
+      await _repository?.applyExternalEvent(eventId);
+      return true;
+    } on Object {
+      state = state.copyWith(error: '외부 경기 참여 신청을 저장하지 못했습니다.');
+      return false;
+    }
+  }
+
+  Future<void> loadEventRoster(String eventId) async {
+    if (_repository == null) return;
+    try {
+      final roster = await _repository.loadEventRoster(eventId);
+      state = state.copyWith(
+        eventRosters: {...state.eventRosters, eventId: roster},
+      );
+    } on Object {
+      state = state.copyWith(error: '출전 신청 명단을 불러오지 못했습니다.');
+    }
+  }
+
+  Future<bool> setEventRosterStatus({
+    required String eventId,
+    required EventRosterMember member,
+    required String status,
+  }) async {
+    final previous = state.eventRosters[eventId] ?? const <EventRosterMember>[];
+    state = state.copyWith(
+      eventRosters: {
+        ...state.eventRosters,
+        eventId: previous
+            .map(
+              (item) => item.profileId == member.profileId
+                  ? item.copyWith(status: status)
+                  : item,
+            )
+            .toList(),
+      },
+    );
+    try {
+      await _repository?.setEventRosterStatus(
+        eventId: eventId,
+        profileId: member.profileId,
+        status: status,
+      );
+      return true;
+    } on Object {
+      state = state.copyWith(
+        eventRosters: {...state.eventRosters, eventId: previous},
       );
       return false;
     }
@@ -278,6 +452,27 @@ class LockerController extends StateNotifier<LockerState> {
       return true;
     } on Object {
       state = state.copyWith(error: '일정을 저장하지 못했습니다.');
+      return false;
+    }
+  }
+
+  Future<bool> addAnnouncement({
+    required String title,
+    required String body,
+    required bool pinned,
+  }) async {
+    try {
+      final saved = await _repository?.addAnnouncement(
+        title: title,
+        body: body,
+        pinned: pinned,
+      );
+      if (saved != null) {
+        state = state.copyWith(announcements: [saved, ...state.announcements]);
+      }
+      return saved != null;
+    } on Object {
+      state = state.copyWith(error: '공지를 저장하지 못했습니다.');
       return false;
     }
   }
@@ -468,7 +663,7 @@ List<LockerEvent> _seedEvents() {
       court: 'B코트',
       kind: EventKind.ibDivision1,
       memo: '경기 시작 40분 전 집합합니다. 학생증과 개인 물병을 지참해 주세요.',
-      uniformColor: '검정',
+      uniformColors: const ['검정'],
       attending: 9,
       targetTeam: 'ENCBA 1부',
       createdBy: 'IB 운영 김민수',
@@ -492,7 +687,7 @@ List<LockerEvent> _seedEvents() {
       place: '900동 기숙사체육관',
       kind: EventKind.external,
       memo: '원정 경기입니다. 단체 이동 출발 시간을 확인해 주세요.',
-      uniformColor: '흰색',
+      uniformColors: const ['흰색'],
       attending: 11,
       createdBy: '경기 운영 박지성',
     ),

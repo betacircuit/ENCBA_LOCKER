@@ -1,12 +1,10 @@
 begin;
 
 create extension if not exists citext with schema extensions;
+create extension if not exists pg_cron with schema pg_catalog;
 
 create type public.membership_status as enum (
   'yb', 'ob', 'military_leave', 'graduated', 'inactive'
-);
-create type public.attendance_status as enum (
-  'attending', 'late', 'absent', 'undecided'
 );
 create type public.video_category as enum ('highlight', 'review', 'shared');
 
@@ -20,10 +18,14 @@ insert into public.app_settings (key, value)
 values ('enforce_member_allowlist', 'true'::jsonb);
 
 create table public.member_allowlist (
-  email extensions.citext primary key,
-  name text,
+  id bigint generated always as identity primary key,
+  login_name text not null unique,
+  name text not null,
   student_year smallint check (student_year between 0 and 99),
   generation smallint check (generation > 0),
+  membership_status public.membership_status not null default 'yb',
+  is_admin boolean not null default false,
+  is_schedule_manager boolean not null default false,
   team_codes text[] not null default array['ENCBA']::text[]
     check (team_codes <@ array['ENCBA', 'BEN']::text[] and cardinality(team_codes) > 0),
   consumed_by uuid references auth.users(id) on delete set null,
@@ -35,6 +37,7 @@ create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email extensions.citext not null unique,
   name text not null check (char_length(name) between 1 and 40),
+  display_name text not null check (char_length(display_name) between 1 and 40),
   student_year smallint not null check (student_year between 0 and 99),
   generation smallint not null check (generation between 1 and 200),
   phone text not null default '' check (char_length(phone) <= 30),
@@ -46,6 +49,7 @@ create table public.profiles (
   badge text check (badge is null or char_length(badge) <= 20),
   avatar_path text,
   is_admin boolean not null default false,
+  is_schedule_manager boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -76,6 +80,26 @@ create table public.seasons (
   created_at timestamptz not null default now(),
   check (ends_on >= starts_on)
 );
+
+create table public.academic_periods (
+  id bigint generated always as identity primary key,
+  academic_year smallint not null,
+  term smallint check (term in (1, 2)),
+  period_kind text not null check (period_kind in ('semester', 'break')),
+  label text not null,
+  starts_on date not null,
+  ends_on date not null,
+  check (ends_on >= starts_on),
+  unique (academic_year, label)
+);
+
+insert into public.academic_periods
+  (academic_year, term, period_kind, label, starts_on, ends_on)
+values
+  (2026, 1, 'semester', '2026년 1학기', '2026-03-01', '2026-06-15'),
+  (2026, null, 'break', '2026년 여름방학', '2026-06-16', '2026-08-31'),
+  (2026, 2, 'semester', '2026년 2학기', '2026-09-01', '2026-12-14'),
+  (2026, null, 'break', '2026-2027 겨울방학', '2026-12-15', '2027-02-28');
 
 create unique index seasons_one_active_idx
 on public.seasons (is_active) where is_active;
@@ -111,7 +135,7 @@ create table public.events (
   league_id bigint references public.leagues(id) on delete set null,
   title text not null check (char_length(title) between 1 and 120),
   kind text not null check (kind in (
-    'training', 'morning', 'internal', 'ib_division_1', 'ib_division_2',
+    'training', 'morning', 'internal', 'pickup', 'ib_division_1', 'ib_division_2',
     'scrimmage', 'three_way', 'external', 'operation', 'homecoming'
   )),
   starts_at timestamptz not null,
@@ -122,13 +146,18 @@ create table public.events (
   target_team text not null default '전체'
     check (target_team in ('전체', 'ENCBA', 'BEN', 'ENCBA 1부', 'ENCBA 2부')),
   opponent text,
-  uniform_color text check (uniform_color is null or uniform_color in ('검', '흰')),
+  uniform_colors text[] not null default '{}'::text[]
+    check (uniform_colors <@ array['검', '흰']::text[]),
   memo text not null check (char_length(memo) between 1 and 5000),
   capacity smallint check (capacity is null or capacity > 0),
   response_enabled boolean not null default true,
   response_deadline timestamptz not null,
   attending_count integer not null default 0 check (attending_count >= 0),
   recurrence_rule jsonb,
+  poll_options jsonb not null default '["참석", "불참", "미정"]'::jsonb
+    check (jsonb_typeof(poll_options) = 'array' and jsonb_array_length(poll_options) between 2 and 8),
+  visibility text not null default 'team'
+    check (visibility in ('team', 'confirmed_roster')),
   parent_event_id uuid references public.events(id) on delete set null,
   created_by uuid not null references public.profiles(id) on delete restrict,
   updated_by uuid not null references public.profiles(id) on delete restrict,
@@ -137,15 +166,30 @@ create table public.events (
   cancelled_at timestamptz,
   check (ends_at > starts_at),
   check (response_deadline <= starts_at),
+  check (kind in ('training', 'morning') or cardinality(uniform_colors) > 0),
+  check (kind <> 'training' or poll_options = '["참석", "불참", "미정"]'::jsonb),
+  check (visibility = 'team' or kind = 'external'),
   check (place_id is not null or nullif(btrim(place_label), '') is not null)
 );
 
 create table public.event_attendance (
   event_id uuid not null references public.events(id) on delete cascade,
   profile_id uuid not null references public.profiles(id) on delete cascade,
-  status public.attendance_status not null default 'undecided',
+  choice text not null default '미정' check (char_length(choice) between 1 and 40),
+  absence_reason text check (absence_reason is null or char_length(absence_reason) <= 500),
   note text check (note is null or char_length(note) <= 300),
   responded_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (event_id, profile_id)
+);
+
+create table public.event_roster (
+  event_id uuid not null references public.events(id) on delete cascade,
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  status text not null default 'applied'
+    check (status in ('applied', 'confirmed', 'declined')),
+  updated_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   primary key (event_id, profile_id)
 );
@@ -161,6 +205,8 @@ create table public.announcements (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter publication supabase_realtime add table public.announcements;
 
 create table public.videos (
   id uuid primary key default gen_random_uuid(),
@@ -203,6 +249,60 @@ create table public.video_comments (
   updated_at timestamptz not null default now()
 );
 
+create table public.video_watch_sessions (
+  id bigint generated always as identity primary key,
+  video_id uuid not null references public.videos(id) on delete cascade,
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  watched_seconds integer not null default 0 check (watched_seconds >= 0),
+  last_position_seconds integer not null default 0 check (last_position_seconds >= 0),
+  completed boolean not null default false,
+  started_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  unique (video_id, profile_id)
+);
+
+create or replace function public.record_video_watch(
+  requested_video_id uuid,
+  watched_delta_seconds integer,
+  requested_position_seconds integer,
+  requested_completed boolean default false
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'ENCBA_AUTH_REQUIRED';
+  end if;
+  insert into public.video_watch_sessions (
+    video_id, profile_id, watched_seconds, last_position_seconds, completed
+  ) values (
+    requested_video_id,
+    auth.uid(),
+    least(greatest(watched_delta_seconds, 0), 30),
+    greatest(requested_position_seconds, 0),
+    requested_completed
+  )
+  on conflict (video_id, profile_id) do update set
+    watched_seconds = public.video_watch_sessions.watched_seconds + excluded.watched_seconds,
+    last_position_seconds = excluded.last_position_seconds,
+    completed = public.video_watch_sessions.completed or excluded.completed,
+    last_seen_at = now();
+end;
+$$;
+
+revoke all on function public.record_video_watch(uuid, integer, integer, boolean) from public;
+grant execute on function public.record_video_watch(uuid, integer, integer, boolean) to authenticated;
+
+create table public.web_notification_subscriptions (
+  profile_id uuid primary key references public.profiles(id) on delete cascade,
+  permission text not null check (permission in ('default', 'granted', 'denied')),
+  enabled boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+
 create table public.audit_logs (
   id bigint generated always as identity primary key,
   actor_id uuid references public.profiles(id) on delete set null,
@@ -228,16 +328,44 @@ create table public.operation_assignments (
   check (ends_at > starts_at)
 );
 
+create table public.homecoming_campaigns (
+  id uuid primary key default gen_random_uuid(),
+  academic_year smallint not null,
+  term smallint not null check (term in (1, 2)),
+  title text not null,
+  event_date date not null,
+  starts_at time not null,
+  ends_at time not null,
+  venue text not null,
+  afterparty_note text not null default '회식 장소는 아직 정해지지 않았습니다.',
+  is_active boolean not null default false,
+  source_file_name text,
+  created_by uuid not null references public.profiles(id) on delete restrict,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (academic_year, term)
+);
+
+create unique index homecoming_one_active_idx
+on public.homecoming_campaigns (is_active) where is_active;
+
 create table public.homecoming_contacts (
   id uuid primary key default gen_random_uuid(),
+  campaign_id uuid not null references public.homecoming_campaigns(id) on delete cascade,
+  source_row integer,
   senior_name text not null,
   generation smallint check (generation > 0),
+  home_or_office_phone text,
   phone text not null,
   assigned_to uuid references public.profiles(id) on delete set null,
+  assigned_to_name text,
   contact_status text not null default 'pending'
     check (contact_status in ('pending', 'contacted', 'confirmed', 'declined')),
   parking_required boolean,
   parking_registered boolean not null default false,
+  follow_up_allowed boolean,
+  follow_up_on date,
+  source_reference text,
   notes text,
   last_contacted_at timestamptz,
   created_at timestamptz not null default now(),
@@ -257,18 +385,20 @@ create index events_league_idx on public.events (league_id, starts_at)
 create index events_parent_idx on public.events (parent_event_id)
   where parent_event_id is not null;
 create index attendance_profile_idx on public.event_attendance (profile_id, updated_at desc);
-create index attendance_event_status_idx on public.event_attendance (event_id, status);
+create index attendance_event_choice_idx on public.event_attendance (event_id, choice);
+create index event_roster_profile_idx on public.event_roster (profile_id, status, event_id);
 create index announcements_feed_idx on public.announcements (pinned desc, published_at desc);
 create index videos_feed_idx on public.videos (category, created_at desc);
 create index videos_uploader_idx on public.videos (uploaded_by, created_at desc);
 create index video_likes_profile_idx on public.video_likes (profile_id, created_at desc);
 create index video_comments_video_idx on public.video_comments (video_id, timestamp_seconds, created_at);
+create index video_watch_video_idx on public.video_watch_sessions (video_id, watched_seconds desc);
 create index audit_entity_idx on public.audit_logs (entity_table, entity_id, created_at desc);
 create index audit_actor_idx on public.audit_logs (actor_id, created_at desc);
 create index operations_profile_time_idx
   on public.operation_assignments (profile_id, starts_at);
 create index homecoming_assignee_status_idx
-  on public.homecoming_contacts (assigned_to, contact_status, generation);
+  on public.homecoming_contacts (campaign_id, assigned_to, contact_status, generation);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -285,8 +415,9 @@ create trigger profiles_set_updated_at before update on public.profiles
 for each row execute function public.set_updated_at();
 create trigger events_set_updated_at before update of
   title, kind, starts_at, ends_at, season_id, league_id, place_id,
-  place_label, court, target_team, opponent, uniform_color, memo, capacity,
-  response_enabled, response_deadline, recurrence_rule, parent_event_id,
+  place_label, court, target_team, opponent, uniform_colors, memo, capacity,
+  response_enabled, response_deadline, recurrence_rule, poll_options,
+  visibility, parent_event_id,
   updated_by, cancelled_at
 on public.events for each row execute function public.set_updated_at();
 create trigger attendance_set_updated_at before update on public.event_attendance
@@ -296,6 +427,10 @@ for each row execute function public.set_updated_at();
 create trigger videos_set_updated_at before update on public.videos
 for each row execute function public.set_updated_at();
 create trigger video_comments_set_updated_at before update on public.video_comments
+for each row execute function public.set_updated_at();
+create trigger event_roster_set_updated_at before update on public.event_roster
+for each row execute function public.set_updated_at();
+create trigger homecoming_campaigns_set_updated_at before update on public.homecoming_campaigns
 for each row execute function public.set_updated_at();
 create trigger operation_assignments_set_updated_at before update on public.operation_assignments
 for each row execute function public.set_updated_at();
@@ -323,8 +458,9 @@ begin
 
   insert into public.events (
     season_id, league_id, title, kind, starts_at, ends_at, place_id,
-    place_label, court, target_team, opponent, uniform_color, memo, capacity,
-    response_enabled, response_deadline, recurrence_rule, parent_event_id,
+    place_label, court, target_team, opponent, uniform_colors, memo, capacity,
+    response_enabled, response_deadline, recurrence_rule, poll_options,
+    visibility, parent_event_id,
     created_by, updated_by
   )
   select
@@ -332,9 +468,9 @@ begin
     new.starts_at + (series.week_no * interval '7 days'),
     new.ends_at + (series.week_no * interval '7 days'),
     new.place_id, new.place_label, new.court, new.target_team, new.opponent,
-    new.uniform_color, new.memo, new.capacity, new.response_enabled,
+    new.uniform_colors, new.memo, new.capacity, new.response_enabled,
     new.response_deadline + (series.week_no * interval '7 days'),
-    null, new.id, new.created_by, new.updated_by
+    null, new.poll_options, new.visibility, new.id, new.created_by, new.updated_by
   from generate_series(1, occurrence_count - 1) as series(week_no);
 
   return new;
@@ -361,6 +497,26 @@ $$;
 revoke all on function public.is_encba_admin() from public;
 grant execute on function public.is_encba_admin() to authenticated;
 
+create or replace function public.can_manage_schedule()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(
+    (
+      select p.is_admin or p.is_schedule_manager
+      from public.profiles p
+      where p.id = (select auth.uid())
+    ),
+    false
+  );
+$$;
+
+revoke all on function public.can_manage_schedule() from public;
+grant execute on function public.can_manage_schedule() to authenticated;
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -378,26 +534,38 @@ begin
 
   if allowlist_enabled and not exists (
     select 1 from public.member_allowlist a
-    where a.email = new.email and a.consumed_by is null
+    where a.login_name = btrim(new.raw_user_meta_data ->> 'name')
+      and a.consumed_by is null
   ) then
     raise exception 'ENCBA_MEMBER_NOT_ALLOWLISTED';
   end if;
 
   select * into allowed_member
   from public.member_allowlist a
-  where a.email = new.email and a.consumed_by is null;
+  where a.login_name = btrim(new.raw_user_meta_data ->> 'name')
+    and a.consumed_by is null;
 
   insert into public.profiles (
-    id, email, name, student_year, generation, phone, position, jersey_number
+    id, email, name, display_name, student_year, generation, phone, position, jersey_number,
+    membership_status, badge, is_admin, is_schedule_manager
   ) values (
     new.id,
     new.email,
-    coalesce(allowed_member.name, nullif(btrim(new.raw_user_meta_data ->> 'name'), ''), 'ENCBA 부원'),
+    allowed_member.name,
+    allowed_member.name,
     coalesce(allowed_member.student_year, (new.raw_user_meta_data ->> 'student_year')::smallint, 0),
     coalesce(allowed_member.generation, (new.raw_user_meta_data ->> 'generation')::smallint, 1),
     coalesce(new.raw_user_meta_data ->> 'phone', ''),
     coalesce(new.raw_user_meta_data ->> 'position', '미정'),
-    coalesce((new.raw_user_meta_data ->> 'jersey_number')::smallint, 0)
+    coalesce((new.raw_user_meta_data ->> 'jersey_number')::smallint, 0),
+    allowed_member.membership_status,
+    case allowed_member.membership_status
+      when 'military_leave' then '군복무'
+      when 'graduated' then '졸업'
+      else null
+    end,
+    allowed_member.is_admin,
+    allowed_member.is_schedule_manager
   );
 
   insert into public.profile_teams (profile_id, team_id)
@@ -407,7 +575,7 @@ begin
 
   update public.member_allowlist
   set consumed_by = new.id, consumed_at = now()
-  where email = new.email and consumed_by is null;
+  where id = allowed_member.id and consumed_by is null;
   return new;
 end;
 $$;
@@ -430,6 +598,8 @@ begin
       or new.generation is distinct from old.generation
       or new.student_year is distinct from old.student_year
       or new.badge is distinct from old.badge
+      or new.is_schedule_manager is distinct from old.is_schedule_manager
+      or new.name is distinct from old.name
       or new.email is distinct from old.email then
       raise exception 'ENCBA_PROFILE_AUTHORIZATION_FIELDS_ARE_ADMIN_ONLY';
     end if;
@@ -494,6 +664,31 @@ create trigger attendance_protect_identity
 before update on public.event_attendance
 for each row execute function public.protect_attendance_identity();
 
+create or replace function public.require_absence_reason()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if not exists (
+    select 1
+    from public.events e,
+      jsonb_array_elements_text(e.poll_options) option
+    where e.id = new.event_id and option = new.choice
+  ) then
+    raise exception 'ENCBA_INVALID_POLL_CHOICE';
+  end if;
+  if new.choice = '불참' and nullif(btrim(new.absence_reason), '') is null then
+    raise exception 'ENCBA_ABSENCE_REASON_REQUIRED';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger attendance_require_absence_reason
+before insert or update on public.event_attendance
+for each row execute function public.require_absence_reason();
+
 create or replace function public.sync_event_attending_count()
 returns trigger
 language plpgsql
@@ -509,11 +704,11 @@ begin
     else new.event_id
   end;
   count_delta := case
-    when tg_op = 'INSERT' and new.status = 'attending' then 1
-    when tg_op = 'DELETE' and old.status = 'attending' then -1
+    when tg_op = 'INSERT' and new.choice = '참석' then 1
+    when tg_op = 'DELETE' and old.choice = '참석' then -1
     when tg_op = 'UPDATE' then
-      (case when new.status = 'attending' then 1 else 0 end) -
-      (case when old.status = 'attending' then 1 else 0 end)
+      (case when new.choice = '참석' then 1 else 0 end) -
+      (case when old.choice = '참석' then 1 else 0 end)
     else 0
   end;
 
@@ -556,6 +751,52 @@ create trigger video_likes_sync_count
 after insert or delete on public.video_likes
 for each row execute function public.sync_video_like_count();
 
+create or replace function public.enforce_ib_semester()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.kind in ('ib_division_1', 'ib_division_2') and not exists (
+    select 1
+    from public.academic_periods p
+    where p.period_kind = 'semester'
+      and (new.starts_at at time zone 'Asia/Seoul')::date between p.starts_on and p.ends_on
+  ) then
+    raise exception 'ENCBA_IB_LOCKED_DURING_BREAK';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger events_enforce_ib_semester
+before insert or update of kind, starts_at on public.events
+for each row execute function public.enforce_ib_semester();
+
+create or replace function public.purge_expired_events()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  deleted_count integer;
+begin
+  delete from public.events
+  where ends_at < now() - interval '6 months';
+  get diagnostics deleted_count = row_count;
+  return deleted_count;
+end;
+$$;
+
+revoke all on function public.purge_expired_events() from public;
+
+select cron.schedule(
+  'encba-purge-events-after-six-months',
+  '17 3 * * *',
+  $$select public.purge_expired_events();$$
+);
+
 create or replace function public.write_audit_log()
 returns trigger
 language plpgsql
@@ -583,8 +824,8 @@ $$;
 
 create trigger events_audit after insert or delete or update of
   title, kind, starts_at, ends_at, place_id, place_label, court, target_team,
-  opponent, uniform_color, memo, capacity, response_enabled,
-  response_deadline, recurrence_rule, cancelled_at
+  opponent, uniform_colors, memo, capacity, response_enabled,
+  response_deadline, recurrence_rule, poll_options, visibility, cancelled_at
 on public.events
 for each row execute function public.write_audit_log();
 create trigger announcements_audit after insert or update or delete on public.announcements
@@ -606,16 +847,21 @@ alter table public.profiles enable row level security;
 alter table public.teams enable row level security;
 alter table public.profile_teams enable row level security;
 alter table public.seasons enable row level security;
+alter table public.academic_periods enable row level security;
 alter table public.leagues enable row level security;
 alter table public.places enable row level security;
 alter table public.events enable row level security;
 alter table public.event_attendance enable row level security;
+alter table public.event_roster enable row level security;
 alter table public.announcements enable row level security;
 alter table public.videos enable row level security;
 alter table public.video_likes enable row level security;
 alter table public.video_comments enable row level security;
+alter table public.video_watch_sessions enable row level security;
+alter table public.web_notification_subscriptions enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.operation_assignments enable row level security;
+alter table public.homecoming_campaigns enable row level security;
 alter table public.homecoming_contacts enable row level security;
 
 create or replace function public.can_view_event(requested_team text)
@@ -655,11 +901,52 @@ as $$
     from public.events e
     where e.id = requested_event
       and public.can_view_event(e.target_team)
+      and (
+        e.visibility = 'team'
+        or public.can_manage_schedule()
+        or exists (
+          select 1 from public.event_roster r
+          where r.event_id = e.id
+            and r.profile_id = (select auth.uid())
+            and r.status = 'confirmed'
+        )
+      )
   );
 $$;
 
 revoke all on function public.can_access_event(uuid) from public;
 grant execute on function public.can_access_event(uuid) to authenticated;
+
+create or replace function public.list_locked_event_stubs()
+returns table (
+  id uuid, title text, kind text, starts_at timestamptz, ends_at timestamptz,
+  place_label text, court text, target_team text, uniform_colors text[], memo text,
+  capacity smallint, attending_count integer, response_enabled boolean,
+  response_deadline timestamptz, recurrence_rule jsonb, poll_options jsonb,
+  visibility text, updated_at timestamptz, locked boolean
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select
+    e.id, e.title, e.kind, e.starts_at, e.ends_at,
+    '출전 인원 확정 후 공개'::text, null::text, e.target_team,
+    '{}'::text[], '출전 인원 확정 후 공개'::text, null::smallint, 0,
+    false, e.response_deadline, null::jsonb, '[]'::jsonb,
+    e.visibility, e.updated_at, true
+  from public.events e
+  where e.cancelled_at is null
+    and e.ends_at >= now()
+    and e.visibility = 'confirmed_roster'
+    and public.can_view_event(e.target_team)
+    and not public.can_access_event(e.id)
+  order by e.starts_at;
+$$;
+
+revoke all on function public.list_locked_event_stubs() from public;
+grant execute on function public.list_locked_event_stubs() to authenticated;
 
 create policy profiles_read_team on public.profiles for select to authenticated
 using (true);
@@ -683,6 +970,7 @@ using ((select public.is_encba_admin()))
 with check ((select public.is_encba_admin()));
 
 create policy seasons_read on public.seasons for select to authenticated using (true);
+create policy academic_periods_read on public.academic_periods for select to authenticated using (true);
 create policy seasons_admin_all on public.seasons for all to authenticated
 using ((select public.is_encba_admin()))
 with check ((select public.is_encba_admin()));
@@ -696,43 +984,51 @@ using ((select public.is_encba_admin()))
 with check ((select public.is_encba_admin()));
 
 create policy events_read on public.events for select to authenticated
-using ((select public.can_view_event(target_team)));
+using ((select public.can_access_event(id)));
 create policy events_admin_insert on public.events for insert to authenticated
 with check (
-  (select public.is_encba_admin()) and
+  (select public.can_manage_schedule()) and
   created_by = (select auth.uid()) and
   updated_by = (select auth.uid())
 );
 create policy events_admin_update on public.events for update to authenticated
-using ((select public.is_encba_admin()))
-with check ((select public.is_encba_admin()));
+using ((select public.can_manage_schedule()))
+with check ((select public.can_manage_schedule()));
 create policy events_admin_delete on public.events for delete to authenticated
-using ((select public.is_encba_admin()));
+using ((select public.can_manage_schedule()));
 
 create policy attendance_read on public.event_attendance for select to authenticated
-using (profile_id = (select auth.uid()) or (select public.is_encba_admin()));
+using (profile_id = (select auth.uid()) or (select public.can_manage_schedule()));
 create policy attendance_insert on public.event_attendance for insert to authenticated
 with check (
-  (select public.is_encba_admin()) or (
+  (select public.can_manage_schedule()) or (
     profile_id = (select auth.uid()) and
     (select public.can_access_event(event_id))
   )
 );
 create policy attendance_update on public.event_attendance for update to authenticated
 using (
-  (select public.is_encba_admin()) or (
+  (select public.can_manage_schedule()) or (
     profile_id = (select auth.uid()) and
     (select public.can_access_event(event_id))
   )
 )
 with check (
-  (select public.is_encba_admin()) or (
+  (select public.can_manage_schedule()) or (
     profile_id = (select auth.uid()) and
     (select public.can_access_event(event_id))
   )
 );
 create policy attendance_delete on public.event_attendance for delete to authenticated
-using ((select public.is_encba_admin()));
+using (profile_id = (select auth.uid()) or (select public.can_manage_schedule()));
+
+create policy event_roster_read on public.event_roster for select to authenticated
+using (profile_id = (select auth.uid()) or (select public.can_manage_schedule()));
+create policy event_roster_apply on public.event_roster for insert to authenticated
+with check (profile_id = (select auth.uid()) and status = 'applied');
+create policy event_roster_manage on public.event_roster for all to authenticated
+using ((select public.can_manage_schedule()))
+with check ((select public.can_manage_schedule()));
 
 create policy announcements_read on public.announcements for select to authenticated using (true);
 create policy announcements_admin_all on public.announcements for all to authenticated
@@ -776,13 +1072,49 @@ with check (profile_id = (select auth.uid()) or (select public.is_encba_admin())
 create policy video_comments_delete on public.video_comments for delete to authenticated
 using (profile_id = (select auth.uid()) or (select public.is_encba_admin()));
 
+create policy video_watch_own_write on public.video_watch_sessions
+for insert to authenticated
+with check (profile_id = (select auth.uid()));
+create policy video_watch_own_update on public.video_watch_sessions
+for update to authenticated
+using (profile_id = (select auth.uid()))
+with check (profile_id = (select auth.uid()));
+create policy video_watch_read on public.video_watch_sessions
+for select to authenticated
+using (
+  profile_id = (select auth.uid())
+  or (select public.is_encba_admin())
+  or exists (
+    select 1 from public.videos v
+    where v.id = video_id and v.uploaded_by = (select auth.uid())
+  )
+);
+
+create policy web_notifications_own on public.web_notification_subscriptions
+for all to authenticated
+using (profile_id = (select auth.uid()))
+with check (profile_id = (select auth.uid()));
+
 create policy audit_read on public.audit_logs for select to authenticated
 using (
   (select public.is_encba_admin()) or
   entity_table in ('announcements', 'videos') or (
     entity_table = 'events' and
     (old_data is null or (select public.can_view_event(old_data ->> 'target_team'))) and
-    (new_data is null or (select public.can_view_event(new_data ->> 'target_team')))
+    (new_data is null or (select public.can_view_event(new_data ->> 'target_team'))) and
+    (
+      coalesce(old_data ->> 'visibility', new_data ->> 'visibility', 'team') = 'team'
+      or (select public.can_manage_schedule())
+      or exists (
+        select 1 from public.event_roster r
+        where r.event_id = coalesce(
+          (new_data ->> 'id')::uuid,
+          (old_data ->> 'id')::uuid
+        )
+          and r.profile_id = (select auth.uid())
+          and r.status = 'confirmed'
+      )
+    )
   )
 );
 
@@ -793,23 +1125,61 @@ create policy operations_admin_all on public.operation_assignments
 for all to authenticated
 using ((select public.is_encba_admin()))
 with check ((select public.is_encba_admin()));
+create policy homecoming_campaigns_read on public.homecoming_campaigns
+for select to authenticated
+using (is_active or (select public.is_encba_admin()));
+create policy homecoming_campaigns_admin_all on public.homecoming_campaigns
+for all to authenticated
+using ((select public.is_encba_admin()))
+with check ((select public.is_encba_admin()));
 create policy homecoming_admin_all on public.homecoming_contacts
 for all to authenticated
 using ((select public.is_encba_admin()))
 with check ((select public.is_encba_admin()));
+create policy homecoming_assignee_read on public.homecoming_contacts
+for select to authenticated
+using (
+  exists (
+    select 1 from public.profiles p
+    where p.id = (select auth.uid())
+      and (p.name = assigned_to_name or p.display_name = assigned_to_name)
+  )
+);
+create policy homecoming_assignee_update on public.homecoming_contacts
+for update to authenticated
+using (
+  exists (
+    select 1 from public.profiles p
+    where p.id = (select auth.uid())
+      and (p.name = assigned_to_name or p.display_name = assigned_to_name)
+  )
+)
+with check (
+  exists (
+    select 1 from public.profiles p
+    where p.id = (select auth.uid())
+      and (p.name = assigned_to_name or p.display_name = assigned_to_name)
+  )
+);
 
 grant usage on schema public to authenticated;
 grant select on public.profiles, public.teams, public.profile_teams, public.seasons,
-  public.leagues, public.places, public.events, public.event_attendance,
+  public.academic_periods, public.leagues, public.places, public.events,
+  public.event_attendance,
+  public.event_roster,
   public.announcements, public.videos, public.video_likes,
-  public.video_comments, public.audit_logs to authenticated;
+  public.video_comments, public.video_watch_sessions,
+  public.web_notification_subscriptions, public.audit_logs to authenticated;
 grant insert, update, delete on public.profile_teams, public.seasons,
   public.leagues, public.places, public.events, public.event_attendance,
+  public.event_roster,
   public.announcements, public.video_likes,
-  public.video_comments, public.operation_assignments,
-  public.homecoming_contacts to authenticated;
+  public.video_comments, public.video_watch_sessions,
+  public.web_notification_subscriptions, public.operation_assignments,
+  public.homecoming_campaigns, public.homecoming_contacts to authenticated;
 grant insert, delete on public.videos to authenticated;
-grant select on public.operation_assignments, public.homecoming_contacts
+grant select on public.operation_assignments, public.homecoming_campaigns,
+  public.homecoming_contacts
   to authenticated;
 grant update on public.profiles to authenticated;
 grant select, insert, update, delete on public.app_settings,
@@ -819,8 +1189,9 @@ grant usage, select on all sequences in schema public to authenticated;
 revoke update on public.events from authenticated;
 grant update (
   title, kind, starts_at, ends_at, season_id, league_id, place_id, place_label,
-  court, target_team, opponent, uniform_color, memo, capacity,
-  response_enabled, response_deadline, recurrence_rule, parent_event_id,
+  court, target_team, opponent, uniform_colors, memo, capacity,
+  response_enabled, response_deadline, recurrence_rule, poll_options,
+  visibility, parent_event_id,
   updated_by, cancelled_at, attending_count
 ) on public.events to authenticated;
 revoke update on public.videos from authenticated;

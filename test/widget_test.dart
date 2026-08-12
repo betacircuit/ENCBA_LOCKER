@@ -57,7 +57,7 @@ void main() {
     await tester.tap(find.text('처음이라면 회원가입'));
     await tester.pumpAndSettle();
     expect(find.text('라커에 자리 만들기'), findsOneWidget);
-    expect(find.text('이름'), findsOneWidget);
+    expect(find.text('실명'), findsOneWidget);
     expect(find.text('가입하고 시작'), findsOneWidget);
   });
 
@@ -148,6 +148,39 @@ void main() {
     expect(find.byIcon(Icons.schedule_rounded), findsWidgets);
     expect(find.byIcon(Icons.location_on_outlined), findsWidgets);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('불참은 수기 사유를 입력해야 저장된다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('불참').first);
+    await tester.tap(find.text('불참').first);
+    await tester.pumpAndSettle();
+    expect(find.text('불참 사유'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).last, '학과 필수 수업과 시간이 겹칩니다.');
+    await tester.tap(find.text('저장'));
+    await tester.pump();
+    expect(find.textContaining('불참으로 저장했습니다'), findsOneWidget);
+  });
+
+  test('픽업게임과 복수 유니폼·가변 투표가 캐시에 보존된다', () {
+    final event = LockerEvent(
+      id: 'pickup',
+      title: '금요일 픽업게임',
+      start: DateTime(2026, 9, 4, 18),
+      end: DateTime(2026, 9, 4, 20),
+      place: '71동 종합체육관',
+      kind: EventKind.pickup,
+      memo: '공지',
+      uniformColors: const ['검정', '흰색'],
+      pollOptions: const ['18시 참석', '19시 참석', '불참'],
+    );
+    final restored = LockerEvent.fromJson(event.toJson());
+    expect(restored.kind, EventKind.pickup);
+    expect(restored.uniformColors, ['검정', '흰색']);
+    expect(restored.pollOptions, ['18시 참석', '19시 참석', '불참']);
   });
 }
 

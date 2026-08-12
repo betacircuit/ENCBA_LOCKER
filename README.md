@@ -4,7 +4,7 @@
 
 Supabase Auth와 PostgreSQL을 계정·권한·운영 데이터의 기준 서버로 사용합니다. Flutter Web은 Docker/Nginx 이미지로 빌드되어 Render에 배포되며, 데스크톱에서도 폭 430px의 모바일 앱 프레임을 유지합니다.
 
-로그인 화면의 관리자·부원 버튼은 `admin@encba.kr`와 `member@encba.kr`를 입력합니다. 실제 계정은 Supabase Auth에 가입되어 있어야 하며, 관리자 권한은 DB의 `profiles.is_admin`으로만 부여됩니다. 클라이언트가 관리자 값을 변경하는 것은 RLS와 보호 트리거로 차단됩니다.
+로그인은 이메일이 아니라 허용 명단의 실명을 사용합니다. 앱 내부에서만 결정적 가상 이메일로 변환하고 비밀번호는 Supabase Auth가 해시로 저장합니다. 관리자는 `최재원`이며 권한은 DB의 `profiles.is_admin`으로만 부여됩니다. 클라이언트가 관리자 값을 변경하는 것은 RLS와 보호 트리거로 차단됩니다.
 
 일정·참석·영상·좋아요는 Supabase와 동기화됩니다. 마지막 정상 조회 결과는 기기에 캐시되어 오프라인에서도 읽을 수 있고, 세션은 Supabase SDK의 플랫폼 저장소에 유지됩니다. 지도·YouTube·서버 쓰기는 네트워크가 필요합니다.
 
@@ -18,11 +18,11 @@ supabase link --project-ref YOUR_PROJECT_REF
 supabase db push
 ```
 
-마이그레이션은 [초기 스키마](supabase/migrations/202608120001_initial_schema.sql)에 있습니다. `profiles`, 팀·시즌·리그·장소, 일정·참석, 공지, 영상·좋아요·타임스탬프 댓글, 감사 로그와 비공개 아바타 버킷을 생성합니다.
+마이그레이션은 [초기 스키마](supabase/migrations/202608120001_initial_schema.sql)에 있습니다. 계정·권한, 학기/방학, 일정·가변 투표·확정 출전 명단, 공지, 홈커밍 캠페인, 영상 시청 기록, 감사 로그와 비공개 아바타 버킷을 생성합니다. 지난 일정은 매일 6개월 기준으로 삭제됩니다.
 
-Supabase Dashboard의 Authentication → URL Configuration에서 Site URL을 실제 Render 주소로 지정하고, 필요하면 `http://localhost:*`를 개발용 Redirect URL에 추가합니다. 이메일 확인을 켠 경우 가입자는 확인 메일 인증 후 로그인해야 합니다.
+Supabase Dashboard의 Authentication → Sign In / Providers → Email에서 **Confirm email을 꺼야 합니다.** 실명 로그인은 수신용 이메일을 쓰지 않으므로 확인 메일을 켜면 가입을 완료할 수 없습니다. URL Configuration에는 실제 Render 주소와 개발용 `http://localhost:*`를 등록합니다.
 
-초기 명단과 관리자 설정은 [seed.sql](supabase/seed.sql)을 SQL Editor에서 실행합니다. 가입 허용 명단 검사는 기본으로 켜져 있으므로 먼저 허용 명단 INSERT를 실행하고, 앱에서 두 계정을 가입시킨 다음 `admin@encba.kr` 승격 문장을 다시 실행해야 합니다. 개발 중 명단 검사를 잠시 끄려면 다음 값만 `false`로 바꿀 수 있습니다.
+초기 실명 명단과 최재원 관리자 설정은 [seed.sql](supabase/seed.sql)을 SQL Editor에서 실행합니다. 가입 허용 명단 검사는 기본으로 켜져 있으므로 반드시 마이그레이션 다음에 seed를 실행합니다. 군 복무자는 `군복무` 배지가 자동 적용됩니다. 개발 중 명단 검사를 잠시 끄려면 다음 값만 `false`로 바꿀 수 있습니다.
 
 ```sql
 update public.app_settings
@@ -49,7 +49,7 @@ C:\flutter\bin\flutter.bat run -d chrome `
 - `SUPABASE_URL`: Supabase Project URL
 - `SUPABASE_PUBLISHABLE_KEY`: Supabase publishable key
 
-Render는 [Dockerfile](Dockerfile)로 Flutter Web을 빌드하고 Nginx가 `${PORT}`에서 서비스합니다. `/healthz` 상태 확인, SPA 라우팅, gzip, 정적 파일 캐시와 보안 헤더가 포함되어 있습니다. 배포 후 Render URL을 Supabase의 Site URL/Redirect URL에도 등록해야 합니다.
+Render는 [Dockerfile](Dockerfile)로 Flutter Web을 빌드하고 Nginx가 `${PORT}`에서 서비스합니다. `/healthz` 상태 확인, SPA 라우팅, gzip, 정적 파일 캐시와 보안 헤더가 포함되어 있습니다. `autoDeployTrigger: off`이므로 `master` 푸시만으로 배포되지 않으며 Render Dashboard에서 수동 배포합니다.
 
 ## 검증
 

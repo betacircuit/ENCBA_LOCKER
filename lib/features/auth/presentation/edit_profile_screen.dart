@@ -16,6 +16,7 @@ class EditProfileScreen extends ConsumerStatefulWidget {
 class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _name;
+  late final TextEditingController _displayName;
   late final TextEditingController _studentId;
   late final TextEditingController _generation;
   late final TextEditingController _phone;
@@ -29,6 +30,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     super.initState();
     final user = ref.read(authControllerProvider).user!;
     _name = TextEditingController(text: user.name);
+    _displayName = TextEditingController(text: user.visibleName);
     _studentId = TextEditingController(
       text: user.studentId.replaceAll('학번', ''),
     );
@@ -42,6 +44,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   @override
   void dispose() {
     _name.dispose();
+    _displayName.dispose();
     _studentId.dispose();
     _generation.dispose();
     _phone.dispose();
@@ -102,9 +105,58 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
               ),
             ),
             const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: EncbaColors.highlight,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: Colors.white,
+                    backgroundImage: _photoBase64 == null
+                        ? null
+                        : MemoryImage(base64Decode(_photoBase64!)),
+                    child: _photoBase64 == null
+                        ? Text(
+                            _displayName.text.isEmpty
+                                ? 'E'
+                                : _displayName.text[0],
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _displayName.text.trim().isEmpty
+                              ? _name.text
+                              : _displayName.text.trim(),
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        Text('$_position · #${_jerseyNumber.text}'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
             TextFormField(
               controller: _name,
-              decoration: const InputDecoration(labelText: '이름 *'),
+              readOnly: true,
+              decoration: const InputDecoration(labelText: '가입 실명'),
+              validator: _required,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _displayName,
+              decoration: const InputDecoration(labelText: '다른 부원에게 보이는 이름 *'),
+              onChanged: (_) => setState(() {}),
               validator: _required,
             ),
             const SizedBox(height: 12),
@@ -149,7 +201,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                         DropdownMenuItem(value: value, child: Text(value)),
                   )
                   .toList(),
-              onChanged: (value) => _position = value!,
+              onChanged: (value) => setState(() => _position = value!),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -158,6 +210,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
               decoration: const InputDecoration(labelText: '등번호 *'),
               validator: (value) =>
                   int.tryParse(value ?? '') == null ? '숫자를 입력하세요.' : null,
+              onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 22),
             FilledButton(
@@ -180,7 +233,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         .read(authControllerProvider.notifier)
         .updateProfile(
           user.copyWith(
-            name: _name.text.trim(),
+            displayName: _displayName.text.trim(),
             phone: _phone.text.trim(),
             position: _position,
             jerseyNumber: int.parse(_jerseyNumber.text),
