@@ -1,5 +1,6 @@
 import 'package:excel/excel.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:encba_locker/features/locker/services/homecoming_file_picker.dart'
+    as platform_picker;
 
 class HomecomingImportResult {
   const HomecomingImportResult({required this.fileName, required this.rows});
@@ -10,16 +11,9 @@ class HomecomingImportResult {
 
 class HomecomingImportService {
   Future<HomecomingImportResult?> pickAndParse() async {
-    final picked = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['xlsx'],
-      withData: true,
-    );
-    if (picked == null || picked.files.isEmpty) return null;
-    final file = picked.files.single;
-    final bytes = file.bytes;
-    if (bytes == null) throw const FormatException('엑셀 파일을 읽지 못했습니다.');
-    final workbook = Excel.decodeBytes(bytes);
+    final file = await platform_picker.pickHomecomingFile();
+    if (file == null) return null;
+    final workbook = Excel.decodeBytes(file.bytes);
     if (workbook.tables.isEmpty) throw const FormatException('엑셀 시트가 비어 있습니다.');
     final sheet = workbook.tables.values.first;
 

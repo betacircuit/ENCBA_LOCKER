@@ -24,6 +24,12 @@ const testUser = UserProfile(
 );
 
 void main() {
+  test('영문 UI는 ENCBA 디스플레이 글꼴을 사용한다', () {
+    expect(encbaFontFor('PLANNER', display: true), 'BlackHanSans');
+    expect(encbaFontFor('ENCBA'), 'BlackHanSans');
+    expect(encbaFontFor('일정'), 'Jua');
+  });
+
   test('참석 마감은 경기는 3시간, 그 외 일정은 1시간 전이다', () {
     final start = DateTime(2026, 9, 1, 18);
     LockerEvent event(EventKind kind) => LockerEvent(
@@ -88,7 +94,13 @@ void main() {
     expect(find.text('제목 *'), findsOneWidget);
     expect(find.text('유형 *'), findsOneWidget);
     expect(find.text('장소 *'), findsOneWidget);
-    expect(find.text('공지 메모 *'), findsOneWidget);
+    expect(find.text('공지 메모'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('인원 제한'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('제한 없음'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('참석 응답 받기'),
       300,
@@ -126,14 +138,15 @@ void main() {
 
     await tester.tap(find.text('경기').last);
     await tester.pump();
-    expect(find.text('1부  1'), findsOneWidget);
-    expect(find.text('2부  0'), findsOneWidget);
+    expect(find.text('ENCBA'), findsWidgets);
+    expect(find.text('BEN'), findsOneWidget);
+    expect(find.text('신입생'), findsOneWidget);
 
     await tester.tap(find.text('외부'));
     await tester.pump();
-    expect(find.text('연습 경기  0'), findsOneWidget);
-    expect(find.text('삼파전  0'), findsOneWidget);
-    expect(find.text('외부 경기  1'), findsOneWidget);
+    expect(find.text('연습 경기'), findsOneWidget);
+    expect(find.text('삼파전'), findsOneWidget);
+    expect(find.text('외부 경기'), findsOneWidget);
   });
 
   testWidgets('430px 모바일 폭에서도 일정 시간과 장소 강조가 넘치지 않는다', (tester) async {

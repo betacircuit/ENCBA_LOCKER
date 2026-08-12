@@ -15,6 +15,7 @@ class UserProfile {
     this.photoBase64,
     this.isAdmin = false,
     this.isScheduleManager = false,
+    this.isActive = true,
   });
 
   final String? id;
@@ -32,6 +33,7 @@ class UserProfile {
   final String? photoBase64;
   final bool isAdmin;
   final bool isScheduleManager;
+  final bool isActive;
 
   UserProfile copyWith({
     String? id,
@@ -49,6 +51,7 @@ class UserProfile {
     bool clearPhoto = false,
     bool? isAdmin,
     bool? isScheduleManager,
+    bool? isActive,
   }) {
     return UserProfile(
       id: id ?? this.id,
@@ -66,6 +69,7 @@ class UserProfile {
       photoBase64: clearPhoto ? null : photoBase64 ?? this.photoBase64,
       isAdmin: isAdmin ?? this.isAdmin,
       isScheduleManager: isScheduleManager ?? this.isScheduleManager,
+      isActive: isActive ?? this.isActive,
     );
   }
 
@@ -85,6 +89,7 @@ class UserProfile {
     'photoBase64': photoBase64,
     'isAdmin': isAdmin,
     'isScheduleManager': isScheduleManager,
+    'isActive': isActive,
   };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
@@ -103,6 +108,7 @@ class UserProfile {
     photoBase64: json['photoBase64'] as String?,
     isAdmin: json['isAdmin'] as bool? ?? false,
     isScheduleManager: json['isScheduleManager'] as bool? ?? false,
+    isActive: json['isActive'] as bool? ?? true,
   );
 
   factory UserProfile.fromSupabase(Map<String, dynamic> row) => UserProfile(
@@ -121,6 +127,7 @@ class UserProfile {
     photoBase64: row['photo_base64'] as String?,
     isAdmin: row['is_admin'] as bool? ?? false,
     isScheduleManager: row['is_schedule_manager'] as bool? ?? false,
+    isActive: row['is_active'] as bool? ?? true,
   );
 
   String get visibleName =>

@@ -97,51 +97,39 @@ class SupabaseLockerRepository {
   }
 
   Future<List<MemberProfile>> loadMembers({
-    String membership = 'YB',
+    String membership = 'ALL',
     String query = '',
   }) async {
-    var request = _client
-        .from('profiles')
-        .select(
-          'name,display_name,student_year,generation,phone,position,jersey_number,'
-          'membership_status,badge,profile_teams(teams(code))',
-        )
-        .eq('membership_status', membership.toLowerCase());
-    final normalizedQuery = query.trim();
-    if (normalizedQuery.isNotEmpty) {
-      final studentYear = int.tryParse(
-        normalizedQuery.replaceAll(RegExp(r'[^0-9]'), ''),
-      );
-      final filters = <String>[
-        'name.ilike.%$normalizedQuery%',
-        'position.ilike.%$normalizedQuery%',
-        if (studentYear != null && studentYear <= 99)
-          'student_year.eq.$studentYear',
-      ];
-      request = request.or(filters.join(','));
-    }
-    final rows = await request.order('generation', ascending: false).limit(100);
+    final rows = await _client.rpc(
+      'list_member_directory',
+      params: {
+        'requested_status': membership == 'MILITARY' ? 'military' : 'all',
+        'requested_query': query.trim(),
+      },
+    );
     return rows.map((row) {
       final map = Map<String, dynamic>.from(row);
-      final teams = (map['profile_teams'] as List? ?? const [])
-          .map((item) => (item as Map)['teams'])
-          .whereType<Map>()
-          .map((team) => team['code'] as String)
-          .toList();
       return MemberProfile(
-        name: map['display_name'] as String? ?? map['name'] as String,
-        studentId: '${map['student_year']}학번',
-        generation: map['generation'] as int,
+        id: map['directory_id'] as String,
+        name: map['name'] as String,
+        studentId: map['student_year'] == null
+            ? '학번 미등록'
+            : '${map['student_year']}학번',
+        generation: 1,
         status: (map['membership_status'] as String).toUpperCase(),
-        position: map['position'] as String,
-        teams: teams,
+        position: '미정',
+        teams: const ['ENCBA'],
         note: '',
-        badge: map['badge'] as String?,
-        phone: map['phone'] as String? ?? '',
-        jerseyNumber: map['jersey_number'] as int? ?? 0,
+        badge: map['membership_status'] == 'military_leave' ? '군복무' : null,
+        isActive: map['is_active'] as bool? ?? true,
       );
     }).toList();
   }
+
+  Future<void> setMemberActive(String profileId, bool isActive) => _client.rpc(
+    'set_member_account_active',
+    params: {'requested_directory_id': profileId, 'requested_active': isActive},
+  );
 
   Future<List<AnnouncementItem>> loadAnnouncements() async {
     final rows = await _client
@@ -699,6 +687,7 @@ class SupabaseLockerRepository {
 String _kindToDatabase(EventKind kind) => switch (kind) {
   EventKind.ibDivision1 => 'ib_division_1',
   EventKind.ibDivision2 => 'ib_division_2',
+  EventKind.ibFreshman => 'ib_freshman',
   EventKind.threeWay => 'three_way',
   EventKind.operations => 'operation',
   _ => kind.name,
@@ -707,6 +696,7 @@ String _kindToDatabase(EventKind kind) => switch (kind) {
 EventKind _kindFromDatabase(String kind) => switch (kind) {
   'ib_division_1' => EventKind.ibDivision1,
   'ib_division_2' => EventKind.ibDivision2,
+  'ib_freshman' => EventKind.ibFreshman,
   'three_way' => EventKind.threeWay,
   'operation' => EventKind.operations,
   _ => EventKind.values.byName(kind),

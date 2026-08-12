@@ -219,7 +219,7 @@ class LockerController extends StateNotifier<LockerState> {
     if (_repository == null) return;
     try {
       final members = await _repository.loadMembers(
-        membership: index == 0 ? 'YB' : 'OB',
+        membership: index == 0 ? 'ALL' : 'MILITARY',
       );
       state = state.copyWith(members: members, clearError: true);
     } on Object {
@@ -231,12 +231,46 @@ class LockerController extends StateNotifier<LockerState> {
     if (_repository == null) return;
     try {
       final members = await _repository.loadMembers(
-        membership: state.memberSegment == 0 ? 'YB' : 'OB',
+        membership: state.memberSegment == 0 ? 'ALL' : 'MILITARY',
         query: query,
       );
       state = state.copyWith(members: members, clearError: true);
     } on Object {
       state = state.copyWith(error: '멤버 검색에 실패했습니다.');
+    }
+  }
+
+  Future<bool> setMemberActive(MemberProfile member, bool isActive) async {
+    if (_repository == null || member.id == null) return false;
+    final previous = state.members;
+    state = state.copyWith(
+      members: previous
+          .map(
+            (item) => item.id == member.id
+                ? MemberProfile(
+                    id: item.id,
+                    name: item.name,
+                    studentId: item.studentId,
+                    generation: item.generation,
+                    status: item.status,
+                    position: item.position,
+                    teams: item.teams,
+                    note: item.note,
+                    badge: item.badge,
+                    phone: item.phone,
+                    jerseyNumber: item.jerseyNumber,
+                    isActive: isActive,
+                  )
+                : item,
+          )
+          .toList(),
+    );
+    try {
+      await _repository.setMemberActive(member.id!, isActive);
+      return true;
+    } on Object {
+      state = state.copyWith(members: previous, error: '계정 상태를 변경하지 못했습니다.');
+      return false;
     }
   }
 
@@ -665,7 +699,7 @@ List<LockerEvent> _seedEvents() {
       memo: '경기 시작 40분 전 집합합니다. 학생증과 개인 물병을 지참해 주세요.',
       uniformColors: const ['검정'],
       attending: 9,
-      targetTeam: 'ENCBA 1부',
+      targetTeam: 'ENCBA',
       createdBy: 'IB 운영 김민수',
     ),
     LockerEvent(

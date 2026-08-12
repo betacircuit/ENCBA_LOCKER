@@ -58,7 +58,12 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   const SizedBox(height: 28),
                   Text(
                     _signUp ? '라커에 자리 만들기' : 'Welcome to ENCBA',
-                    style: Theme.of(context).textTheme.displaySmall,
+                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                      fontFamily: encbaFontFor(
+                        _signUp ? '라커에 자리 만들기' : 'Welcome to ENCBA',
+                        display: true,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 28),
                   AnimatedSize(
@@ -278,7 +283,7 @@ class _ClubMark extends StatelessWidget {
           Text(
             'ENGINEERING BASKETBALL · SINCE 1977',
             style: TextStyle(
-              fontFamily: 'Arial',
+              fontFamily: 'BlackHanSans',
               fontSize: 8.5,
               letterSpacing: .8,
               color: EncbaColors.muted,

@@ -5,6 +5,7 @@ enum EventKind {
   pickup,
   ibDivision1,
   ibDivision2,
+  ibFreshman,
   scrimmage,
   threeWay,
   external,
@@ -18,8 +19,9 @@ extension EventKindUi on EventKind {
     EventKind.morning => '아농',
     EventKind.internal => '내부 경기',
     EventKind.pickup => '픽업게임',
-    EventKind.ibDivision1 => 'IB 1부',
-    EventKind.ibDivision2 => 'IB 2부',
+    EventKind.ibDivision1 => 'ENCBA',
+    EventKind.ibDivision2 => 'BEN',
+    EventKind.ibFreshman => '신입생',
     EventKind.scrimmage => '연습 경기',
     EventKind.threeWay => '삼파전',
     EventKind.external => '외부 경기',
@@ -32,6 +34,7 @@ extension EventKindUi on EventKind {
     EventKind.pickup,
     EventKind.ibDivision1,
     EventKind.ibDivision2,
+    EventKind.ibFreshman,
     EventKind.scrimmage,
     EventKind.threeWay,
     EventKind.external,
@@ -40,6 +43,7 @@ extension EventKindUi on EventKind {
   bool get isBattle => const {
     EventKind.ibDivision1,
     EventKind.ibDivision2,
+    EventKind.ibFreshman,
     EventKind.scrimmage,
     EventKind.threeWay,
     EventKind.external,
@@ -181,6 +185,7 @@ class LockerEvent {
 
 class MemberProfile {
   const MemberProfile({
+    this.id,
     required this.name,
     required this.studentId,
     required this.generation,
@@ -191,8 +196,10 @@ class MemberProfile {
     this.badge,
     this.phone = '010-0000-0000',
     this.jerseyNumber = 0,
+    this.isActive = true,
   });
 
+  final String? id;
   final String name;
   final String studentId;
   final int generation;
@@ -203,6 +210,7 @@ class MemberProfile {
   final String? badge;
   final String phone;
   final int jerseyNumber;
+  final bool isActive;
 }
 
 class AnnouncementItem {

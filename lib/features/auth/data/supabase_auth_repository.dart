@@ -157,7 +157,7 @@ class SupabaseAuthRepository {
           .from('profiles')
           .select(
             'id,email,name,display_name,student_year,generation,phone,position,'
-            'jersey_number,membership_status,badge,avatar_path,is_admin,is_schedule_manager,'
+            'jersey_number,membership_status,badge,avatar_path,is_admin,is_schedule_manager,is_active,'
             'profile_teams(teams(code))',
           )
           .eq('id', userId)
@@ -180,6 +180,10 @@ class SupabaseAuthRepository {
         }
       }
       final profile = UserProfile.fromSupabase(normalized);
+      if (!profile.isActive) {
+        await _client.auth.signOut();
+        throw const EncbaAuthException('비활성화된 계정입니다. 관리자에게 문의해 주세요.');
+      }
       try {
         await _store.setString(
           _profileCacheKey(userId),
@@ -189,6 +193,8 @@ class SupabaseAuthRepository {
         // 서버에서 받은 최신 프로필은 로컬 캐시 저장 실패와 무관하게 사용한다.
       }
       return profile;
+    } on EncbaAuthException {
+      rethrow;
     } on Object {
       final cached = await _store.getString(_profileCacheKey(userId));
       if (cached == null) rethrow;

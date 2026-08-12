@@ -286,10 +286,12 @@ class EventDetailScreen extends ConsumerWidget {
             color: Colors.transparent,
             child: _ExpandedTicket(event: event),
           ),
-          const SizedBox(height: 22),
-          Text('안내', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 9),
-          Text(event.memo, style: const TextStyle(height: 1.7)),
+          if (event.memo.trim().isNotEmpty) ...[
+            const SizedBox(height: 22),
+            Text('안내', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 9),
+            Text(event.memo, style: const TextStyle(height: 1.7)),
+          ],
           const SizedBox(height: 22),
           Row(
             children: [
@@ -676,7 +678,8 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _title;
   late final TextEditingController _memo;
-  late final TextEditingController _capacity;
+  late bool _hasCapacity;
+  late double _capacity;
   late EventKind _kind;
   late String _place;
   late String _court;
@@ -699,15 +702,19 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     final existing = widget.existing;
     _title = TextEditingController(text: existing?.title ?? '');
     _memo = TextEditingController(text: existing?.memo ?? '');
-    _capacity = TextEditingController(
-      text: existing?.capacity?.toString() ?? '',
-    );
+    _hasCapacity = existing?.capacity != null;
+    _capacity = (existing?.capacity ?? 20).clamp(2, 60).toDouble();
     _kind = existing?.kind ?? EventKind.training;
     _place = existing?.place.trim().isNotEmpty == true
         ? existing!.place
         : _places.first;
     _court = existing?.court ?? 'A코트';
-    _team = existing?.targetTeam ?? '전체';
+    _team = switch (existing?.targetTeam) {
+      'ENCBA 1부' => 'ENCBA',
+      'ENCBA 2부' => 'BEN',
+      final value? => value,
+      _ => '전체',
+    };
     _uniforms = existing?.uniformColors.toSet() ?? <String>{};
     _pollOptions = [
       ...existing?.pollOptions ?? const ['참석', '불참', '미정'],
@@ -725,7 +732,6 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   void dispose() {
     _title.dispose();
     _memo.dispose();
-    _capacity.dispose();
     _pollOption.dispose();
     super.dispose();
   }
@@ -765,6 +771,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
             const SizedBox(height: 12),
             DropdownButtonFormField<EventKind>(
               initialValue: _kind,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: '유형 *'),
               items: EventKind.values
                   .map(
@@ -782,8 +789,9 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               initialValue: _team,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: '공개 대상 *'),
-              items: const ['전체', 'ENCBA', 'BEN', 'ENCBA 1부', 'ENCBA 2부']
+              items: const ['전체', 'ENCBA', 'BEN', '신입생']
                   .map(
                     (value) =>
                         DropdownMenuItem(value: value, child: Text(value)),
@@ -816,6 +824,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               initialValue: _place,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: '장소 *'),
               items: placeOptions
                   .map(
@@ -847,18 +856,51 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
               minLines: 3,
               maxLines: 5,
               decoration: const InputDecoration(
-                labelText: '공지 메모 *',
-                hintText: '집합 시간과 준비물을 적어 주세요.',
+                labelText: '공지 메모',
+                hintText: '필요한 안내가 있을 때만 적어 주세요.',
               ),
-              validator: _required,
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _capacity,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: '인원 제한',
-                hintText: '선택',
+            Material(
+              color: Colors.white,
+              shape: RoundedRectangleBorder(
+                side: const BorderSide(color: EncbaColors.line),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 4, 10, 10),
+                child: Column(
+                  children: [
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      value: _hasCapacity,
+                      title: const Text('인원 제한'),
+                      subtitle: Text(
+                        _hasCapacity ? '${_capacity.round()}명까지' : '제한 없음',
+                      ),
+                      onChanged: (value) =>
+                          setState(() => _hasCapacity = value),
+                    ),
+                    if (_hasCapacity)
+                      Row(
+                        children: [
+                          const Text('2'),
+                          Expanded(
+                            child: Slider(
+                              value: _capacity,
+                              min: 2,
+                              max: 60,
+                              divisions: 58,
+                              label: '${_capacity.round()}명',
+                              onChanged: (value) =>
+                                  setState(() => _capacity = value),
+                            ),
+                          ),
+                          const Text('60'),
+                        ],
+                      ),
+                  ],
+                ),
               ),
             ),
             if (_kind != EventKind.training && _kind != EventKind.morning) ...[
@@ -1054,7 +1096,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       kind: _kind,
       memo: _memo.text.trim(),
       uniformColors: _uniforms.toList(),
-      capacity: int.tryParse(_capacity.text.trim()),
+      capacity: _hasCapacity ? _capacity.round() : null,
       attending: widget.existing?.attending ?? 0,
       targetTeam: _team,
       createdBy: widget.existing?.createdBy ?? '운영진 ${user?.name ?? ''}',
@@ -1254,7 +1296,9 @@ Color _kindColor(EventKind kind) => switch (kind) {
   EventKind.morning => EncbaColors.attending,
   EventKind.internal => EncbaColors.deepBlue,
   EventKind.pickup => EncbaColors.deepBlue,
-  EventKind.ibDivision1 || EventKind.ibDivision2 => const Color(0xFF6D43A6),
+  EventKind.ibDivision1 ||
+  EventKind.ibDivision2 ||
+  EventKind.ibFreshman => const Color(0xFF6D43A6),
   EventKind.scrimmage ||
   EventKind.threeWay ||
   EventKind.external => EncbaColors.absent,

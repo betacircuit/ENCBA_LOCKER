@@ -52,5 +52,5 @@ on conflict (login_name) do update set
   team_codes = excluded.team_codes;
 
 insert into public.app_settings (key, value)
-values ('ib_team_divisions', '{"ENCBA": 1, "BEN": 2}'::jsonb)
+values ('ib_team_divisions', '{"ENCBA": 2, "BEN": 2, "신입생": 2}'::jsonb)
 on conflict (key) do update set value = excluded.value;

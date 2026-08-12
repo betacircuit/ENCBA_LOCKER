@@ -245,7 +245,7 @@ class VideosScreen extends ConsumerWidget {
         .where((item) => item.category == categories[selected])
         .toList();
     return _Page(
-      header: const _Header(eyebrow: 'PLAYBACK', title: '영상 라커'),
+      header: const _Header(eyebrow: 'PLAYBACK', title: 'VIDEOS'),
       children: [
         _SlidingTabBar(
           labels: const ['하이라이트', '복기', '공유'],
@@ -294,7 +294,11 @@ class GamesScreen extends ConsumerWidget {
         ('내부 경기', EventKind.internal),
         ('픽업게임', EventKind.pickup),
       ],
-      1 => const [('1부', EventKind.ibDivision1), ('2부', EventKind.ibDivision2)],
+      1 => const [
+        ('ENCBA', EventKind.ibDivision1),
+        ('BEN', EventKind.ibDivision2),
+        ('신입생', EventKind.ibFreshman),
+      ],
       _ => const [
         ('연습 경기', EventKind.scrimmage),
         ('삼파전', EventKind.threeWay),
@@ -306,7 +310,7 @@ class GamesScreen extends ConsumerWidget {
     }).toList();
     final ibLocked = selected == 1 && _isAcademicBreak(DateTime.now());
     return _Page(
-      header: const _Header(eyebrow: 'GAME DAY', title: '경기'),
+      header: const _Header(eyebrow: 'GAME DAY', title: 'GAME'),
       children: [
         _SlidingTabBar(
           labels: const ['내부', 'IB', '외부'],
@@ -317,12 +321,7 @@ class GamesScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 12),
         _SlidingTabBar(
-          labels: categories
-              .map(
-                (category) =>
-                    '${category.$1}  ${state.events.where((event) => event.kind == category.$2).length}',
-              )
-              .toList(),
+          labels: categories.map((category) => category.$1).toList(),
           selectedIndex: selectedSub,
           onSelected: ref
               .read(lockerControllerProvider.notifier)
@@ -418,7 +417,7 @@ class _SlidingTabBar extends StatelessWidget {
                           AnimatedDefaultTextStyle(
                             duration: motion,
                             style: TextStyle(
-                              fontFamily: 'Jua',
+                              fontFamily: encbaFontFor(entry.value),
                               fontSize: 14,
                               color: selected ? Colors.white : EncbaColors.ink,
                             ),
@@ -449,7 +448,7 @@ class ScheduleScreen extends ConsumerWidget {
     return _Page(
       header: _Header(
         eyebrow: _academicLabel(DateTime.now()),
-        title: '일정',
+        title: 'PLANNER',
         action: canManage
             ? IconButton(
                 tooltip: '일정 추가',
@@ -496,7 +495,7 @@ class ProfileScreen extends ConsumerWidget {
     return _Page(
       header: _Header(
         eyebrow: 'MY LOCKER',
-        title: '개인',
+        title: 'PERSONAL',
         action: IconButton(
           tooltip: '로그아웃',
           onPressed: () => _confirmSignOut(context, ref),
@@ -539,8 +538,8 @@ class ProfileScreen extends ConsumerWidget {
         ),
         _MenuTile(
           icon: Icons.groups_2_outlined,
-          title: '멤버 디렉토리',
-          subtitle: '팀 내부 연락처',
+          title: user.isAdmin ? '계정 및 멤버 관리' : '멤버 디렉토리',
+          subtitle: user.isAdmin ? '활성화 상태와 군 휴학 확인' : '재학·군 휴학 상태 확인',
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const MemberDirectoryScreen()),
@@ -610,8 +609,8 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
           const SizedBox(height: 12),
           SegmentedButton<int>(
             segments: const [
-              ButtonSegment(value: 0, label: Text('YB 재학생')),
-              ButtonSegment(value: 1, label: Text('OB 졸업생')),
+              ButtonSegment(value: 0, label: Text('전체')),
+              ButtonSegment(value: 1, label: Text('군 휴학')),
             ],
             selected: {segment},
             showSelectedIcon: false,
@@ -648,68 +647,77 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
   }
 }
 
-class MemberDetailScreen extends StatelessWidget {
+class MemberDetailScreen extends ConsumerWidget {
   const MemberDetailScreen({super.key, required this.member});
   final MemberProfile member;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('멤버 정보')),
-    body: ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        Center(child: _Avatar(name: member.name, size: 88)),
-        const SizedBox(height: 16),
-        Text(
-          member.name,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.headlineMedium,
-        ),
-        const SizedBox(height: 5),
-        Text(
-          '${member.studentId} · ${member.generation}기 · #${member.jerseyNumber} ${member.position}',
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: EncbaColors.muted),
-        ),
-        const SizedBox(height: 22),
-        Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: const Icon(Icons.groups_2_outlined),
-                title: const Text('소속'),
-                trailing: Text(member.teams.join(' · ')),
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.info_outline),
-                title: const Text('연락 메모'),
-                subtitle: Text(member.note),
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.phone_outlined),
-                title: const Text('전화번호'),
-                subtitle: Text(member.phone),
-              ),
-            ],
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isAdmin = ref.watch(authControllerProvider).user?.isAdmin ?? false;
+    return Scaffold(
+      appBar: AppBar(title: const Text('멤버 정보')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Center(child: _Avatar(name: member.name, size: 88)),
+          const SizedBox(height: 16),
+          Text(
+            member.name,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.headlineMedium,
           ),
-        ),
-        const SizedBox(height: 14),
-        FilledButton.icon(
-          onPressed: () => _launch('sms:${member.phone}'),
-          icon: const Icon(Icons.sms_outlined),
-          label: const Text('문자 보내기'),
-        ),
-        const SizedBox(height: 10),
-        OutlinedButton.icon(
-          onPressed: () => _launch('tel:${member.phone}'),
-          icon: const Icon(Icons.phone_outlined),
-          label: const Text('전화하기'),
-        ),
-      ],
-    ),
-  );
+          const SizedBox(height: 5),
+          Text(
+            member.studentId,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: EncbaColors.muted),
+          ),
+          const SizedBox(height: 22),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(
+                    member.status == 'MILITARY_LEAVE'
+                        ? Icons.military_tech_outlined
+                        : Icons.school_outlined,
+                  ),
+                  title: const Text('상태'),
+                  trailing: Text(
+                    member.status == 'MILITARY_LEAVE' ? '군 휴학' : '재학',
+                  ),
+                ),
+                if (isAdmin && member.id != null) ...[
+                  const Divider(height: 1),
+                  SwitchListTile.adaptive(
+                    value: member.isActive,
+                    secondary: const Icon(Icons.manage_accounts_outlined),
+                    title: const Text('계정 활성화'),
+                    subtitle: Text(member.isActive ? '로그인 가능' : '로그인 차단'),
+                    onChanged: (value) async {
+                      final saved = await ref
+                          .read(lockerControllerProvider.notifier)
+                          .setMemberActive(member, value);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              saved ? '계정 상태를 변경했습니다.' : '변경하지 못했습니다.',
+                            ),
+                          ),
+                        );
+                        if (saved) Navigator.pop(context);
+                      }
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class OperationsScreen extends ConsumerWidget {
@@ -1972,9 +1980,13 @@ class _MemberTile extends StatelessWidget {
       leading: _Avatar(name: member.name, size: 48),
       title: Row(
         children: [
-          Text(
-            member.name,
-            style: const TextStyle(fontWeight: FontWeight.w700),
+          Expanded(
+            child: Text(
+              member.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
           ),
           const SizedBox(width: 7),
           Text(
@@ -1987,12 +1999,15 @@ class _MemberTile extends StatelessWidget {
           ],
         ],
       ),
-      subtitle: Text(
-        '#${member.jerseyNumber} ${member.position} · ${member.teams.join(' / ')} · ${member.note}',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      subtitle: Text(member.status == 'MILITARY_LEAVE' ? '군 휴학' : '재학'),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _SmallBadge(member.isActive ? '활성' : '비활성'),
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_right_rounded),
+        ],
       ),
-      trailing: const Icon(Icons.chevron_right_rounded),
     ),
   );
 }
@@ -2062,7 +2077,7 @@ class _Stat extends StatelessWidget {
       Text(
         value,
         style: const TextStyle(
-          fontFamily: 'Jua',
+          fontFamily: 'BlackHanSans',
           fontSize: 22,
           color: EncbaColors.deepBlue,
         ),
