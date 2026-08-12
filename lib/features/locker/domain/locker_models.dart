@@ -302,6 +302,9 @@ class OperationAssignment {
     required this.end,
     required this.location,
     required this.memo,
+    this.assigneeId,
+    this.assigneeName = '',
+    this.isMine = true,
   });
   final String id;
   final String title;
@@ -309,6 +312,68 @@ class OperationAssignment {
   final DateTime end;
   final String location;
   final String memo;
+  final String? assigneeId;
+  final String assigneeName;
+  final bool isMine;
+
+  LockerEvent toPlannerEvent() => LockerEvent(
+    id: 'operation-$id',
+    title: title,
+    start: start,
+    end: end,
+    place: location.isEmpty ? '장소 미정' : location,
+    kind: EventKind.operations,
+    memo: memo,
+    targetTeam: '개인',
+    createdBy: 'IB 운영표',
+    responseEnabled: false,
+  );
+}
+
+class AttendanceResponse {
+  const AttendanceResponse({
+    required this.profileId,
+    required this.name,
+    required this.choice,
+    required this.respondedAt,
+    this.absenceReason,
+  });
+
+  final String profileId;
+  final String name;
+  final String choice;
+  final String? absenceReason;
+  final DateTime respondedAt;
+}
+
+class OperationSwapRequest {
+  const OperationSwapRequest({
+    required this.id,
+    required this.requesterAssignmentId,
+    required this.targetAssignmentId,
+    required this.incoming,
+    required this.counterpartName,
+    required this.requesterTitle,
+    required this.requesterStartsAt,
+    required this.targetTitle,
+    required this.targetStartsAt,
+    required this.status,
+    required this.message,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String requesterAssignmentId;
+  final String targetAssignmentId;
+  final bool incoming;
+  final String counterpartName;
+  final String requesterTitle;
+  final DateTime requesterStartsAt;
+  final String targetTitle;
+  final DateTime targetStartsAt;
+  final String status;
+  final String message;
+  final DateTime createdAt;
 }
 
 class HomecomingContact {

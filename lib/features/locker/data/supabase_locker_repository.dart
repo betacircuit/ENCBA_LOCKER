@@ -370,10 +370,97 @@ class SupabaseLockerRepository {
             end: DateTime.parse(row['ends_at'] as String).toLocal(),
             location: row['location'] as String? ?? '',
             memo: row['memo'] as String? ?? '',
+            assigneeId: _userId,
+            isMine: true,
           ),
         )
         .toList();
   }
+
+  Future<List<OperationAssignment>> loadOperationExchangeBoard() async {
+    final rows = await _client.rpc('list_operation_exchange_board');
+    return (rows as List<dynamic>)
+        .map((raw) {
+          final row = Map<String, dynamic>.from(raw as Map);
+          return OperationAssignment(
+            id: row['id'] as String,
+            title: row['title'] as String,
+            start: DateTime.parse(row['starts_at'] as String).toLocal(),
+            end: DateTime.parse(row['ends_at'] as String).toLocal(),
+            location: row['location'] as String? ?? '',
+            memo: row['memo'] as String? ?? '',
+            assigneeId: row['assignee_id'] as String?,
+            assigneeName: row['assignee_name'] as String? ?? '',
+            isMine: row['is_mine'] as bool? ?? false,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  Future<List<OperationSwapRequest>> loadOperationSwapRequests() async {
+    final rows = await _client.rpc('list_my_operation_swap_requests');
+    return (rows as List<dynamic>)
+        .map((raw) {
+          final row = Map<String, dynamic>.from(raw as Map);
+          return OperationSwapRequest(
+            id: row['id'] as String,
+            requesterAssignmentId: row['requester_assignment_id'] as String,
+            targetAssignmentId: row['target_assignment_id'] as String,
+            incoming: row['direction'] == 'incoming',
+            counterpartName: row['counterpart_name'] as String,
+            requesterTitle: row['requester_title'] as String,
+            requesterStartsAt: DateTime.parse(
+              row['requester_starts_at'] as String,
+            ).toLocal(),
+            targetTitle: row['target_title'] as String,
+            targetStartsAt: DateTime.parse(
+              row['target_starts_at'] as String,
+            ).toLocal(),
+            status: row['status'] as String,
+            message: row['message'] as String? ?? '',
+            createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
+          );
+        })
+        .toList(growable: false);
+  }
+
+  Future<void> createOperationSwapRequest({
+    required String ownAssignmentId,
+    required String targetAssignmentId,
+    required String message,
+  }) => _client.rpc(
+    'create_operation_swap_request',
+    params: {
+      'requested_own_assignment': ownAssignmentId,
+      'requested_target_assignment': targetAssignmentId,
+      'requested_message': message,
+    },
+  );
+
+  Future<void> respondOperationSwapRequest({
+    required String requestId,
+    required bool accept,
+  }) => _client.rpc(
+    'respond_operation_swap_request',
+    params: {'requested_swap_id': requestId, 'requested_accept': accept},
+  );
+
+  RealtimeChannel subscribeToOperationSwapRequests(
+    void Function(Map<String, dynamic> record) onInsert,
+  ) => _client
+      .channel('encba-operation-swaps-$_userId')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'operation_swap_requests',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'target_id',
+          value: _userId,
+        ),
+        callback: (payload) => onInsert(payload.newRecord),
+      )
+      .subscribe();
 
   Future<({int imported, int unmatched})> importOperations({
     required String fileName,
@@ -555,6 +642,35 @@ class SupabaseLockerRepository {
       'absence_reason': absenceReason,
       'responded_at': DateTime.now().toUtc().toIso8601String(),
     }, onConflict: 'event_id,profile_id');
+  }
+
+  Future<List<AttendanceResponse>> loadEventAttendance(String eventId) async {
+    final rows = await _client
+        .from('event_attendance')
+        .select(
+          'profile_id,choice,absence_reason,responded_at,'
+          'profiles!event_attendance_profile_id_fkey(name,display_name)',
+        )
+        .eq('event_id', eventId)
+        .order('responded_at', ascending: false);
+    return rows
+        .map((raw) {
+          final row = Map<String, dynamic>.from(raw);
+          final profile = row['profiles'] as Map?;
+          return AttendanceResponse(
+            profileId: row['profile_id'] as String,
+            name:
+                profile?['display_name'] as String? ??
+                profile?['name'] as String? ??
+                '부원',
+            choice: row['choice'] as String,
+            absenceReason: row['absence_reason'] as String?,
+            respondedAt: DateTime.parse(
+              row['responded_at'] as String,
+            ).toLocal(),
+          );
+        })
+        .toList(growable: false);
   }
 
   Future<LockerEvent> saveEvent(LockerEvent event) async {

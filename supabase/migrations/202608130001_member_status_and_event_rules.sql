@@ -157,7 +157,8 @@ $$;
 revoke all on function public.can_view_event(text) from public;
 grant execute on function public.can_view_event(text) to authenticated;
 
-create or replace function public.list_member_directory(
+drop function if exists public.list_member_directory(text, text);
+create function public.list_member_directory(
   requested_status text default 'all',
   requested_query text default ''
 )

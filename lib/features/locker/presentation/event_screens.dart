@@ -214,7 +214,7 @@ class EventTicket extends ConsumerWidget {
   }
 }
 
-class EventDetailScreen extends ConsumerWidget {
+class EventDetailScreen extends ConsumerStatefulWidget {
   const EventDetailScreen({
     super.key,
     required this.eventId,
@@ -227,10 +227,36 @@ class EventDetailScreen extends ConsumerWidget {
   final String heroTag;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final events = ref.watch(lockerControllerProvider).events;
+  ConsumerState<EventDetailScreen> createState() => _EventDetailScreenState();
+}
+
+class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.initialEvent.id.startsWith('operation-')) {
+      Future.microtask(
+        () => ref
+            .read(lockerControllerProvider.notifier)
+            .loadEventAttendance(widget.eventId),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final locker = ref.watch(lockerControllerProvider);
+    final events = locker.events;
     final event =
-        events.where((item) => item.id == eventId).firstOrNull ?? initialEvent;
+        events.where((item) => item.id == widget.eventId).firstOrNull ??
+        widget.initialEvent;
+    final absences = (locker.eventAttendance[event.id] ?? const [])
+        .where(
+          (response) =>
+              response.choice == '불참' &&
+              (response.absenceReason?.trim().isNotEmpty ?? false),
+        )
+        .toList(growable: false);
     final isAdmin =
         ref.watch(authControllerProvider).user?.canAdminister ?? false;
     if (event.isLocked) {
@@ -278,7 +304,7 @@ class EventDetailScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('일정 상세'),
         actions: [
-          if (isAdmin)
+          if (isAdmin && event.kind != EventKind.operations)
             IconButton(
               tooltip: '일정 수정',
               onPressed: () => Navigator.of(context).push(
@@ -302,6 +328,47 @@ class EventDetailScreen extends ConsumerWidget {
             Text('안내', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 9),
             Text(event.memo, style: const TextStyle(height: 1.7)),
+          ],
+          if (event.responseEnabled) ...[
+            const SizedBox(height: 22),
+            Text('불참 사유', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 9),
+            if (absences.isEmpty)
+              const Text(
+                '공유된 불참 사유가 없습니다.',
+                style: TextStyle(color: EncbaColors.muted),
+              )
+            else
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: EncbaColors.line),
+                ),
+                child: Column(
+                  children: absences.indexed
+                      .map((entry) {
+                        final response = entry.$2;
+                        return Column(
+                          children: [
+                            if (entry.$1 > 0) const Divider(height: 1),
+                            ListTile(
+                              leading: const CircleAvatar(
+                                backgroundColor: Color(0xFFFFECEA),
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  color: EncbaColors.absent,
+                                ),
+                              ),
+                              title: Text(response.name),
+                              subtitle: Text(response.absenceReason!.trim()),
+                            ),
+                          ],
+                        );
+                      })
+                      .toList(growable: false),
+                ),
+              ),
           ],
           const SizedBox(height: 22),
           Row(
@@ -585,6 +652,11 @@ class AttendanceSelector extends ConsumerWidget {
                           final saved = await ref
                               .read(lockerControllerProvider.notifier)
                               .vote(event.id, choice.$1, absenceReason: reason);
+                          if (saved) {
+                            await ref
+                                .read(lockerControllerProvider.notifier)
+                                .loadEventAttendance(event.id);
+                          }
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -819,351 +891,416 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     final kindOptions = _editableKinds.contains(_kind)
         ? _editableKinds
         : [_kind, ..._editableKinds];
-    return Scaffold(
-      appBar: AppBar(title: Text(editing ? '일정 수정' : '새 일정')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          padding: EdgeInsets.fromLTRB(
-            20,
-            8,
-            20,
-            MediaQuery.viewInsetsOf(context).bottom + 34,
-          ),
+    return PopScope(
+      canPop: !_saving,
+      child: Scaffold(
+        appBar: AppBar(title: Text(editing ? '일정 수정' : '새 일정')),
+        body: Stack(
           children: [
-            const _FormSectionTitle('기본 정보'),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<EventKind>(
-              initialValue: _kind,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: '일정 유형 *',
-                helperText: '선택한 유형이 일정 제목으로 표시됩니다.',
-              ),
-              items: kindOptions
-                  .map(
-                    (kind) =>
-                        DropdownMenuItem(value: kind, child: Text(kind.label)),
-                  )
-                  .toList(),
-              onChanged: (value) => setState(() {
-                _kind = value!;
-                if (!_deadlineCustomized) {
-                  _responseDeadline = _start.subtract(
-                    _kind.isMatch
-                        ? const Duration(hours: 3)
-                        : const Duration(hours: 1),
-                  );
-                }
-                if (_kind != EventKind.training &&
-                    _kind != EventKind.morning &&
-                    _kind != EventKind.freeOpen &&
-                    _uniforms.isEmpty) {
-                  _uniforms = {'검정', '흰색'};
-                }
-              }),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _team,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: '공개 대상 *'),
-              items: const ['전체', 'ENCBA', 'BEN', '신입생']
-                  .map(
-                    (value) =>
-                        DropdownMenuItem(value: value, child: Text(value)),
-                  )
-                  .toList(),
-              onChanged: (value) => _team = value!,
-            ),
-            if (_kind == EventKind.scrimmage ||
-                _kind == EventKind.threeWay) ...[
-              const SizedBox(height: 18),
-              TextFormField(
-                controller: _opponentOne,
-                decoration: InputDecoration(
-                  labelText: _kind == EventKind.threeWay ? '상대팀 1 *' : '상대팀 *',
-                  hintText: 'IB 1부 팀 선택 또는 직접 입력',
+            Form(
+              key: _formKey,
+              child: ListView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  8,
+                  20,
+                  MediaQuery.viewInsetsOf(context).bottom + 34,
                 ),
-                validator: _required,
-              ),
-              const SizedBox(height: 8),
-              _TeamSuggestionStrip(
-                teams: _ibDivisionOneTeams,
-                onSelected: (team) {
-                  _opponentOne.text = team;
-                  setState(() {});
-                },
-              ),
-              if (_kind == EventKind.threeWay) ...[
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _opponentTwo,
-                  decoration: const InputDecoration(
-                    labelText: '상대팀 2 *',
-                    hintText: '두 번째 상대팀 직접 입력',
-                  ),
-                  validator: (value) {
-                    final requiredError = _required(value);
-                    if (requiredError != null) return requiredError;
-                    if (value!.trim() == _opponentOne.text.trim()) {
-                      return '서로 다른 팀을 입력해 주세요.';
-                    }
-                    return null;
-                  },
-                ),
-              ],
-            ],
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _memo,
-              minLines: 2,
-              maxLines: 5,
-              scrollPadding: const EdgeInsets.only(bottom: 160),
-              decoration: const InputDecoration(
-                labelText: '공지 메모',
-                hintText: '필요한 안내가 있을 때만 적어 주세요.',
-              ),
-            ),
-            const SizedBox(height: 24),
-            const _FormSectionTitle('시간과 장소'),
-            const SizedBox(height: 12),
-            SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: false, label: Text('정각')),
-                ButtonSegment(value: true, label: Text('분 설정')),
-              ],
-              selected: {_preciseMinutes},
-              showSelectedIcon: false,
-              onSelectionChanged: (selection) {
-                final precise = selection.first;
-                setState(() {
-                  _preciseMinutes = precise;
-                  if (!precise) {
-                    _start = DateTime(
-                      _start.year,
-                      _start.month,
-                      _start.day,
-                      _start.hour,
-                    );
-                    _end = DateTime(_end.year, _end.month, _end.day, _end.hour);
-                    if (!_deadlineCustomized) {
-                      _responseDeadline = _start.subtract(
-                        _kind.isMatch
-                            ? const Duration(hours: 3)
-                            : const Duration(hours: 1),
-                      );
-                    }
-                  }
-                });
-              },
-            ),
-            const SizedBox(height: 6),
-            Text(
-              _preciseMinutes ? '시와 분을 정합니다.' : '분을 생략하고 정각으로 등록합니다.',
-              style: const TextStyle(color: EncbaColors.muted, fontSize: 12),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _DateTimeButton(
-                    label: '시작',
-                    value: _start,
-                    showMinutes: _preciseMinutes,
-                    onTap: () => _pickDateTime(true),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _DateTimeButton(
-                    label: '종료',
-                    value: _end,
-                    showMinutes: _preciseMinutes,
-                    onTap: () => _pickDateTime(false),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _place,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: '장소 *'),
-              items: placeOptions
-                  .map(
-                    (value) =>
-                        DropdownMenuItem(value: value, child: Text(value)),
-                  )
-                  .toList(),
-              onChanged: (value) => setState(() => _place = value!),
-            ),
-            if (_place == _places.first) ...[
-              const SizedBox(height: 12),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'A코트', label: Text('A코트')),
-                  ButtonSegment(value: 'B코트', label: Text('B코트')),
-                  ButtonSegment(value: '전체', label: Text('전체')),
-                ],
-                selected: {_court},
-                showSelectedIcon: false,
-                onSelectionChanged: (value) =>
-                    setState(() => _court = value.first),
-              ),
-            ],
-            const SizedBox(height: 24),
-            const _FormSectionTitle('운영 설정'),
-            const SizedBox(height: 12),
-            _CapacitySelector(
-              enabled: _hasCapacity,
-              value: _capacity,
-              onEnabledChanged: (value) => setState(() => _hasCapacity = value),
-              onChanged: (value) => setState(() => _capacity = value),
-            ),
-            if (_kind != EventKind.training &&
-                _kind != EventKind.morning &&
-                _kind != EventKind.freeOpen) ...[
-              const SizedBox(height: 14),
-              const Text('유니폼 색 *'),
-              const SizedBox(height: 8),
-              _UniformSelector(
-                selected: _uniformSelection,
-                onSelected: (value) => setState(() {
-                  _uniforms = switch (value) {
-                    '검' => {'검정'},
-                    '흰' => {'흰색'},
-                    _ => {'검정', '흰색'},
-                  };
-                }),
-              ),
-            ],
-            const SizedBox(height: 18),
-            const Text('투표 항목 *'),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 7,
-              runSpacing: 7,
-              children: _pollOptions
-                  .map(
-                    (option) => InputChip(
-                      label: Text(option),
-                      avatar: const Icon(Icons.edit_outlined, size: 15),
-                      onPressed: () => _editPollOption(option),
-                      onDeleted: _pollOptions.length <= 2
-                          ? null
-                          : () => setState(() => _pollOptions.remove(option)),
+                children: [
+                  const _FormSectionTitle('기본 정보'),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<EventKind>(
+                    initialValue: _kind,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: '일정 유형 *',
+                      helperText: '선택한 유형이 일정 제목으로 표시됩니다.',
                     ),
-                  )
-                  .toList(),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _pollOption,
-                    decoration: const InputDecoration(hintText: '새 투표 항목'),
+                    items: kindOptions
+                        .map(
+                          (kind) => DropdownMenuItem(
+                            value: kind,
+                            child: Text(kind.label),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => setState(() {
+                      _kind = value!;
+                      if (!_deadlineCustomized) {
+                        _responseDeadline = _start.subtract(
+                          _kind.isMatch
+                              ? const Duration(hours: 3)
+                              : const Duration(hours: 1),
+                        );
+                      }
+                      if (_kind != EventKind.training &&
+                          _kind != EventKind.morning &&
+                          _kind != EventKind.freeOpen &&
+                          _uniforms.isEmpty) {
+                        _uniforms = {'검정', '흰색'};
+                      }
+                    }),
                   ),
-                ),
-                IconButton(
-                  tooltip: '투표 항목 추가',
-                  onPressed: () {
-                    final value = _pollOption.text.trim();
-                    if (value.isNotEmpty &&
-                        !_pollOptions.contains(value) &&
-                        _pollOptions.length < 8) {
-                      setState(() => _pollOptions.add(value));
-                      _pollOption.clear();
-                    }
-                  },
-                  icon: const Icon(Icons.add_circle_outline_rounded),
-                ),
-              ],
-            ),
-            if (_kind == EventKind.external) ...[
-              const SizedBox(height: 12),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                value: _visibility == 'confirmed_roster',
-                onChanged: (value) => setState(
-                  () => _visibility = value ? 'confirmed_roster' : 'team',
-                ),
-                title: const Text('확정 출전 인원만 상세 공개'),
-                subtitle: const Text('다른 부원에게는 잠긴 경기로 표시합니다.'),
-              ),
-            ],
-            const SizedBox(height: 14),
-            _DateTimeButton(
-              label: '마감 정하기',
-              value: _responseDeadline,
-              onTap: _pickResponseDeadline,
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _deadlineCustomized
-                        ? '직접 정한 마감 시간입니다.'
-                        : _kind.isMatch
-                        ? '기본값 · 경기 시작 3시간 전'
-                        : '기본값 · 일정 시작 1시간 전',
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _team,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: '공개 대상 *'),
+                    items: const ['전체', 'ENCBA', 'BEN', '신입생']
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => _team = value!,
+                  ),
+                  if (_kind == EventKind.scrimmage ||
+                      _kind == EventKind.threeWay) ...[
+                    const SizedBox(height: 18),
+                    TextFormField(
+                      controller: _opponentOne,
+                      decoration: InputDecoration(
+                        labelText: _kind == EventKind.threeWay
+                            ? '상대팀 1 *'
+                            : '상대팀 *',
+                        hintText: 'IB 1부 팀 선택 또는 직접 입력',
+                      ),
+                      validator: _required,
+                    ),
+                    const SizedBox(height: 8),
+                    _TeamSuggestionStrip(
+                      teams: _ibDivisionOneTeams,
+                      onSelected: (team) {
+                        _opponentOne.text = team;
+                        setState(() {});
+                      },
+                    ),
+                    if (_kind == EventKind.threeWay) ...[
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _opponentTwo,
+                        decoration: const InputDecoration(
+                          labelText: '상대팀 2 *',
+                          hintText: '두 번째 상대팀 직접 입력',
+                        ),
+                        validator: (value) {
+                          final requiredError = _required(value);
+                          if (requiredError != null) return requiredError;
+                          if (value!.trim() == _opponentOne.text.trim()) {
+                            return '서로 다른 팀을 입력해 주세요.';
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
+                  ],
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _memo,
+                    minLines: 2,
+                    maxLines: 5,
+                    scrollPadding: const EdgeInsets.only(bottom: 160),
+                    decoration: const InputDecoration(
+                      labelText: '공지 메모',
+                      hintText: '필요한 안내가 있을 때만 적어 주세요.',
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const _FormSectionTitle('시간과 장소'),
+                  const SizedBox(height: 12),
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(value: false, label: Text('정각')),
+                      ButtonSegment(value: true, label: Text('분 설정')),
+                    ],
+                    selected: {_preciseMinutes},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (selection) {
+                      final precise = selection.first;
+                      setState(() {
+                        _preciseMinutes = precise;
+                        if (!precise) {
+                          _start = DateTime(
+                            _start.year,
+                            _start.month,
+                            _start.day,
+                            _start.hour,
+                          );
+                          _end = DateTime(
+                            _end.year,
+                            _end.month,
+                            _end.day,
+                            _end.hour,
+                          );
+                          if (!_deadlineCustomized) {
+                            _responseDeadline = _start.subtract(
+                              _kind.isMatch
+                                  ? const Duration(hours: 3)
+                                  : const Duration(hours: 1),
+                            );
+                          }
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _preciseMinutes ? '시와 분을 정합니다.' : '분을 생략하고 정각으로 등록합니다.',
                     style: const TextStyle(
                       color: EncbaColors.muted,
                       fontSize: 12,
                     ),
                   ),
-                ),
-                if (_deadlineCustomized)
-                  TextButton(
-                    onPressed: () => setState(() {
-                      _deadlineCustomized = false;
-                      _responseDeadline = _start.subtract(
-                        _kind.isMatch
-                            ? const Duration(hours: 3)
-                            : const Duration(hours: 1),
-                      );
-                    }),
-                    child: const Text('기본값'),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DateTimeButton(
+                          label: '시작',
+                          value: _start,
+                          showMinutes: _preciseMinutes,
+                          onTap: () => _pickDateTime(true),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _DateTimeButton(
+                          label: '종료',
+                          value: _end,
+                          showMinutes: _preciseMinutes,
+                          onTap: () => _pickDateTime(false),
+                        ),
+                      ),
+                    ],
                   ),
-              ],
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _recurring,
-              onChanged: _kind == EventKind.training && widget.existing == null
-                  ? (value) => setState(() => _recurring = value)
-                  : null,
-              title: const Text('매주 반복'),
-              subtitle: Text(
-                widget.existing == null
-                    ? '정기훈련 12회를 생성하며 각 일정은 따로 수정할 수 있습니다.'
-                    : '반복 설정은 최초 등록할 때만 선택할 수 있습니다.',
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _place,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: '장소 *'),
+                    items: placeOptions
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => setState(() => _place = value!),
+                  ),
+                  if (_place == _places.first) ...[
+                    const SizedBox(height: 12),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'A코트', label: Text('A코트')),
+                        ButtonSegment(value: 'B코트', label: Text('B코트')),
+                        ButtonSegment(value: '전체', label: Text('전체')),
+                      ],
+                      selected: {_court},
+                      showSelectedIcon: false,
+                      onSelectionChanged: (value) =>
+                          setState(() => _court = value.first),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  const _FormSectionTitle('운영 설정'),
+                  const SizedBox(height: 12),
+                  _CapacitySelector(
+                    enabled: _hasCapacity,
+                    value: _capacity,
+                    onEnabledChanged: (value) =>
+                        setState(() => _hasCapacity = value),
+                    onChanged: (value) => setState(() => _capacity = value),
+                  ),
+                  if (_kind != EventKind.training &&
+                      _kind != EventKind.morning &&
+                      _kind != EventKind.freeOpen) ...[
+                    const SizedBox(height: 14),
+                    const Text('유니폼 색 *'),
+                    const SizedBox(height: 8),
+                    _UniformSelector(
+                      selected: _uniformSelection,
+                      onSelected: (value) => setState(() {
+                        _uniforms = switch (value) {
+                          '검' => {'검정'},
+                          '흰' => {'흰색'},
+                          _ => {'검정', '흰색'},
+                        };
+                      }),
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+                  const Text('투표 항목 *'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 7,
+                    children: _pollOptions
+                        .map(
+                          (option) => InputChip(
+                            label: Text(option),
+                            avatar: const Icon(Icons.edit_outlined, size: 15),
+                            onPressed: () => _editPollOption(option),
+                            onDeleted: _pollOptions.length <= 2
+                                ? null
+                                : () => setState(
+                                    () => _pollOptions.remove(option),
+                                  ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _pollOption,
+                          decoration: const InputDecoration(
+                            hintText: '새 투표 항목',
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '투표 항목 추가',
+                        onPressed: () {
+                          final value = _pollOption.text.trim();
+                          if (value.isNotEmpty &&
+                              !_pollOptions.contains(value) &&
+                              _pollOptions.length < 8) {
+                            setState(() => _pollOptions.add(value));
+                            _pollOption.clear();
+                          }
+                        },
+                        icon: const Icon(Icons.add_circle_outline_rounded),
+                      ),
+                    ],
+                  ),
+                  if (_kind == EventKind.external) ...[
+                    const SizedBox(height: 12),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      value: _visibility == 'confirmed_roster',
+                      onChanged: (value) => setState(
+                        () => _visibility = value ? 'confirmed_roster' : 'team',
+                      ),
+                      title: const Text('확정 출전 인원만 상세 공개'),
+                      subtitle: const Text('다른 부원에게는 잠긴 경기로 표시합니다.'),
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  _DateTimeButton(
+                    label: '마감 정하기',
+                    value: _responseDeadline,
+                    onTap: _pickResponseDeadline,
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _deadlineCustomized
+                              ? '직접 정한 마감 시간입니다.'
+                              : _kind.isMatch
+                              ? '기본값 · 경기 시작 3시간 전'
+                              : '기본값 · 일정 시작 1시간 전',
+                          style: const TextStyle(
+                            color: EncbaColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      if (_deadlineCustomized)
+                        TextButton(
+                          onPressed: () => setState(() {
+                            _deadlineCustomized = false;
+                            _responseDeadline = _start.subtract(
+                              _kind.isMatch
+                                  ? const Duration(hours: 3)
+                                  : const Duration(hours: 1),
+                            );
+                          }),
+                          child: const Text('기본값'),
+                        ),
+                    ],
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: _recurring,
+                    onChanged:
+                        _kind == EventKind.training && widget.existing == null
+                        ? (value) => setState(() => _recurring = value)
+                        : null,
+                    title: const Text('매주 반복'),
+                    subtitle: Text(
+                      widget.existing == null
+                          ? '정기훈련 12회를 생성하며 각 일정은 따로 수정할 수 있습니다.'
+                          : '반복 설정은 최초 등록할 때만 선택할 수 있습니다.',
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  FilledButton(
+                    onPressed: _saving ? null : _save,
+                    child: Text(
+                      _saving
+                          ? '저장 중…'
+                          : editing
+                          ? '변경 내용 저장'
+                          : '일정 등록',
+                    ),
+                  ),
+                  if (editing) ...[
+                    const SizedBox(height: 10),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: EncbaColors.absent,
+                      ),
+                      onPressed: _delete,
+                      child: const Text('일정 삭제'),
+                    ),
+                  ],
+                ],
               ),
             ),
-            const SizedBox(height: 22),
-            FilledButton(
-              onPressed: _saving ? null : _save,
-              child: Text(
-                _saving
-                    ? '저장 중…'
-                    : editing
-                    ? '변경 내용 저장'
-                    : '일정 등록',
-              ),
-            ),
-            if (editing) ...[
-              const SizedBox(height: 10),
-              TextButton(
-                style: TextButton.styleFrom(
-                  foregroundColor: EncbaColors.absent,
+            if (_saving)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Colors.white.withValues(alpha: .88),
+                  child: Center(
+                    child: Semantics(
+                      liveRegion: true,
+                      label: '일정을 등록하는 중입니다',
+                      child: const Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox.square(
+                            dimension: 42,
+                            child: CircularProgressIndicator(strokeWidth: 3),
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            '일정을 등록하는 중입니다',
+                            style: TextStyle(
+                              fontFamily: 'Jua',
+                              fontSize: 20,
+                              color: EncbaColors.navy,
+                            ),
+                          ),
+                          SizedBox(height: 5),
+                          Text(
+                            '잠시만 기다려 주세요.',
+                            style: TextStyle(color: EncbaColors.muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-                onPressed: _delete,
-                child: const Text('일정 삭제'),
               ),
-            ],
           ],
         ),
       ),
@@ -1346,9 +1483,25 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
         .saveEvent(event);
     if (!mounted) return;
     if (saved) {
-      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.existing == null ? '일정이 등록되었습니다.' : '일정이 수정되었습니다.',
+          ),
+        ),
+      );
+      Navigator.pop(context, true);
     } else {
       setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.existing == null
+                ? '일정 등록에 실패했습니다. 잠시 후 다시 시도해 주세요.'
+                : '일정 수정에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+          ),
+        ),
+      );
     }
   }
 

@@ -1,5 +1,6 @@
 import 'package:encba_locker/core/config/app_config.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:encba_locker/core/routing/app_router.dart';
@@ -26,6 +27,9 @@ class _ConfigurationMissingApp extends StatelessWidget {
     title: 'ENCBA LOCKER',
     theme: AppTheme.lightTheme,
     debugShowCheckedModeBanner: false,
+    locale: const Locale('ko', 'KR'),
+    supportedLocales: const [Locale('ko', 'KR')],
+    localizationsDelegates: GlobalMaterialLocalizations.delegates,
     home: const Scaffold(
       body: Center(
         child: Padding(
@@ -51,6 +55,9 @@ class EncbaLockerApp extends StatelessWidget {
         theme: AppTheme.lightTheme,
         routerConfig: appRouter,
         debugShowCheckedModeBanner: false,
+        locale: const Locale('ko', 'KR'),
+        supportedLocales: const [Locale('ko', 'KR')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         builder: (context, child) {
           if (child == null) return const SizedBox.shrink();
           final fontSafeChild = DefaultTextStyle.merge(

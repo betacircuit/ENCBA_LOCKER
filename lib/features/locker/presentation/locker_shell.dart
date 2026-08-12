@@ -150,7 +150,7 @@ class HomeScreen extends ConsumerWidget {
     final state = ref.watch(lockerControllerProvider);
     final user = ref.watch(authControllerProvider).user!;
     final canManageSchedule = user.canAdminister;
-    final events = [...state.events]
+    final events = [...state.plannerEvents]
       ..sort((a, b) => a.start.compareTo(b.start));
     final upcoming = events
         .where((event) => event.end.isAfter(DateTime.now()))
@@ -207,6 +207,14 @@ class HomeScreen extends ConsumerWidget {
                 openEventDetail(context, nextEvent, heroTagPrefix: 'home'),
           ),
         const SizedBox(height: 22),
+        _TodayReadinessCard(
+          event: nextEvent,
+          attendance: nextEvent == null ? null : state.attendance[nextEvent.id],
+          hasOperationToday: state.operations.any(
+            (item) => DateUtils.isSameDay(item.start, DateTime.now()),
+          ),
+        ),
+        const SizedBox(height: 22),
         _SectionHeader(
           title: '공지',
           action: user.canAdminister ? '새 공지' : null,
@@ -240,6 +248,109 @@ class HomeScreen extends ConsumerWidget {
       ],
     );
   }
+}
+
+class _TodayReadinessCard extends StatelessWidget {
+  const _TodayReadinessCard({
+    required this.event,
+    required this.attendance,
+    required this.hasOperationToday,
+  });
+
+  final LockerEvent? event;
+  final String? attendance;
+  final bool hasOperationToday;
+
+  @override
+  Widget build(BuildContext context) {
+    final current = event;
+    final responseReady =
+        current == null ||
+        !current.responseEnabled ||
+        (attendance != null && attendance != '미정');
+    final uniformReady =
+        current == null ||
+        !current.kind.isBattle ||
+        current.uniformColors.isNotEmpty;
+    final readyCount = [
+      responseReady,
+      uniformReady,
+      true,
+    ].where((ready) => ready).length;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: EncbaColors.navy,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                '오늘의 준비 상태',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontFamily: 'Jua',
+                  fontSize: 22,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '$readyCount / 3',
+                style: const TextStyle(
+                  color: Color(0xFFAFC9F0),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _ReadinessLine(
+            ready: responseReady,
+            text: current == null
+                ? '오늘 이후 일정 확인 완료'
+                : responseReady
+                ? '참석 응답 완료'
+                : '참석 여부를 정해 주세요',
+          ),
+          _ReadinessLine(
+            ready: uniformReady,
+            text: uniformReady ? '유니폼 확인 완료' : '유니폼 색을 확인해 주세요',
+          ),
+          _ReadinessLine(
+            ready: true,
+            text: hasOperationToday ? '오늘 IB 운영 배정이 있습니다' : '오늘 IB 운영 없음',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReadinessLine extends StatelessWidget {
+  const _ReadinessLine({required this.ready, required this.text});
+  final bool ready;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 7),
+    child: Row(
+      children: [
+        Icon(
+          ready ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+          color: ready ? const Color(0xFF78D9A5) : const Color(0xFFFFC26B),
+          size: 19,
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(text, style: const TextStyle(color: Colors.white)),
+        ),
+      ],
+    ),
+  );
 }
 
 class VideosScreen extends ConsumerStatefulWidget {
@@ -509,7 +620,7 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
   @override
   Widget build(BuildContext context) {
     final locker = ref.watch(lockerControllerProvider);
-    final allEvents = [...locker.events]
+    final allEvents = [...locker.plannerEvents]
       ..sort((a, b) => a.start.compareTo(b.start));
     final user = ref.watch(authControllerProvider).user!;
     final today = DateUtils.dateOnly(DateTime.now());
@@ -636,7 +747,7 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
 
   void _selectDate(DateTime date) {
     final today = DateUtils.dateOnly(DateTime.now());
-    final events = [...ref.read(lockerControllerProvider).events]
+    final events = [...ref.read(lockerControllerProvider).plannerEvents]
       ..sort((a, b) => a.start.compareTo(b.start));
     final futureEvents = events
         .where((event) => !DateUtils.dateOnly(event.start).isBefore(today))
@@ -778,6 +889,15 @@ class ProfileScreen extends ConsumerWidget {
           ),
         ),
         _MenuTile(
+          icon: Icons.bug_report_outlined,
+          title: '오류 제보',
+          subtitle: '발생한 문제를 개발자에게 보내기',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const BugReportScreen()),
+          ),
+        ),
+        _MenuTile(
           icon: Icons.assignment_outlined,
           title: 'IB 운영 일정',
           subtitle: '학기 초 업로드된 엑셀 기준',
@@ -844,6 +964,125 @@ class ProfileScreen extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class BugReportScreen extends ConsumerStatefulWidget {
+  const BugReportScreen({super.key});
+
+  @override
+  ConsumerState<BugReportScreen> createState() => _BugReportScreenState();
+}
+
+class _BugReportScreenState extends ConsumerState<BugReportScreen> {
+  final _controller = TextEditingController();
+  bool _opening = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('오류 제보')),
+    resizeToAvoidBottomInset: true,
+    body: SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          12,
+          20,
+          MediaQuery.viewInsetsOf(context).bottom + 20,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              '어떤 문제가 있었나요?',
+              style: TextStyle(
+                fontFamily: 'Jua',
+                fontSize: 27,
+                color: EncbaColors.navy,
+              ),
+            ),
+            const SizedBox(height: 7),
+            const Text(
+              '작성자와 실행 환경은 메일 본문에 자동으로 포함됩니다.',
+              style: TextStyle(color: EncbaColors.muted),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                autofocus: true,
+                expands: true,
+                minLines: null,
+                maxLines: null,
+                textAlignVertical: TextAlignVertical.top,
+                scrollPadding: const EdgeInsets.only(bottom: 120),
+                decoration: const InputDecoration(
+                  hintText: '오류가 난 화면과 직전에 한 행동을 적어 주세요.',
+                  alignLabelWithHint: true,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: _opening ? null : _openMail,
+              icon: _opening
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.mail_outline_rounded),
+              label: Text(_opening ? '메일 앱을 여는 중…' : '오류 제보 메일 열기'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _openMail() async {
+    final report = _controller.text.trim();
+    if (report.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('오류 내용을 입력해 주세요.')));
+      return;
+    }
+    setState(() => _opening = true);
+    final user = ref.read(authControllerProvider).user;
+    final body =
+        '''작성자: ${user?.visibleName ?? '확인 불가'}
+학번: ${user?.studentId ?? '확인 불가'}
+계정: ${user?.email ?? '확인 불가'}
+실행 환경: ${kIsWeb ? '웹' : defaultTargetPlatform.name}
+
+[오류 내용]
+$report''';
+    final uri = Uri(
+      scheme: 'mailto',
+      path: 'legojmon@snu.ac.kr',
+      queryParameters: {'subject': 'ENCBA LOCKER 오류 제보', 'body': body},
+    );
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!mounted) return;
+    setState(() => _opening = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          opened
+              ? '메일 내용을 채웠습니다. 확인 후 보내 주세요.'
+              : '메일 앱을 열지 못했습니다. legojmon@snu.ac.kr로 보내 주세요.',
+        ),
+      ),
     );
   }
 }
@@ -1318,8 +1557,23 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
   bool _importing = false;
 
   @override
+  void initState() {
+    super.initState();
+    Future.microtask(
+      () => ref.read(lockerControllerProvider.notifier).refreshOperationSwaps(),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final operations = ref.watch(lockerControllerProvider).operations;
+    final locker = ref.watch(lockerControllerProvider);
+    final operations = locker.operations;
+    final pendingRequests = locker.operationSwapRequests
+        .where((request) => request.status == 'pending')
+        .toList(growable: false);
+    final exchangeTargets = locker.operationExchangeBoard
+        .where((assignment) => !assignment.isMine)
+        .toList(growable: false);
     final isAdmin =
         ref.watch(authControllerProvider).user?.leadershipRole == 'admin';
     return Scaffold(
@@ -1342,6 +1596,19 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
+          if (pendingRequests.isNotEmpty) ...[
+            const Text(
+              '교환 요청',
+              style: TextStyle(
+                fontFamily: 'Jua',
+                fontSize: 27,
+                color: EncbaColors.navy,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...pendingRequests.map(_swapRequestCard),
+            const SizedBox(height: 24),
+          ],
           const Text(
             '내가 맡은 일',
             style: TextStyle(
@@ -1365,7 +1632,209 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
                 onTap: () => _showTask(context, item.memo),
               ),
             ),
+          const SizedBox(height: 28),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '교환 가능한 운영',
+                  style: TextStyle(
+                    fontFamily: 'Jua',
+                    fontSize: 27,
+                    color: EncbaColors.navy,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: '새로고침',
+                onPressed: () => ref
+                    .read(lockerControllerProvider.notifier)
+                    .refreshOperationSwaps(),
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '상대 일정을 고른 뒤 내 일정과 맞교환을 신청합니다.',
+            style: TextStyle(color: EncbaColors.muted),
+          ),
+          const SizedBox(height: 12),
+          if (exchangeTargets.isEmpty)
+            const _EmptyState(
+              icon: Icons.swap_horiz_rounded,
+              title: '교환 가능한 운영 일정이 없습니다',
+            )
+          else
+            ...exchangeTargets
+                .take(40)
+                .map(
+                  (item) => _TaskTile(
+                    date: '${item.start.month}.${item.start.day}',
+                    title: '${item.title} · ${item.assigneeName}',
+                    place: '${time(item.start)} · ${item.location}',
+                    onTap: () => _requestSwap(item),
+                  ),
+                ),
         ],
+      ),
+    );
+  }
+
+  Widget _swapRequestCard(OperationSwapRequest request) => Container(
+    margin: const EdgeInsets.only(bottom: 10),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: request.incoming ? const Color(0xFFFFF5DF) : Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: EncbaColors.line),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          request.incoming
+              ? '${request.counterpartName}님의 교환 신청'
+              : '${request.counterpartName}님에게 보낸 신청',
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+        ),
+        const SizedBox(height: 7),
+        Text(
+          '${request.requesterTitle} ↔ ${request.targetTitle}',
+          style: const TextStyle(color: EncbaColors.navy),
+        ),
+        if (request.message.isNotEmpty) ...[
+          const SizedBox(height: 5),
+          Text(request.message),
+        ],
+        if (request.incoming) ...[
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _respondSwap(request, false),
+                  child: const Text('거절'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton(
+                  onPressed: () => _respondSwap(request, true),
+                  child: const Text('교환 수락'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    ),
+  );
+
+  Future<void> _requestSwap(OperationAssignment target) async {
+    final own = ref.read(lockerControllerProvider).operations;
+    if (own.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('교환할 내 운영 일정이 없습니다.')));
+      return;
+    }
+    var selectedId = own.first.id;
+    final message = TextEditingController();
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('IB 운영 교환 신청'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${target.assigneeName} · ${target.start.month}.${target.start.day} ${time(target.start)}',
+                ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: '교환할 내 일정'),
+                  items: own
+                      .map(
+                        (item) => DropdownMenuItem(
+                          value: item.id,
+                          child: Text(
+                            '${item.start.month}.${item.start.day} ${time(item.start)} · ${item.title}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) =>
+                      setDialogState(() => selectedId = value!),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: message,
+                  maxLength: 300,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: '메시지',
+                    hintText: '교환을 부탁하는 이유를 적어 주세요. (선택)',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('신청 보내기'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) {
+      message.dispose();
+      return;
+    }
+    final typedMessage = message.text.trim();
+    message.dispose();
+    if (approved != true) return;
+    final saved = await ref
+        .read(lockerControllerProvider.notifier)
+        .requestOperationSwap(
+          ownAssignmentId: selectedId,
+          targetAssignmentId: target.id,
+          message: typedMessage,
+        );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(saved ? 'IB 운영 교환 신청을 보냈습니다.' : '교환 신청을 보내지 못했습니다.'),
+      ),
+    );
+  }
+
+  Future<void> _respondSwap(OperationSwapRequest request, bool accept) async {
+    final saved = await ref
+        .read(lockerControllerProvider.notifier)
+        .respondOperationSwap(requestId: request.id, accept: accept);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          saved
+              ? accept
+                    ? 'IB 운영 일정이 교환되었습니다.'
+                    : '교환 요청을 거절했습니다.'
+              : '교환 응답을 저장하지 못했습니다.',
+        ),
       ),
     );
   }

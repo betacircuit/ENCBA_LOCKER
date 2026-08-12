@@ -31,6 +31,9 @@ class LockerState {
     this.homecomingCampaign,
     this.videoWatchSummaries = const {},
     this.eventRosters = const {},
+    this.eventAttendance = const {},
+    this.operationExchangeBoard = const [],
+    this.operationSwapRequests = const [],
     this.auditEntries = const [],
     this.attendanceRates = const AttendanceRates(),
     this.hasMoreEvents = false,
@@ -58,12 +61,23 @@ class LockerState {
   final HomecomingCampaign? homecomingCampaign;
   final Map<String, List<VideoWatchSummary>> videoWatchSummaries;
   final Map<String, List<EventRosterMember>> eventRosters;
+  final Map<String, List<AttendanceResponse>> eventAttendance;
+  final List<OperationAssignment> operationExchangeBoard;
+  final List<OperationSwapRequest> operationSwapRequests;
   final List<AuditEntry> auditEntries;
   final AttendanceRates attendanceRates;
   final bool hasMoreEvents;
   final bool isLoadingMoreEvents;
   final bool isOfflineCache;
   final String? error;
+
+  List<LockerEvent> get plannerEvents {
+    final merged = <LockerEvent>[
+      ...events,
+      ...operations.map((assignment) => assignment.toPlannerEvent()),
+    ]..sort((a, b) => a.start.compareTo(b.start));
+    return merged;
+  }
 
   LockerState copyWith({
     bool? isReady,
@@ -86,6 +100,9 @@ class LockerState {
     bool clearHomecomingCampaign = false,
     Map<String, List<VideoWatchSummary>>? videoWatchSummaries,
     Map<String, List<EventRosterMember>>? eventRosters,
+    Map<String, List<AttendanceResponse>>? eventAttendance,
+    List<OperationAssignment>? operationExchangeBoard,
+    List<OperationSwapRequest>? operationSwapRequests,
     List<AuditEntry>? auditEntries,
     AttendanceRates? attendanceRates,
     bool? hasMoreEvents,
@@ -115,6 +132,10 @@ class LockerState {
         : homecomingCampaign ?? this.homecomingCampaign,
     videoWatchSummaries: videoWatchSummaries ?? this.videoWatchSummaries,
     eventRosters: eventRosters ?? this.eventRosters,
+    eventAttendance: eventAttendance ?? this.eventAttendance,
+    operationExchangeBoard:
+        operationExchangeBoard ?? this.operationExchangeBoard,
+    operationSwapRequests: operationSwapRequests ?? this.operationSwapRequests,
     auditEntries: auditEntries ?? this.auditEntries,
     attendanceRates: attendanceRates ?? this.attendanceRates,
     hasMoreEvents: hasMoreEvents ?? this.hasMoreEvents,
@@ -142,6 +163,7 @@ class LockerController extends StateNotifier<LockerState> {
 
   final SupabaseLockerRepository? _repository;
   RealtimeChannel? _announcementChannel;
+  RealtimeChannel? _operationSwapChannel;
   Timer? _undecidedReminderTimer;
   static const _reminderStoreKey = 'encba.undecided-reminders.v1';
 
@@ -171,6 +193,14 @@ class LockerController extends StateNotifier<LockerState> {
         _orDefault(repository.loadAuditLogs(), const <AuditEntry>[]),
         _orDefault(repository.loadActiveHomecomingCampaign(), null),
         _orDefault(repository.loadAttendanceRates(), const AttendanceRates()),
+        _orDefault(
+          repository.loadOperationExchangeBoard(),
+          const <OperationAssignment>[],
+        ),
+        _orDefault(
+          repository.loadOperationSwapRequests(),
+          const <OperationSwapRequest>[],
+        ),
       ]);
       state = state.copyWith(
         members: result[0] as List<MemberProfile>,
@@ -180,6 +210,8 @@ class LockerController extends StateNotifier<LockerState> {
         auditEntries: result[4] as List<AuditEntry>,
         homecomingCampaign: result[5] as HomecomingCampaign?,
         attendanceRates: result[6] as AttendanceRates,
+        operationExchangeBoard: result[7] as List<OperationAssignment>,
+        operationSwapRequests: result[8] as List<OperationSwapRequest>,
       );
       unawaited(_scheduleUndecidedReminder());
       _announcementChannel ??= repository.subscribeToAnnouncements((record) {
@@ -203,6 +235,20 @@ class LockerController extends StateNotifier<LockerState> {
           WebNotificationService().show(announcement.title, announcement.body),
         );
       });
+      _operationSwapChannel ??= repository.subscribeToOperationSwapRequests((
+        record,
+      ) {
+        state = state.copyWith(
+          unreadNotifications: state.unreadNotifications + 1,
+        );
+        unawaited(
+          WebNotificationService().show(
+            'IB 운영 교환 신청이 왔습니다',
+            'PERSONAL의 IB 운영 일정에서 요청을 확인해 주세요.',
+          ),
+        );
+        unawaited(refreshOperationSwaps());
+      });
     } on Object catch (error, stackTrace) {
       debugPrint('ENCBA data sync failed: $error\n$stackTrace');
       state = state.copyWith(
@@ -219,6 +265,10 @@ class LockerController extends StateNotifier<LockerState> {
     _undecidedReminderTimer?.cancel();
     final channel = _announcementChannel;
     if (channel != null) _repository?.unsubscribe(channel);
+    final operationSwapChannel = _operationSwapChannel;
+    if (operationSwapChannel != null) {
+      _repository?.unsubscribe(operationSwapChannel);
+    }
     super.dispose();
   }
 
@@ -416,12 +466,95 @@ class LockerController extends StateNotifier<LockerState> {
         assignments: assignments,
       );
       final operations = await repository.loadOperations();
-      state = state.copyWith(operations: operations, clearError: true);
+      final board = await repository.loadOperationExchangeBoard();
+      state = state.copyWith(
+        operations: operations,
+        operationExchangeBoard: board,
+        clearError: true,
+      );
       return result;
     } on Object catch (error, stackTrace) {
       debugPrint('ENCBA operation import failed: $error\n$stackTrace');
       state = state.copyWith(error: 'IB 운영표를 가져오지 못했습니다.');
       return null;
+    }
+  }
+
+  Future<void> loadEventAttendance(String eventId) async {
+    final repository = _repository;
+    if (repository == null) return;
+    try {
+      final responses = await repository.loadEventAttendance(eventId);
+      state = state.copyWith(
+        eventAttendance: {...state.eventAttendance, eventId: responses},
+        clearError: true,
+      );
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA attendance detail failed: $error\n$stackTrace');
+      state = state.copyWith(error: '참석 현황을 불러오지 못했습니다.');
+    }
+  }
+
+  Future<void> refreshOperationSwaps() async {
+    final repository = _repository;
+    if (repository == null) return;
+    try {
+      final result = await Future.wait([
+        repository.loadOperations(),
+        repository.loadOperationExchangeBoard(),
+        repository.loadOperationSwapRequests(),
+      ]);
+      state = state.copyWith(
+        operations: result[0] as List<OperationAssignment>,
+        operationExchangeBoard: result[1] as List<OperationAssignment>,
+        operationSwapRequests: result[2] as List<OperationSwapRequest>,
+        clearError: true,
+      );
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA operation swap refresh failed: $error\n$stackTrace');
+      state = state.copyWith(error: 'IB 운영 교환 정보를 불러오지 못했습니다.');
+    }
+  }
+
+  Future<bool> requestOperationSwap({
+    required String ownAssignmentId,
+    required String targetAssignmentId,
+    required String message,
+  }) async {
+    final repository = _repository;
+    if (repository == null) return false;
+    try {
+      await repository.createOperationSwapRequest(
+        ownAssignmentId: ownAssignmentId,
+        targetAssignmentId: targetAssignmentId,
+        message: message,
+      );
+      await refreshOperationSwaps();
+      return true;
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA operation swap request failed: $error\n$stackTrace');
+      state = state.copyWith(error: 'IB 운영 교환 신청을 보내지 못했습니다.');
+      return false;
+    }
+  }
+
+  Future<bool> respondOperationSwap({
+    required String requestId,
+    required bool accept,
+  }) async {
+    final repository = _repository;
+    if (repository == null) return false;
+    try {
+      await repository.respondOperationSwapRequest(
+        requestId: requestId,
+        accept: accept,
+      );
+      await refreshOperationSwaps();
+      return true;
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA operation swap response failed: $error\n$stackTrace');
+      state = state.copyWith(error: 'IB 운영 교환 응답을 저장하지 못했습니다.');
+      return false;
     }
   }
 
