@@ -31,14 +31,21 @@ class SupabaseLockerRepository {
       _client.auth.currentUser?.id ?? (throw StateError('로그인이 필요합니다.'));
 
   Future<LockerSnapshot> load() async {
+    final now = DateTime.now();
+    final todayStartsAt = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).toUtc().toIso8601String();
     try {
       final result = await Future.wait<dynamic>([
         _client
             .from('events')
             .select('*,places(name),profiles!events_created_by_fkey(name)')
-            .gte('ends_at', DateTime.now().toUtc().toIso8601String())
+            .gte('starts_at', todayStartsAt)
             .isFilter('cancelled_at', null)
             .order('starts_at')
+            .order('id')
             .limit(300)
             .then<dynamic>((value) => value),
         _client
@@ -48,8 +55,9 @@ class SupabaseLockerRepository {
             .then<dynamic>((value) => value),
         _client
             .from('videos')
-            .select('*,profiles!videos_uploaded_by_fkey(name)')
+            .select('*,profiles!videos_uploaded_by_fkey(name,display_name)')
             .order('created_at', ascending: false)
+            .order('id')
             .limit(200)
             .then<dynamic>((value) => value),
         _client
@@ -551,7 +559,7 @@ class SupabaseLockerRepository {
           'title': video.title,
           'category': _videoCategoryToDatabase(video.category),
           'source_url': video.url,
-          'youtube_id': video.youtubeId,
+          'youtube_id': video.youtubeId.isEmpty ? null : video.youtubeId,
           'source_type': video.sourceType,
           'quarter_1_url': video.quarterUrls.elementAtOrNull(0),
           'quarter_2_url': video.quarterUrls.elementAtOrNull(1),
@@ -560,7 +568,7 @@ class SupabaseLockerRepository {
           'duration_seconds': _durationToSeconds(video.durationLabel),
           'uploaded_by': _userId,
         })
-        .select('*,profiles!videos_uploaded_by_fkey(name)')
+        .select('*,profiles!videos_uploaded_by_fkey(name,display_name)')
         .single();
     return _videoFromRow(row);
   }
@@ -756,7 +764,10 @@ class SupabaseLockerRepository {
       url: row['source_url'] as String,
       youtubeId: row['youtube_id'] as String? ?? '',
       uploadedAt: DateTime.parse(row['created_at'] as String).toLocal(),
-      uploader: uploader?['name'] as String? ?? 'ENCBA',
+      uploader:
+          uploader?['display_name'] as String? ??
+          uploader?['name'] as String? ??
+          'ENCBA',
       accent: 0xFF00539B,
       likeCount: row['like_count'] as int? ?? 0,
       sourceType: row['source_type'] as String? ?? 'youtube',

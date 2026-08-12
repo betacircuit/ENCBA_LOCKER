@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
@@ -464,6 +465,14 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
   DateTime _visibleMonth = DateTime(DateTime.now().year, DateTime.now().month);
   bool _calendarOpen = false;
   int _visibleCount = 10;
+  final ScrollController _scrollController = ScrollController();
+  final Map<String, GlobalKey> _dayKeys = {};
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -471,17 +480,11 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
       ..sort((a, b) => a.start.compareTo(b.start));
     final user = ref.watch(authControllerProvider).user!;
     final today = DateUtils.dateOnly(DateTime.now());
-    final filtered = allEvents.where((event) {
-      if (_selectedDate != null) {
-        return DateUtils.isSameDay(event.start, _selectedDate);
-      }
-      return !DateUtils.dateOnly(event.start).isBefore(today);
-    }).toList();
-    final visible = filtered.take(_visibleCount).toList();
-    final canLoadMore = visible.length < filtered.length;
-    final title = _selectedDate == null
-        ? '오늘 이후 일정'
-        : '${_selectedDate!.month}월 ${_selectedDate!.day}일 일정';
+    final futureEvents = allEvents
+        .where((event) => !DateUtils.dateOnly(event.start).isBefore(today))
+        .toList();
+    final visible = futureEvents.take(_visibleCount).toList();
+    final canLoadMore = visible.length < futureEvents.length;
 
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
@@ -493,6 +496,8 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
         return false;
       },
       child: _Page(
+        controller: _scrollController,
+        scrollKey: const ValueKey('planner-scroll'),
         header: _Header(
           eyebrow: _academicLabel(DateTime.now()),
           title: 'PLANNER',
@@ -537,44 +542,45 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                     onSelected: _selectDate,
                   ),
           ),
-          if (_selectedDate != null) ...[
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: () => setState(() {
-                  _selectedDate = null;
-                  _visibleCount = 10;
-                }),
-                icon: const Icon(Icons.close_rounded, size: 17),
-                label: const Text('날짜 필터 해제'),
-              ),
-            ),
-          ],
           const SizedBox(height: 20),
-          _SectionHeader(title: '$title ${filtered.length}'),
+          _SectionHeader(title: '오늘 이후 일정 ${futureEvents.length}'),
           const SizedBox(height: 11),
           if (visible.isEmpty)
             const _EmptyState(
               icon: Icons.event_available_outlined,
-              title: '이 날짜에는 일정이 없습니다',
+              title: '예정된 일정이 없습니다',
             )
           else
-            ...visible.map(
-              (event) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: EventTicket(
-                  event: event,
-                  heroTag: 'schedule-${event.id}',
-                  compact: true,
-                  onTap: () => openEventDetail(
-                    context,
-                    event,
-                    heroTagPrefix: 'schedule',
+            ...visible.indexed.expand((entry) {
+              final index = entry.$1;
+              final event = entry.$2;
+              final startsNewDay =
+                  index == 0 ||
+                  !DateUtils.isSameDay(visible[index - 1].start, event.start);
+              return [
+                if (startsNewDay)
+                  _PlannerDayHeader(
+                    key: _dayKeys.putIfAbsent(
+                      _dayId(event.start),
+                      GlobalKey.new,
+                    ),
+                    date: event.start,
+                  ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: EventTicket(
+                    event: event,
+                    heroTag: 'schedule-${event.id}',
+                    compact: true,
+                    onTap: () => openEventDetail(
+                      context,
+                      event,
+                      heroTagPrefix: 'schedule',
+                    ),
                   ),
                 ),
-              ),
-            ),
+              ];
+            }),
           if (canLoadMore)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 18),
@@ -586,11 +592,59 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
   }
 
   void _selectDate(DateTime date) {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final events = [...ref.read(lockerControllerProvider).events]
+      ..sort((a, b) => a.start.compareTo(b.start));
+    final futureEvents = events
+        .where((event) => !DateUtils.dateOnly(event.start).isBefore(today))
+        .toList();
+    final targetIndex = futureEvents.indexWhere(
+      (event) => DateUtils.isSameDay(event.start, date),
+    );
     setState(() {
       _selectedDate = DateUtils.dateOnly(date);
       _visibleMonth = DateTime(date.year, date.month);
-      _visibleCount = 10;
+      if (targetIndex >= 0) {
+        _visibleCount = math.max(_visibleCount, ((targetIndex ~/ 10) + 1) * 10);
+      }
     });
+    if (targetIndex < 0) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('이 날짜에는 일정이 없습니다.')));
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_scrollToDate(date, targetIndex, futureEvents.length));
+    });
+  }
+
+  Future<void> _scrollToDate(
+    DateTime date,
+    int targetIndex,
+    int eventCount,
+  ) async {
+    if (!mounted || !_scrollController.hasClients) return;
+    var target = _dayKeys[_dayId(date)]?.currentContext;
+    if (target == null) {
+      final position = _scrollController.position;
+      final ratio = eventCount <= 1 ? 0.0 : targetIndex / (eventCount - 1);
+      await _scrollController.animateTo(
+        position.maxScrollExtent * ratio,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      target = _dayKeys[_dayId(date)]?.currentContext;
+    }
+    if (target == null || !target.mounted) return;
+    await Scrollable.ensureVisible(
+      target,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+      alignment: .04,
+    );
   }
 }
 
@@ -1508,13 +1562,22 @@ class AuditLogScreen extends ConsumerWidget {
 }
 
 class _Page extends StatelessWidget {
-  const _Page({required this.header, required this.children});
+  const _Page({
+    required this.header,
+    required this.children,
+    this.controller,
+    this.scrollKey,
+  });
   final Widget header;
   final List<Widget> children;
+  final ScrollController? controller;
+  final Key? scrollKey;
   @override
   Widget build(BuildContext context) => SafeArea(
     bottom: false,
     child: ListView(
+      key: scrollKey,
+      controller: controller,
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
       children: [header, const SizedBox(height: 22), ...children],
     ),
@@ -1742,17 +1805,26 @@ class _VideoThumbnail extends StatelessWidget {
         ),
       ),
     );
-    if (video.youtubeId.isEmpty) {
-      return fallback();
-    }
-    final thumbnail = YoutubePlayerController.getThumbnail(
-      videoId: video.youtubeId,
-      quality: ThumbnailQuality.high,
-      format: ThumbnailFormat.webp,
+    final thumbnail = _videoThumbnailUrl(
+      youtubeId: video.youtubeId,
+      sourceUrl: video.url,
+      sourceType: video.sourceType,
     );
+    final asset = _instagramThumbnailAsset(video.url);
+    if (asset != null) {
+      return Image.asset(
+        asset,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.medium,
+      );
+    }
+    if (thumbnail == null) return fallback();
     return Image.network(
       thumbnail,
       fit: BoxFit.cover,
+      filterQuality: FilterQuality.medium,
+      loadingBuilder: (context, child, progress) =>
+          progress == null ? child : fallback(),
       errorBuilder: (_, _, _) => fallback(),
     );
   }
@@ -2161,6 +2233,45 @@ String _academicLabel(DateTime date) {
   if (monthDay >= 301 && monthDay <= 615) return '${date.year} · 1학기';
   if (monthDay >= 901 && monthDay <= 1214) return '${date.year} · 2학기';
   return '${date.year} · 방학';
+}
+
+String _dayId(DateTime date) =>
+    '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+class _PlannerDayHeader extends StatelessWidget {
+  const _PlannerDayHeader({super.key, required this.date});
+
+  final DateTime date;
+
+  @override
+  Widget build(BuildContext context) {
+    final today = DateUtils.isSameDay(date, DateTime.now());
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 10, 2, 9),
+      child: Row(
+        children: [
+          Text(
+            today ? '오늘' : '${date.month}.${date.day}',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: EncbaColors.navy,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 7),
+          Text(
+            weekday(date),
+            style: const TextStyle(
+              color: EncbaColors.muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Expanded(child: Divider(height: 1)),
+        ],
+      ),
+    );
+  }
 }
 
 class _WeekStrip extends StatelessWidget {
@@ -3040,7 +3151,7 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
     final video = VideoItem(
       id: widget.existing?.id ?? 'video-${now.microsecondsSinceEpoch}',
       title: _title.text.trim(),
-      durationLabel: _duration.text.trim(),
+      durationLabel: isReview ? '' : _duration.text.trim(),
       category: widget.category,
       url: sourceUrl,
       youtubeId: youtubeId ?? '',
@@ -3061,99 +3172,176 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
   }
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.fromLTRB(
-      20,
-      0,
-      20,
-      MediaQuery.viewInsetsOf(context).bottom + 24,
-    ),
-    child: Form(
-      key: _formKey,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            widget.category == '공유' ? '농구 영상 공유' : '${widget.category} 추가',
-            style: const TextStyle(
-              fontFamily: 'Jua',
-              fontSize: 24,
-              color: EncbaColors.navy,
-            ),
-          ),
-          const SizedBox(height: 14),
-          if (widget.category == '복기') ...[
-            const Text('쿼터별 YouTube 링크'),
-            const SizedBox(height: 8),
-            for (var index = 0; index < 4; index++) ...[
-              TextFormField(
-                controller: _quarters[index],
-                keyboardType: TextInputType.url,
-                decoration: InputDecoration(
-                  labelText: '${index + 1}쿼터${index == 0 ? ' *' : ''}',
+  Widget build(BuildContext context) {
+    final isReview = widget.category == '복기';
+    final sourceUrl = isReview
+        ? _quarters
+              .map((controller) => controller.text.trim())
+              .firstWhere((url) => url.isNotEmpty, orElse: () => '')
+        : _url.text.trim();
+    final previewYoutubeId = _youtubeIdFrom(sourceUrl);
+    final previewInstagram =
+        widget.category == '하이라이트' && _isInstagramReel(sourceUrl);
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  widget.category == '공유'
+                      ? '농구 영상 공유'
+                      : '${widget.category} 추가',
+                  style: const TextStyle(
+                    fontFamily: 'Jua',
+                    fontSize: 24,
+                    color: EncbaColors.navy,
+                  ),
                 ),
-                validator: (value) {
-                  final text = value?.trim() ?? '';
-                  if (index == 0 &&
-                      _quarters.every(
-                        (controller) => controller.text.trim().isEmpty,
-                      )) {
-                    return '최소 한 쿼터의 링크가 필요합니다.';
-                  }
-                  if (text.isNotEmpty && _youtubeIdFrom(text) == null) {
-                    return '올바른 YouTube 링크를 입력해 주세요.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 10),
-            ],
-          ] else ...[
-            TextFormField(
-              controller: _url,
-              keyboardType: TextInputType.url,
-              decoration: InputDecoration(
-                labelText: widget.category == '하이라이트'
-                    ? 'YouTube 또는 Instagram Reel 링크'
-                    : 'YouTube 링크',
-              ),
-              validator: (value) {
-                final text = value?.trim() ?? '';
-                final validYoutube = _youtubeIdFrom(text) != null;
-                final validInstagram =
-                    widget.category == '하이라이트' && _isInstagramReel(text);
-                return validYoutube || validInstagram
-                    ? null
-                    : '올바른 영상 링크를 입력해 주세요.';
-              },
+                const SizedBox(height: 14),
+                if (widget.category == '복기') ...[
+                  const Text('쿼터별 YouTube 링크'),
+                  const SizedBox(height: 8),
+                  for (var index = 0; index < 4; index++) ...[
+                    TextFormField(
+                      controller: _quarters[index],
+                      keyboardType: TextInputType.url,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        labelText: '${index + 1}쿼터${index == 0 ? ' *' : ''}',
+                      ),
+                      validator: (value) {
+                        final text = value?.trim() ?? '';
+                        if (index == 0 &&
+                            _quarters.every(
+                              (controller) => controller.text.trim().isEmpty,
+                            )) {
+                          return '최소 한 쿼터의 링크가 필요합니다.';
+                        }
+                        if (text.isNotEmpty && _youtubeIdFrom(text) == null) {
+                          return '올바른 YouTube 링크를 입력해 주세요.';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                ] else ...[
+                  TextFormField(
+                    controller: _url,
+                    keyboardType: TextInputType.url,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      labelText: widget.category == '하이라이트'
+                          ? 'YouTube 또는 Instagram Reel 링크'
+                          : 'YouTube 링크',
+                    ),
+                    validator: (value) {
+                      final text = value?.trim() ?? '';
+                      final validYoutube = _youtubeIdFrom(text) != null;
+                      final validInstagram =
+                          widget.category == '하이라이트' && _isInstagramReel(text);
+                      return validYoutube || validInstagram
+                          ? null
+                          : '올바른 영상 링크를 입력해 주세요.';
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                if (previewYoutubeId != null || previewInstagram) ...[
+                  _VideoLinkPreview(
+                    youtubeId: previewYoutubeId,
+                    sourceUrl: sourceUrl,
+                    sourceType: previewInstagram ? 'instagram' : 'youtube',
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                TextFormField(
+                  controller: _title,
+                  decoration: const InputDecoration(labelText: '제목'),
+                  validator: (value) =>
+                      (value?.trim().isEmpty ?? true) ? '제목을 입력해 주세요.' : null,
+                ),
+                if (!isReview) ...[
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: _duration,
+                    keyboardType: TextInputType.datetime,
+                    decoration: const InputDecoration(
+                      labelText: '재생 시간',
+                      hintText: '예: 08:24',
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: _save,
+                  child: Text(widget.existing == null ? '등록' : '저장'),
+                ),
+              ],
             ),
-            const SizedBox(height: 10),
-          ],
-          TextFormField(
-            controller: _title,
-            decoration: const InputDecoration(labelText: '제목'),
-            validator: (value) =>
-                (value?.trim().isEmpty ?? true) ? '제목을 입력해 주세요.' : null,
           ),
-          const SizedBox(height: 10),
-          TextFormField(
-            controller: _duration,
-            keyboardType: TextInputType.datetime,
-            decoration: const InputDecoration(
-              labelText: '재생 시간',
-              hintText: '예: 08:24',
-            ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _save,
-            child: Text(widget.existing == null ? '등록' : '저장'),
-          ),
-        ],
+        ),
       ),
-    ),
-  );
+    );
+  }
+}
+
+class _VideoLinkPreview extends StatelessWidget {
+  const _VideoLinkPreview({
+    required this.youtubeId,
+    required this.sourceUrl,
+    required this.sourceType,
+  });
+
+  final String? youtubeId;
+  final String sourceUrl;
+  final String sourceType;
+
+  @override
+  Widget build(BuildContext context) {
+    final thumbnail = _videoThumbnailUrl(
+      youtubeId: youtubeId ?? '',
+      sourceUrl: sourceUrl,
+      sourceType: sourceType,
+    );
+    final asset = _instagramThumbnailAsset(sourceUrl);
+    if (thumbnail == null && asset == null) return const SizedBox.shrink();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: AspectRatio(
+        aspectRatio: 16 / 9,
+        child: asset != null
+            ? Image.asset(
+                asset,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.medium,
+              )
+            : Image.network(
+                thumbnail!,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.medium,
+                errorBuilder: (_, _, _) => const ColoredBox(
+                  color: EncbaColors.line,
+                  child: Center(
+                    child: Icon(
+                      Icons.image_not_supported_outlined,
+                      color: EncbaColors.muted,
+                    ),
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
 }
 
 Future<void> _showAnnouncementEditor(
@@ -3251,7 +3439,9 @@ String? _youtubeIdFrom(String input) {
   if (uri == null || uri.host.isEmpty) return null;
   final host = uri.host.toLowerCase();
   if (host == 'youtu.be' || host == 'www.youtu.be') {
-    return uri.pathSegments.isEmpty ? null : uri.pathSegments.first;
+    return uri.pathSegments.isEmpty
+        ? null
+        : _validatedYoutubeId(uri.pathSegments.first);
   }
   if (host != 'youtube.com' &&
       host != 'www.youtube.com' &&
@@ -3260,24 +3450,74 @@ String? _youtubeIdFrom(String input) {
     return null;
   }
   final queryId = uri.queryParameters['v'];
-  if (queryId != null && queryId.isNotEmpty) return queryId;
+  if (queryId != null && queryId.isNotEmpty) {
+    return _validatedYoutubeId(queryId);
+  }
   for (final marker in ['shorts', 'embed', 'live']) {
     final index = uri.pathSegments.indexOf(marker);
     if (index >= 0 && index + 1 < uri.pathSegments.length) {
-      return uri.pathSegments[index + 1];
+      return _validatedYoutubeId(uri.pathSegments[index + 1]);
     }
   }
   return null;
 }
 
+String? _validatedYoutubeId(String value) =>
+    RegExp(r'^[A-Za-z0-9_-]{6,20}$').hasMatch(value) ? value : null;
+
+String? _videoThumbnailUrl({
+  required String youtubeId,
+  required String sourceUrl,
+  required String sourceType,
+}) {
+  final resolvedId =
+      _validatedYoutubeId(youtubeId) ??
+      (sourceType == 'youtube' ? _youtubeIdFrom(sourceUrl) : null);
+  if (resolvedId != null) {
+    return YoutubePlayerController.getThumbnail(
+      videoId: resolvedId,
+      quality: ThumbnailQuality.high,
+      format: ThumbnailFormat.webp,
+    );
+  }
+  return null;
+}
+
+String? _instagramThumbnailAsset(String sourceUrl) {
+  final shortcode = _instagramShortcode(sourceUrl);
+  if (shortcode == null || !_bundledReelShortcodes.contains(shortcode)) {
+    return null;
+  }
+  return 'assets/images/reel_$shortcode.jpg';
+}
+
+const _bundledReelShortcodes = {
+  'Db2nVhDz4Fq',
+  'DajgzpRTc4e',
+  'DZDMprWogCr',
+  'DXPE0fsEwcm',
+  'DTnGCB7E50t',
+};
+
+String? _instagramShortcode(String input) {
+  final uri = Uri.tryParse(input);
+  if (uri == null) return null;
+  final host = uri.host.toLowerCase();
+  if (host != 'instagram.com' && host != 'www.instagram.com') return null;
+  if (uri.pathSegments.length < 2 ||
+      !const {'reel', 'p'}.contains(uri.pathSegments.first)) {
+    return null;
+  }
+  final shortcode = uri.pathSegments[1];
+  return RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(shortcode) ? shortcode : null;
+}
+
 bool _isInstagramReel(String input) {
   final uri = Uri.tryParse(input);
-  if (uri == null) return false;
-  final host = uri.host.toLowerCase();
-  return (host == 'instagram.com' || host == 'www.instagram.com') &&
-      uri.pathSegments.length >= 2 &&
+  return uri != null &&
+      uri.pathSegments.isNotEmpty &&
       uri.pathSegments.first == 'reel' &&
-      uri.pathSegments[1].isNotEmpty;
+      _instagramShortcode(input) != null;
 }
 
 bool _canCreateVideoCategory(UserProfile user, String category) {

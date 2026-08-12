@@ -267,9 +267,63 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('인원 제한 슬라이더의 숫자는 60명에서도 영역을 벗어나지 않는다', (
-    tester,
-  ) async {
+  testWidgets('날짜를 눌러도 미래 일정 목록은 유지되고 해당 날짜로 이동한다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('일정').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('달력 펼치기'));
+    await tester.pumpAndSettle();
+
+    final target = DateTime.now().add(const Duration(days: 12));
+    if (target.month != DateTime.now().month) {
+      await tester.tap(find.byTooltip('다음 달'));
+      await tester.pumpAndSettle();
+    }
+    final plannerList = find.byKey(const ValueKey('planner-scroll'));
+    final before = tester.widget<ListView>(plannerList).controller!.offset;
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byType(GridView),
+            matching: find.text('${target.day}'),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    final after = tester.widget<ListView>(plannerList).controller!.offset;
+
+    expect(find.text('날짜 필터 해제'), findsNothing);
+    expect(after, greaterThan(before));
+    expect(find.text('${target.month}.${target.day}'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('복기 추가는 재생 시간 없이 YouTube 썸네일을 미리 본다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('영상').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('복기').first);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('영상 링크 추가'));
+    await tester.tap(find.text('영상 링크 추가'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('재생 시간'), findsNothing);
+    await tester.enterText(
+      find.byType(TextFormField).first,
+      'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+    );
+    await tester.pump();
+
+    expect(find.byType(Image), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('인원 제한 슬라이더의 숫자는 60명에서도 영역을 벗어나지 않는다', (tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(_signedInApp(const EventEditorScreen()));
