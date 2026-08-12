@@ -8,7 +8,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       https://github.com/flutter/flutter.git /opt/flutter
 
 ENV PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:${PATH}"
-RUN flutter config --enable-web && flutter precache --web
+RUN flutter config --enable-web && \
+    for attempt in 1 2 3; do \
+      if flutter precache --web; then \
+        exit 0; \
+      fi; \
+      echo "Flutter precache attempt ${attempt} failed; retrying with a clean download cache"; \
+      rm -rf /opt/flutter/bin/cache/downloads; \
+      sleep $((attempt * 5)); \
+    done; \
+    exit 1
 
 FROM flutter AS build
 
