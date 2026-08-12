@@ -10,8 +10,10 @@ import 'package:encba_locker/features/locker/application/locker_controller.dart'
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/presentation/event_screens.dart';
 import 'package:encba_locker/features/locker/services/homecoming_import_service.dart';
+import 'package:encba_locker/features/locker/services/ib_operation_import_service.dart';
 import 'package:encba_locker/features/locker/services/web_notification_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
@@ -240,20 +242,46 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class VideosScreen extends ConsumerWidget {
+class VideosScreen extends ConsumerStatefulWidget {
   const VideosScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<VideosScreen> createState() => _VideosScreenState();
+}
+
+class _VideosScreenState extends ConsumerState<VideosScreen> {
+  bool _oldestFirst = false;
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(lockerControllerProvider);
     final selected = state.videoSegment;
     final user = ref.watch(authControllerProvider).user!;
     const categories = ['하이라이트', '복기', '공유'];
-    final visible = state.videos
-        .where((item) => item.category == categories[selected])
-        .toList();
+    final visible =
+        state.videos
+            .where((item) => item.category == categories[selected])
+            .toList()
+          ..sort(
+            (a, b) => _oldestFirst
+                ? a.uploadedAt.compareTo(b.uploadedAt)
+                : b.uploadedAt.compareTo(a.uploadedAt),
+          );
     return _Page(
-      header: const _Header(eyebrow: 'PLAYBACK', title: 'VIDEOS'),
+      header: _Header(
+        eyebrow: 'PLAYBACK',
+        title: 'VIDEOS',
+        action: PopupMenuButton<bool>(
+          tooltip: '영상 정렬',
+          initialValue: _oldestFirst,
+          onSelected: (value) => setState(() => _oldestFirst = value),
+          itemBuilder: (context) => const [
+            PopupMenuItem(value: false, child: Text('최신 업로드순')),
+            PopupMenuItem(value: true, child: Text('오래된 업로드순')),
+          ],
+          icon: const Icon(Icons.swap_vert_rounded),
+        ),
+      ),
       children: [
         _SlidingTabBar(
           labels: const ['하이라이트', '복기', '공유'],
@@ -297,7 +325,11 @@ class GamesScreen extends ConsumerWidget {
     final selected = state.gameSegment;
     final selectedSub = state.gameSubSegment;
     final categories = switch (selected) {
-      0 => const [('아농', EventKind.morning), ('픽업게임', EventKind.pickup)],
+      0 => const [
+        ('아농', EventKind.morning),
+        ('자개', EventKind.freeOpen),
+        ('픽업게임', EventKind.pickup),
+      ],
       1 => const [('1부', EventKind.ibDivision1), ('2부', EventKind.ibDivision2)],
       _ => const [('연습 경기', EventKind.scrimmage), ('삼파전', EventKind.threeWay)],
     };
@@ -476,7 +508,8 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final allEvents = [...ref.watch(lockerControllerProvider).events]
+    final locker = ref.watch(lockerControllerProvider);
+    final allEvents = [...locker.events]
       ..sort((a, b) => a.start.compareTo(b.start));
     final user = ref.watch(authControllerProvider).user!;
     final today = DateUtils.dateOnly(DateTime.now());
@@ -484,14 +517,19 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
         .where((event) => !DateUtils.dateOnly(event.start).isBefore(today))
         .toList();
     final visible = futureEvents.take(_visibleCount).toList();
-    final canLoadMore = visible.length < futureEvents.length;
+    final canRevealMore = visible.length < futureEvents.length;
+    final canLoadMore = canRevealMore || locker.hasMoreEvents;
 
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
         if (canLoadMore &&
             notification is ScrollEndNotification &&
             notification.metrics.extentAfter < 180) {
-          setState(() => _visibleCount += 10);
+          if (canRevealMore) {
+            setState(() => _visibleCount += 10);
+          } else {
+            unawaited(_loadNextEventPage());
+          }
         }
         return false;
       },
@@ -581,7 +619,7 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                 ),
               ];
             }),
-          if (canLoadMore)
+          if (locker.isLoadingMoreEvents)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 18),
               child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
@@ -589,6 +627,11 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _loadNextEventPage() async {
+    await ref.read(lockerControllerProvider.notifier).loadMoreEvents();
+    if (mounted) setState(() => _visibleCount += 10);
   }
 
   void _selectDate(DateTime date) {
@@ -637,6 +680,22 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
       target = _dayKeys[_dayId(date)]?.currentContext;
+      for (var attempt = 0; target == null && attempt < 6; attempt++) {
+        final currentPosition = _scrollController.position;
+        final nextOffset = math.min(
+          currentPosition.maxScrollExtent,
+          currentPosition.pixels + currentPosition.viewportDimension * .8,
+        );
+        if (nextOffset <= currentPosition.pixels) break;
+        await _scrollController.animateTo(
+          nextOffset,
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+        );
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) return;
+        target = _dayKeys[_dayId(date)]?.currentContext;
+      }
     }
     if (target == null || !target.mounted) return;
     await Scrollable.ensureVisible(
@@ -687,8 +746,8 @@ class ProfileScreen extends ConsumerWidget {
         const SizedBox(height: 10),
         _MenuTile(
           icon: Icons.notifications_active_outlined,
-          title: '웹 알림 켜기',
-          subtitle: '브라우저가 열려 있을 때 공지 알림',
+          title: kIsWeb ? '웹 알림 켜기' : '앱 알림 켜기',
+          subtitle: kIsWeb ? '브라우저가 열려 있을 때 공지 알림' : 'iOS 알림 센터로 공지 알림',
           onTap: () async {
             final enabled = await WebNotificationService().enableAndTest();
             if (enabled) {
@@ -699,7 +758,11 @@ class ProfileScreen extends ConsumerWidget {
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text(enabled ? '웹 알림을 켰습니다.' : '브라우저 알림 권한이 필요합니다.'),
+                  content: Text(
+                    enabled
+                        ? (kIsWeb ? '웹 알림을 켰습니다.' : '앱 알림을 켰습니다.')
+                        : (kIsWeb ? '브라우저 알림 권한이 필요합니다.' : 'iOS 알림 권한이 필요합니다.'),
+                  ),
                 ),
               );
             }
@@ -723,6 +786,43 @@ class ProfileScreen extends ConsumerWidget {
             MaterialPageRoute(builder: (_) => const OperationsScreen()),
           ),
         ),
+        if (user.leadershipRole == 'admin')
+          _MenuTile(
+            icon: Icons.science_outlined,
+            title: '테스트 일정 만들기',
+            subtitle: '훈련·IB·자개·연습 경기 등 8개 샘플',
+            onTap: () async {
+              final approved = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('테스트 일정을 만들까요?'),
+                  content: const Text('실제 일정 DB에 테스트 표시가 붙은 샘플을 추가합니다.'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('취소'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('추가'),
+                    ),
+                  ],
+                ),
+              );
+              if (approved != true || !context.mounted) return;
+              final count = await ref
+                  .read(lockerControllerProvider.notifier)
+                  .createDemoEvents();
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    count == 0 ? '이미 테스트 일정이 있습니다.' : '$count개를 추가했습니다.',
+                  ),
+                ),
+              );
+            },
+          ),
         _MenuTile(
           icon: Icons.celebration_outlined,
           title: '홈커밍 연락 보드',
@@ -759,15 +859,24 @@ class MemberDirectoryScreen extends ConsumerStatefulWidget {
 class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
   String query = '';
   int _searchRevision = 0;
+  _MemberSort _sort = _MemberSort.studentYear;
+  bool _showMilitary = false;
+  bool _showInactive = false;
 
   @override
   Widget build(BuildContext context) {
     final locker = ref.watch(lockerControllerProvider);
-    final segment = locker.memberSegment;
-    final list = locker.members;
+    final isAdmin =
+        ref.watch(authControllerProvider).user?.leadershipRole == 'admin';
+    final list = locker.members.where((member) {
+      if (!_showMilitary && member.status == 'MILITARY_LEAVE') return false;
+      if (!_showInactive && !member.isActive) return false;
+      return true;
+    }).toList()..sort(_compareMembers);
     return Scaffold(
       appBar: AppBar(title: const Text('멤버 디렉토리')),
       body: ListView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 30),
         children: [
           TextField(
@@ -778,36 +887,95 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          SegmentedButton<int>(
-            segments: const [
-              ButtonSegment(value: 0, label: Text('전체')),
-              ButtonSegment(value: 1, label: Text('군 휴학')),
+          Row(
+            children: [
+              const Icon(Icons.sort_rounded, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: DropdownButtonFormField<_MemberSort>(
+                  initialValue: _sort,
+                  decoration: const InputDecoration(labelText: '정렬'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: _MemberSort.studentYear,
+                      child: Text('학번순'),
+                    ),
+                    DropdownMenuItem(
+                      value: _MemberSort.name,
+                      child: Text('가나다순'),
+                    ),
+                    DropdownMenuItem(
+                      value: _MemberSort.joinedYear,
+                      child: Text('가입 연도순'),
+                    ),
+                  ],
+                  onChanged: (value) => setState(() => _sort = value ?? _sort),
+                ),
+              ),
             ],
-            selected: {segment},
-            showSelectedIcon: false,
-            onSelectionChanged: (value) => ref
-                .read(lockerControllerProvider.notifier)
-                .selectMemberSegment(value.first),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilterChip(
+                label: const Text('군 휴학 멤버 표시'),
+                selected: _showMilitary,
+                onSelected: (value) => setState(() => _showMilitary = value),
+              ),
+              if (isAdmin)
+                FilterChip(
+                  label: const Text('비활성 계정 표시'),
+                  selected: _showInactive,
+                  onSelected: (value) => setState(() => _showInactive = value),
+                ),
+            ],
           ),
           const SizedBox(height: 18),
-          ...list.map(
-            (member) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _MemberTile(
-                member: member,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => MemberDetailScreen(member: member),
+          if (list.isEmpty)
+            const _EmptyState(
+              icon: Icons.group_off_outlined,
+              title: '조건에 맞는 멤버가 없습니다',
+            )
+          else
+            ...list.map(
+              (member) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _MemberTile(
+                  member: member,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => MemberDetailScreen(member: member),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
   }
+
+  int _compareMembers(MemberProfile a, MemberProfile b) {
+    int byName() => a.name.compareTo(b.name);
+    switch (_sort) {
+      case _MemberSort.name:
+        return byName();
+      case _MemberSort.studentYear:
+        final left = _studentYearOf(a);
+        final right = _studentYearOf(b);
+        final result = left.compareTo(right);
+        return result != 0 ? result : byName();
+      case _MemberSort.joinedYear:
+        final result = (a.joinedYear ?? 9999).compareTo(b.joinedYear ?? 9999);
+        return result != 0 ? result : byName();
+    }
+  }
+
+  int _studentYearOf(MemberProfile member) =>
+      int.tryParse(member.studentId.replaceAll(RegExp(r'[^0-9]'), '')) ?? 999;
 
   Future<void> _search(String value) async {
     query = value.trim();
@@ -817,6 +985,8 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
     await ref.read(lockerControllerProvider.notifier).searchMembers(query);
   }
 }
+
+enum _MemberSort { studentYear, name, joinedYear }
 
 class MemberDetailScreen extends ConsumerWidget {
   const MemberDetailScreen({super.key, required this.member});
@@ -1137,13 +1307,38 @@ Future<void> _showMemberEditor(
   jersey.dispose();
 }
 
-class OperationsScreen extends ConsumerWidget {
+class OperationsScreen extends ConsumerStatefulWidget {
   const OperationsScreen({super.key});
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OperationsScreen> createState() => _OperationsScreenState();
+}
+
+class _OperationsScreenState extends ConsumerState<OperationsScreen> {
+  bool _importing = false;
+
+  @override
+  Widget build(BuildContext context) {
     final operations = ref.watch(lockerControllerProvider).operations;
+    final isAdmin =
+        ref.watch(authControllerProvider).user?.leadershipRole == 'admin';
     return Scaffold(
-      appBar: AppBar(title: const Text('IB 운영 일정')),
+      appBar: AppBar(
+        title: const Text('IB 운영 일정'),
+        actions: [
+          if (isAdmin)
+            IconButton(
+              tooltip: 'IB 운영표 엑셀 가져오기',
+              onPressed: _importing ? null : _importExcel,
+              icon: _importing
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.upload_file_outlined),
+            ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -1173,6 +1368,65 @@ class OperationsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _importExcel() async {
+    setState(() => _importing = true);
+    try {
+      final parsed = await IbOperationImportService().pickAndParse();
+      if (!mounted || parsed == null) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('${parsed.academicYear}-${parsed.term} IB 운영표'),
+          content: Text(
+            '${parsed.dateCount}개 날짜에서 ${parsed.rows.length}건을 읽었습니다.\n\n'
+            '같은 학기의 기존 엑셀 배정은 교체됩니다. 표에 시간이 없는 경우 '
+            '1경기 11시, 2경기 13시, 3경기 15시로 적용합니다.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('가져오기'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || confirmed != true) return;
+      final result = await ref
+          .read(lockerControllerProvider.notifier)
+          .importOperations(
+            fileName: parsed.fileName,
+            academicYear: parsed.academicYear,
+            term: parsed.term,
+            assignments: parsed.rows,
+          );
+      if (!mounted) return;
+      final message = result == null
+          ? 'IB 운영표를 가져오지 못했습니다.'
+          : '${result.imported}건 저장 · 계정 미연결 ${result.unmatched}건';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } on FormatException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('엑셀 파일을 읽지 못했습니다.')));
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
   }
 }
 
@@ -1808,7 +2062,6 @@ class _VideoThumbnail extends StatelessWidget {
     final thumbnail = _videoThumbnailUrl(
       youtubeId: video.youtubeId,
       sourceUrl: video.url,
-      sourceType: video.sourceType,
     );
     final asset = _instagramThumbnailAsset(video.url);
     if (asset != null) {
@@ -2142,9 +2395,7 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
                 (item) => ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(item.name),
-                  trailing: Text(
-                    '${item.watchedSeconds ~/ 60}분 ${item.watchedSeconds % 60}초',
-                  ),
+                  trailing: Text(_approximateWatchTime(item)),
                 ),
               ),
           ],
@@ -2158,6 +2409,15 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
       ),
     );
   }
+}
+
+String _approximateWatchTime(VideoWatchSummary item) {
+  if (item.completed) return '거의 전체';
+  final minutes = item.watchedSeconds ~/ 60;
+  if (minutes < 1) return '1분 미만';
+  if (minutes < 3) return '약 2분';
+  final rounded = ((minutes + 2) ~/ 5) * 5;
+  return '약 $rounded분';
 }
 
 class _Comment extends StatelessWidget {
@@ -3311,7 +3571,6 @@ class _VideoLinkPreview extends StatelessWidget {
     final thumbnail = _videoThumbnailUrl(
       youtubeId: youtubeId ?? '',
       sourceUrl: sourceUrl,
-      sourceType: sourceType,
     );
     final asset = _instagramThumbnailAsset(sourceUrl);
     if (thumbnail == null && asset == null) return const SizedBox.shrink();
@@ -3349,74 +3608,26 @@ Future<void> _showAnnouncementEditor(
   WidgetRef ref, {
   AnnouncementItem? existing,
 }) async {
-  var title = existing?.title ?? '';
-  var body = existing?.body ?? '';
-  final titleController = TextEditingController(text: title);
-  final bodyController = TextEditingController(text: body);
-  var pinned = false;
-  final result = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setState) => AlertDialog(
-        title: Text(existing == null ? '새 공지' : '공지 수정'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleController,
-                maxLength: 120,
-                onChanged: (value) => title = value,
-                decoration: const InputDecoration(labelText: '제목 *'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: bodyController,
-                minLines: 4,
-                maxLines: 8,
-                maxLength: 10000,
-                onChanged: (value) => body = value,
-                decoration: const InputDecoration(labelText: '내용 *'),
-              ),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: pinned,
-                title: const Text('홈 상단에 고정'),
-                onChanged: (value) => setState(() => pinned = value ?? false),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (title.trim().isNotEmpty && body.trim().isNotEmpty) {
-                Navigator.pop(dialogContext, true);
-              }
-            },
-            child: Text(existing == null ? '등록' : '저장'),
-          ),
-        ],
-      ),
+  final draft = await Navigator.push<_AnnouncementDraft>(
+    context,
+    MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => _AnnouncementEditorScreen(existing: existing),
     ),
   );
-  if (result == true) {
+  if (draft != null) {
     final controller = ref.read(lockerControllerProvider.notifier);
     final saved = existing == null
         ? await controller.addAnnouncement(
-            title: title.trim(),
-            body: body.trim(),
-            pinned: pinned,
+            title: draft.title,
+            body: draft.body,
+            pinned: draft.pinned,
           )
         : await controller.updateAnnouncement(
             announcement: existing,
-            title: title.trim(),
-            body: body.trim(),
-            pinned: pinned,
+            title: draft.title,
+            body: draft.body,
+            pinned: draft.pinned,
           );
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -3430,8 +3641,143 @@ Future<void> _showAnnouncementEditor(
       );
     }
   }
-  titleController.dispose();
-  bodyController.dispose();
+}
+
+class _AnnouncementDraft {
+  const _AnnouncementDraft({
+    required this.title,
+    required this.body,
+    required this.pinned,
+  });
+  final String title;
+  final String body;
+  final bool pinned;
+}
+
+class _AnnouncementEditorScreen extends StatefulWidget {
+  const _AnnouncementEditorScreen({this.existing});
+  final AnnouncementItem? existing;
+
+  @override
+  State<_AnnouncementEditorScreen> createState() =>
+      _AnnouncementEditorScreenState();
+}
+
+class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
+  late final TextEditingController _title;
+  late final TextEditingController _body;
+  late bool _pinned;
+
+  @override
+  void initState() {
+    super.initState();
+    _title = TextEditingController(text: widget.existing?.title ?? '')
+      ..addListener(_refresh);
+    _body = TextEditingController(text: widget.existing?.body ?? '')
+      ..addListener(_refresh);
+    _pinned = widget.existing?.pinned ?? false;
+  }
+
+  @override
+  void dispose() {
+    _title
+      ..removeListener(_refresh)
+      ..dispose();
+    _body
+      ..removeListener(_refresh)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _refresh() => setState(() {});
+
+  @override
+  Widget build(BuildContext context) {
+    final canSave =
+        _title.text.trim().isNotEmpty && _body.text.trim().isNotEmpty;
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      appBar: AppBar(title: Text(widget.existing == null ? '새 공지' : '공지 수정')),
+      body: ListView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: EdgeInsets.fromLTRB(
+          20,
+          12,
+          20,
+          MediaQuery.viewInsetsOf(context).bottom + 28,
+        ),
+        children: [
+          TextField(
+            controller: _title,
+            maxLength: 120,
+            textInputAction: TextInputAction.next,
+            scrollPadding: const EdgeInsets.only(bottom: 140),
+            decoration: const InputDecoration(
+              labelText: '제목 *',
+              hintText: '예: 이번 주 정기훈련 안내',
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _body,
+            minLines: 7,
+            maxLines: 16,
+            maxLength: 10000,
+            keyboardType: TextInputType.multiline,
+            scrollPadding: const EdgeInsets.only(bottom: 180),
+            decoration: const InputDecoration(
+              labelText: '내용 *',
+              alignLabelWithHint: true,
+              hintText: '일시, 장소, 준비물처럼 부원이 바로 알아야 할 내용을 적어 주세요.',
+            ),
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: _pinned,
+            title: const Text('홈 상단에 고정'),
+            onChanged: (value) => setState(() => _pinned = value),
+          ),
+          const SizedBox(height: 18),
+          const Text('미리보기', style: TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _title.text.trim().isEmpty ? '공지 제목' : _title.text.trim(),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _body.text.trim().isEmpty
+                        ? '공지 내용이 여기에 보입니다.'
+                        : _body.text.trim(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          FilledButton(
+            onPressed: canSave
+                ? () => Navigator.pop(
+                    context,
+                    _AnnouncementDraft(
+                      title: _title.text.trim(),
+                      body: _body.text.trim(),
+                      pinned: _pinned,
+                    ),
+                  )
+                : null,
+            child: Text(widget.existing == null ? '공지 등록' : '변경 내용 저장'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 String? _youtubeIdFrom(String input) {
@@ -3468,19 +3814,12 @@ String? _validatedYoutubeId(String value) =>
 String? _videoThumbnailUrl({
   required String youtubeId,
   required String sourceUrl,
-  required String sourceType,
 }) {
   final resolvedId =
-      _validatedYoutubeId(youtubeId) ??
-      (sourceType == 'youtube' ? _youtubeIdFrom(sourceUrl) : null);
-  if (resolvedId != null) {
-    return YoutubePlayerController.getThumbnail(
-      videoId: resolvedId,
-      quality: ThumbnailQuality.high,
-      format: ThumbnailFormat.webp,
-    );
-  }
-  return null;
+      _validatedYoutubeId(youtubeId) ?? _youtubeIdFrom(sourceUrl);
+  return resolvedId == null
+      ? null
+      : 'https://img.youtube.com/vi/$resolvedId/hqdefault.jpg';
 }
 
 String? _instagramThumbnailAsset(String sourceUrl) {

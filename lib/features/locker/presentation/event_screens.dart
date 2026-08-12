@@ -713,6 +713,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   late String _visibility;
   late DateTime _start;
   late DateTime _end;
+  late bool _preciseMinutes;
   late bool _recurring;
   late bool _responseEnabled;
   late DateTime _responseDeadline;
@@ -723,6 +724,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   static const _editableKinds = [
     EventKind.training,
     EventKind.morning,
+    EventKind.freeOpen,
     EventKind.pickup,
     EventKind.scrimmage,
     EventKind.threeWay,
@@ -766,10 +768,21 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       ...existing?.pollOptions ?? const ['참석', '불참', '미정'],
     ];
     _visibility = existing?.visibility ?? 'team';
+    final suggestedStart = DateTime.now().add(
+      const Duration(days: 1, hours: 1),
+    );
     _start =
         existing?.start ??
-        DateTime.now().add(const Duration(days: 1, hours: 1));
+        DateTime(
+          suggestedStart.year,
+          suggestedStart.month,
+          suggestedStart.day,
+          suggestedStart.hour,
+        );
     _end = existing?.end ?? _start.add(const Duration(hours: 2));
+    _preciseMinutes =
+        existing != null &&
+        (existing.start.minute != 0 || existing.end.minute != 0);
     _recurring = existing?.isRecurring ?? false;
     _responseEnabled = true;
     _responseDeadline =
@@ -811,7 +824,13 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       body: Form(
         key: _formKey,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 34),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: EdgeInsets.fromLTRB(
+            20,
+            8,
+            20,
+            MediaQuery.viewInsetsOf(context).bottom + 34,
+          ),
           children: [
             const _FormSectionTitle('기본 정보'),
             const SizedBox(height: 12),
@@ -839,6 +858,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                 }
                 if (_kind != EventKind.training &&
                     _kind != EventKind.morning &&
+                    _kind != EventKind.freeOpen &&
                     _uniforms.isEmpty) {
                   _uniforms = {'검정', '흰색'};
                 }
@@ -895,15 +915,63 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                 ),
               ],
             ],
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _memo,
+              minLines: 2,
+              maxLines: 5,
+              scrollPadding: const EdgeInsets.only(bottom: 160),
+              decoration: const InputDecoration(
+                labelText: '공지 메모',
+                hintText: '필요한 안내가 있을 때만 적어 주세요.',
+              ),
+            ),
             const SizedBox(height: 24),
             const _FormSectionTitle('시간과 장소'),
             const SizedBox(height: 12),
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: false, label: Text('정각')),
+                ButtonSegment(value: true, label: Text('분 설정')),
+              ],
+              selected: {_preciseMinutes},
+              showSelectedIcon: false,
+              onSelectionChanged: (selection) {
+                final precise = selection.first;
+                setState(() {
+                  _preciseMinutes = precise;
+                  if (!precise) {
+                    _start = DateTime(
+                      _start.year,
+                      _start.month,
+                      _start.day,
+                      _start.hour,
+                    );
+                    _end = DateTime(_end.year, _end.month, _end.day, _end.hour);
+                    if (!_deadlineCustomized) {
+                      _responseDeadline = _start.subtract(
+                        _kind.isMatch
+                            ? const Duration(hours: 3)
+                            : const Duration(hours: 1),
+                      );
+                    }
+                  }
+                });
+              },
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _preciseMinutes ? '시와 분을 정합니다.' : '분을 생략하고 정각으로 등록합니다.',
+              style: const TextStyle(color: EncbaColors.muted, fontSize: 12),
+            ),
+            const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
                   child: _DateTimeButton(
                     label: '시작',
                     value: _start,
+                    showMinutes: _preciseMinutes,
                     onTap: () => _pickDateTime(true),
                   ),
                 ),
@@ -912,6 +980,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                   child: _DateTimeButton(
                     label: '종료',
                     value: _end,
+                    showMinutes: _preciseMinutes,
                     onTap: () => _pickDateTime(false),
                   ),
                 ),
@@ -947,23 +1016,15 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
             const SizedBox(height: 24),
             const _FormSectionTitle('운영 설정'),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _memo,
-              minLines: 3,
-              maxLines: 5,
-              decoration: const InputDecoration(
-                labelText: '공지 메모',
-                hintText: '필요한 안내가 있을 때만 적어 주세요.',
-              ),
-            ),
-            const SizedBox(height: 12),
             _CapacitySelector(
               enabled: _hasCapacity,
               value: _capacity,
               onEnabledChanged: (value) => setState(() => _hasCapacity = value),
               onChanged: (value) => setState(() => _capacity = value),
             ),
-            if (_kind != EventKind.training && _kind != EventKind.morning) ...[
+            if (_kind != EventKind.training &&
+                _kind != EventKind.morning &&
+                _kind != EventKind.freeOpen) ...[
               const SizedBox(height: 14),
               const Text('유니폼 색 *'),
               const SizedBox(height: 8),
@@ -1137,7 +1198,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       date.month,
       date.day,
       pickedTime.hour,
-      pickedTime.minute,
+      _preciseMinutes ? pickedTime.minute : 0,
     );
     setState(() {
       if (start) {
@@ -1240,6 +1301,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     }
     if (_kind != EventKind.training &&
         _kind != EventKind.morning &&
+        _kind != EventKind.freeOpen &&
         _uniforms.isEmpty) {
       ScaffoldMessenger.of(
         context,
@@ -1527,10 +1589,12 @@ class _DateTimeButton extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onTap,
+    this.showMinutes = true,
   });
   final String label;
   final DateTime value;
   final VoidCallback onTap;
+  final bool showMinutes;
 
   @override
   Widget build(BuildContext context) => OutlinedButton(
@@ -1547,7 +1611,11 @@ class _DateTimeButton extends StatelessWidget {
           style: const TextStyle(color: EncbaColors.muted, fontSize: 11),
         ),
         const SizedBox(height: 3),
-        Text(DateFormat('M.d  HH:mm').format(value)),
+        Text(
+          showMinutes
+              ? DateFormat('M.d  HH:mm').format(value)
+              : '${DateFormat('M.d').format(value)}  ${value.hour}시',
+        ),
       ],
     ),
   );
@@ -1641,6 +1709,7 @@ class _MarkerPainter extends CustomPainter {
 Color _kindColor(EventKind kind) => switch (kind) {
   EventKind.training => EncbaColors.snuBlue,
   EventKind.morning => EncbaColors.attending,
+  EventKind.freeOpen => const Color(0xFF2A7C67),
   EventKind.internal => EncbaColors.deepBlue,
   EventKind.pickup => EncbaColors.deepBlue,
   EventKind.ibDivision1 ||

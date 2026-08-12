@@ -33,6 +33,8 @@ class LockerState {
     this.eventRosters = const {},
     this.auditEntries = const [],
     this.attendanceRates = const AttendanceRates(),
+    this.hasMoreEvents = false,
+    this.isLoadingMoreEvents = false,
     this.isOfflineCache = false,
     this.error,
   });
@@ -58,6 +60,8 @@ class LockerState {
   final Map<String, List<EventRosterMember>> eventRosters;
   final List<AuditEntry> auditEntries;
   final AttendanceRates attendanceRates;
+  final bool hasMoreEvents;
+  final bool isLoadingMoreEvents;
   final bool isOfflineCache;
   final String? error;
 
@@ -84,6 +88,8 @@ class LockerState {
     Map<String, List<EventRosterMember>>? eventRosters,
     List<AuditEntry>? auditEntries,
     AttendanceRates? attendanceRates,
+    bool? hasMoreEvents,
+    bool? isLoadingMoreEvents,
     bool? isOfflineCache,
     String? error,
     bool clearError = false,
@@ -111,6 +117,8 @@ class LockerState {
     eventRosters: eventRosters ?? this.eventRosters,
     auditEntries: auditEntries ?? this.auditEntries,
     attendanceRates: attendanceRates ?? this.attendanceRates,
+    hasMoreEvents: hasMoreEvents ?? this.hasMoreEvents,
+    isLoadingMoreEvents: isLoadingMoreEvents ?? this.isLoadingMoreEvents,
     isOfflineCache: isOfflineCache ?? this.isOfflineCache,
     error: clearError ? null : error ?? this.error,
   );
@@ -147,6 +155,7 @@ class LockerController extends StateNotifier<LockerState> {
         attendance: snapshot.attendance,
         videos: snapshot.videos,
         likedVideoIds: snapshot.likedVideoIds,
+        hasMoreEvents: snapshot.hasMoreEvents,
         isOfflineCache: snapshot.fromCache,
         clearError: true,
       );
@@ -190,7 +199,9 @@ class LockerController extends StateNotifier<LockerState> {
           announcements: [announcement, ...state.announcements],
           unreadNotifications: state.unreadNotifications + 1,
         );
-        WebNotificationService().show(announcement.title, announcement.body);
+        unawaited(
+          WebNotificationService().show(announcement.title, announcement.body),
+        );
       });
     } on Object catch (error, stackTrace) {
       debugPrint('ENCBA data sync failed: $error\n$stackTrace');
@@ -228,6 +239,42 @@ class LockerController extends StateNotifier<LockerState> {
   void selectVideoSegment(int index) =>
       state = state.copyWith(videoSegment: index);
   void selectMemberSegment(int index) => _selectMemberSegment(index);
+
+  Future<void> loadMoreEvents() async {
+    final repository = _repository;
+    if (repository == null ||
+        !state.hasMoreEvents ||
+        state.isLoadingMoreEvents) {
+      return;
+    }
+    state = state.copyWith(isLoadingMoreEvents: true);
+    try {
+      final offset = state.events.where((event) => !event.isLocked).length;
+      final page = await repository.loadMoreEvents(offset: offset);
+      final byId = {for (final event in state.events) event.id: event};
+      for (final event in page.events) {
+        byId[event.id] = event;
+      }
+      final events = byId.values.toList()
+        ..sort((a, b) {
+          final byStart = a.start.compareTo(b.start);
+          return byStart != 0 ? byStart : a.id.compareTo(b.id);
+        });
+      state = state.copyWith(
+        events: events,
+        hasMoreEvents: page.hasMore,
+        isLoadingMoreEvents: false,
+        clearError: true,
+      );
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA event page failed: $error\n$stackTrace');
+      state = state.copyWith(
+        isLoadingMoreEvents: false,
+        error: '일정을 더 불러오지 못했습니다.',
+      );
+    }
+  }
+
   void readNotifications() => state = state.copyWith(unreadNotifications: 0);
   void refreshUndecidedReminders() => unawaited(_scheduleUndecidedReminder());
 
@@ -247,10 +294,7 @@ class LockerController extends StateNotifier<LockerState> {
   Future<void> searchMembers(String query) async {
     if (_repository == null) return;
     try {
-      final members = await _repository.loadMembers(
-        membership: state.memberSegment == 0 ? 'ALL' : 'MILITARY',
-        query: query,
-      );
+      final members = await _repository.loadMembers(query: query);
       state = state.copyWith(members: members, clearError: true);
     } on Object {
       state = state.copyWith(error: '멤버 검색에 실패했습니다.');
@@ -356,6 +400,31 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
+  Future<({int imported, int unmatched})?> importOperations({
+    required String fileName,
+    required int academicYear,
+    required int term,
+    required List<Map<String, dynamic>> assignments,
+  }) async {
+    final repository = _repository;
+    if (repository == null) return null;
+    try {
+      final result = await repository.importOperations(
+        fileName: fileName,
+        academicYear: academicYear,
+        term: term,
+        assignments: assignments,
+      );
+      final operations = await repository.loadOperations();
+      state = state.copyWith(operations: operations, clearError: true);
+      return result;
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA operation import failed: $error\n$stackTrace');
+      state = state.copyWith(error: 'IB 운영표를 가져오지 못했습니다.');
+      return null;
+    }
+  }
+
   Future<bool> vote(
     String eventId,
     String value, {
@@ -414,7 +483,7 @@ class LockerController extends StateNotifier<LockerState> {
     );
     var changed = false;
     for (final event in due) {
-      final shown = WebNotificationService().show(
+      final shown = await WebNotificationService().show(
         '일정을 확정해 주세요',
         '${event.title} · ${event.start.month}.${event.start.day} ${event.start.hour.toString().padLeft(2, '0')}:${event.start.minute.toString().padLeft(2, '0')}',
       );
@@ -546,6 +615,7 @@ class LockerController extends StateNotifier<LockerState> {
             attendance: refreshed.attendance,
             videos: refreshed.videos,
             likedVideoIds: refreshed.likedVideoIds,
+            hasMoreEvents: refreshed.hasMoreEvents,
             isOfflineCache: refreshed.fromCache,
             clearError: true,
           );
@@ -558,6 +628,37 @@ class LockerController extends StateNotifier<LockerState> {
       state = state.copyWith(error: '일정을 저장하지 못했습니다.');
       return false;
     }
+  }
+
+  Future<int> createDemoEvents() async {
+    if (state.events.any((event) => event.memo.startsWith('테스트 일정 ·'))) {
+      return 0;
+    }
+    var savedCount = 0;
+    for (final source in _seedEvents()) {
+      final event = LockerEvent(
+        id: 'demo-${DateTime.now().microsecondsSinceEpoch}-$savedCount',
+        title: source.title,
+        start: source.start,
+        end: source.end,
+        place: source.place,
+        kind: source.kind,
+        memo: '테스트 일정 · ${source.memo}',
+        court: source.court,
+        uniformColors: source.uniformColors,
+        capacity: source.capacity,
+        targetTeam: source.targetTeam,
+        createdBy: source.createdBy,
+        isRecurring: false,
+        responseEnabled: source.responseEnabled,
+        responseDeadlineOverride: source.responseDeadline,
+        pollOptions: source.pollOptions,
+        visibility: source.visibility,
+        opponents: source.opponents,
+      );
+      if (await saveEvent(event)) savedCount++;
+    }
+    return savedCount;
   }
 
   Future<bool> addAnnouncement({
@@ -886,6 +987,17 @@ List<LockerEvent> _seedEvents() {
       memo: '팀은 현장에서 나눕니다.',
       uniformColors: const ['검정', '흰색'],
       attending: 10,
+    ),
+    LockerEvent(
+      id: 'free-open-01',
+      title: '자개',
+      start: futureAt(6, 18),
+      end: futureAt(6, 20),
+      place: '71-1동 신체육관',
+      kind: EventKind.freeOpen,
+      memo: '자유개방 시간입니다. 먼저 온 사람이 공과 조끼를 준비해 주세요.',
+      capacity: 20,
+      attending: 7,
     ),
     LockerEvent(
       id: 'scrimmage-01',

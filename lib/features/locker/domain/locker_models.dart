@@ -1,6 +1,7 @@
 enum EventKind {
   training,
   morning,
+  freeOpen,
   internal,
   pickup,
   ibDivision1,
@@ -17,6 +18,7 @@ extension EventKindUi on EventKind {
   String get label => switch (this) {
     EventKind.training => '정기 훈련',
     EventKind.morning => '아농',
+    EventKind.freeOpen => '자개',
     EventKind.internal => '내부 경기',
     EventKind.pickup => '픽업게임',
     EventKind.ibDivision1 => 'IB 1부',
@@ -274,12 +276,14 @@ class AnnouncementItem {
     required this.body,
     required this.author,
     required this.publishedAt,
+    this.pinned = false,
   });
   final String id;
   final String title;
   final String body;
   final String author;
   final DateTime publishedAt;
+  final bool pinned;
 }
 
 class AttendanceRates {

@@ -10,6 +10,7 @@ class LockerSnapshot {
     required this.attendance,
     required this.videos,
     required this.likedVideoIds,
+    this.hasMoreEvents = false,
     this.fromCache = false,
   });
 
@@ -17,6 +18,7 @@ class LockerSnapshot {
   final Map<String, String> attendance;
   final List<VideoItem> videos;
   final Set<String> likedVideoIds;
+  final bool hasMoreEvents;
   final bool fromCache;
 }
 
@@ -26,6 +28,8 @@ class SupabaseLockerRepository {
   String get _cacheKey => 'encba.remote-snapshot.$_userId.v2';
   final SupabaseClient _client;
   final LocalStore _store;
+  static const int eventPageSize = 20;
+  static const int videoPageSize = 30;
 
   String get _userId =>
       _client.auth.currentUser?.id ?? (throw StateError('로그인이 필요합니다.'));
@@ -37,72 +41,144 @@ class SupabaseLockerRepository {
       now.month,
       now.day,
     ).toUtc().toIso8601String();
-    try {
-      final result = await Future.wait<dynamic>([
-        _client
-            .from('events')
-            .select('*,places(name),profiles!events_created_by_fkey(name)')
-            .gte('starts_at', todayStartsAt)
-            .isFilter('cancelled_at', null)
-            .order('starts_at')
-            .order('id')
-            .limit(300)
-            .then<dynamic>((value) => value),
+    final cached = await _readCache();
+    final result = await Future.wait<dynamic>([
+      _orFallback(
+        _loadEventPage(
+          todayStartsAt: todayStartsAt,
+          offset: 0,
+          limit: eventPageSize,
+          includeLocked: true,
+        ),
+        (
+          events: cached?.events ?? const <LockerEvent>[],
+          hasMore: cached?.hasMoreEvents ?? false,
+        ),
+      ),
+      _orFallback(
         _client
             .from('event_attendance')
             .select('event_id,choice')
             .eq('profile_id', _userId)
             .then<dynamic>((value) => value),
+        cached?.attendance ?? const <String, String>{},
+      ),
+      _orFallback(
         _client
             .from('videos')
             .select('*,profiles!videos_uploaded_by_fkey(name,display_name)')
             .order('created_at', ascending: false)
             .order('id')
-            .limit(200)
+            .limit(videoPageSize)
             .then<dynamic>((value) => value),
+        cached?.videos ?? const <VideoItem>[],
+      ),
+      _orFallback(
         _client
             .from('video_likes')
             .select('video_id')
             .eq('profile_id', _userId)
             .then<dynamic>((value) => value),
-        _client.rpc('list_locked_event_stubs').then<dynamic>((value) => value),
-      ]);
-      final events = <LockerEvent>[
-        ...(result[0] as List).map(
-          (row) => _eventFromRow(Map<String, dynamic>.from(row as Map)),
-        ),
-        ...(result[4] as List).map(
-          (row) => _eventFromRow(Map<String, dynamic>.from(row as Map)),
-        ),
-      ]..sort((a, b) => a.start.compareTo(b.start));
-      final attendance = {
-        for (final row in result[1] as List)
-          (row as Map)['event_id'] as String: row['choice'] as String,
-      };
-      final videos = (result[2] as List<dynamic>)
-          .map<VideoItem>(
-            (row) => _videoFromRow(Map<String, dynamic>.from(row as Map)),
-          )
-          .toList(growable: false);
-      final likes = {
-        for (final row in result[3] as List) (row as Map)['video_id'] as String,
-      };
-      final snapshot = LockerSnapshot(
-        events: events,
-        attendance: attendance,
-        videos: videos,
-        likedVideoIds: likes,
-      );
-      try {
-        await _cache(snapshot);
-      } on Object {
-        // 온라인 응답은 로컬 캐시 저장 실패와 무관하게 그대로 사용한다.
-      }
-      return snapshot;
+        cached?.likedVideoIds ?? const <String>{},
+      ),
+    ]);
+    final eventPage = result[0] as ({List<LockerEvent> events, bool hasMore});
+    final rawVideos = result[2];
+    final videos = rawVideos is List<VideoItem>
+        ? rawVideos
+        : (rawVideos as List<dynamic>)
+              .map<VideoItem>(
+                (row) => _videoFromRow(Map<String, dynamic>.from(row as Map)),
+              )
+              .toList(growable: false);
+    final rawAttendance = result[1];
+    final rawLikes = result[3];
+    final attendance = rawAttendance is Map<String, String>
+        ? rawAttendance
+        : {
+            for (final row in rawAttendance as List)
+              (row as Map)['event_id'] as String: row['choice'] as String,
+          };
+    final likes = rawLikes is Set<String>
+        ? rawLikes
+        : {
+            for (final row in rawLikes as List)
+              (row as Map)['video_id'] as String,
+          };
+    final snapshot = LockerSnapshot(
+      events: eventPage.events,
+      attendance: attendance,
+      videos: videos,
+      likedVideoIds: likes,
+      hasMoreEvents: eventPage.hasMore,
+      fromCache: cached != null && identical(eventPage.events, cached.events),
+    );
+    try {
+      await _cache(snapshot);
     } on Object {
-      final cached = await _readCache();
-      if (cached != null) return cached;
-      rethrow;
+      // 온라인 응답은 로컬 캐시 저장 실패와 무관하게 그대로 사용한다.
+    }
+    return snapshot;
+  }
+
+  Future<({List<LockerEvent> events, bool hasMore})> loadMoreEvents({
+    required int offset,
+  }) {
+    final now = DateTime.now();
+    return _loadEventPage(
+      todayStartsAt: DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).toUtc().toIso8601String(),
+      offset: offset,
+      limit: eventPageSize,
+      includeLocked: false,
+    );
+  }
+
+  Future<({List<LockerEvent> events, bool hasMore})> _loadEventPage({
+    required String todayStartsAt,
+    required int offset,
+    required int limit,
+    required bool includeLocked,
+  }) async {
+    final normalFuture = _client
+        .from('events')
+        .select('*,places(name),profiles!events_created_by_fkey(name)')
+        .gte('starts_at', todayStartsAt)
+        .isFilter('cancelled_at', null)
+        .order('starts_at')
+        .order('id')
+        .range(offset, offset + limit - 1);
+    final lockedFuture = includeLocked
+        ? _orFallback<dynamic>(
+            _client.rpc('list_locked_event_stubs'),
+            const <dynamic>[],
+          )
+        : Future<dynamic>.value(const <dynamic>[]);
+    final rows = await Future.wait<dynamic>([normalFuture, lockedFuture]);
+    final normalRows = rows[0] as List;
+    final events =
+        <LockerEvent>[
+          ...normalRows.map(
+            (row) => _eventFromRow(Map<String, dynamic>.from(row as Map)),
+          ),
+          ...(rows[1] as List).map(
+            (row) => _eventFromRow(Map<String, dynamic>.from(row as Map)),
+          ),
+        ]..sort((a, b) {
+          final byStart = a.start.compareTo(b.start);
+          return byStart != 0 ? byStart : a.id.compareTo(b.id);
+        });
+    return (events: events, hasMore: normalRows.length == limit);
+  }
+
+  Future<T> _orFallback<T>(Future<T> future, T fallback) async {
+    try {
+      return await future;
+    } on Object {
+      return fallback;
     }
   }
 
@@ -182,7 +258,7 @@ class SupabaseLockerRepository {
     final rows = await _client
         .from('announcements')
         .select(
-          'id,title,body,published_at,profiles!announcements_created_by_fkey(name)',
+          'id,title,body,pinned,published_at,profiles!announcements_created_by_fkey(name)',
         )
         .order('pinned', ascending: false)
         .order('published_at', ascending: false)
@@ -195,6 +271,7 @@ class SupabaseLockerRepository {
         body: row['body'] as String,
         author: author?['name'] as String? ?? '운영진',
         publishedAt: DateTime.parse(row['published_at'] as String).toLocal(),
+        pinned: row['pinned'] as bool? ?? false,
       );
     }).toList();
   }
@@ -227,6 +304,7 @@ class SupabaseLockerRepository {
           profile?['name'] as String? ??
           '운영진',
       publishedAt: DateTime.parse(row['published_at'] as String).toLocal(),
+      pinned: row['pinned'] as bool? ?? false,
     );
   }
 
@@ -259,6 +337,7 @@ class SupabaseLockerRepository {
           profile?['name'] as String? ??
           '운영진',
       publishedAt: DateTime.parse(row['published_at'] as String).toLocal(),
+      pinned: row['pinned'] as bool? ?? false,
     );
   }
 
@@ -281,19 +360,7 @@ class SupabaseLockerRepository {
       _client.removeChannel(channel);
 
   Future<List<OperationAssignment>> loadOperations() async {
-    final rows = await _client
-        .from('operation_assignments')
-        .select('id,title,starts_at,ends_at,location,memo')
-        .eq('profile_id', _userId)
-        .gte(
-          'ends_at',
-          DateTime.now()
-              .subtract(const Duration(days: 30))
-              .toUtc()
-              .toIso8601String(),
-        )
-        .order('starts_at')
-        .limit(100);
+    final rows = await _client.rpc('list_my_operation_assignments');
     return rows
         .map(
           (row) => OperationAssignment(
@@ -306,6 +373,28 @@ class SupabaseLockerRepository {
           ),
         )
         .toList();
+  }
+
+  Future<({int imported, int unmatched})> importOperations({
+    required String fileName,
+    required int academicYear,
+    required int term,
+    required List<Map<String, dynamic>> assignments,
+  }) async {
+    final result = await _client.rpc(
+      'import_ib_operation_assignments',
+      params: {
+        'requested_file_name': fileName,
+        'requested_academic_year': academicYear,
+        'requested_term': term,
+        'requested_assignments': assignments,
+      },
+    );
+    final map = Map<String, dynamic>.from(result as Map);
+    return (
+      imported: map['imported'] as int? ?? 0,
+      unmatched: map['unmatched'] as int? ?? 0,
+    );
   }
 
   Future<List<HomecomingContact>> loadHomecomingContacts() async {
@@ -789,6 +878,7 @@ class SupabaseLockerRepository {
       ),
       'videos': snapshot.videos.map((video) => video.toJson()).toList(),
       'likes': snapshot.likedVideoIds.toList(),
+      'hasMoreEvents': snapshot.hasMoreEvents,
     }),
   );
 
@@ -814,6 +904,7 @@ class SupabaseLockerRepository {
             )
             .toList(),
         likedVideoIds: Set<String>.from(json['likes'] as List),
+        hasMoreEvents: json['hasMoreEvents'] as bool? ?? false,
         fromCache: true,
       );
     } on Object {
@@ -823,6 +914,7 @@ class SupabaseLockerRepository {
 }
 
 String _kindToDatabase(EventKind kind) => switch (kind) {
+  EventKind.freeOpen => 'free_open',
   EventKind.ibDivision1 => 'ib_division_1',
   EventKind.ibDivision2 => 'ib_division_2',
   EventKind.ibFreshman => 'ib_freshman',
@@ -832,6 +924,7 @@ String _kindToDatabase(EventKind kind) => switch (kind) {
 };
 
 EventKind _kindFromDatabase(String kind) => switch (kind) {
+  'free_open' => EventKind.freeOpen,
   'ib_division_1' => EventKind.ibDivision1,
   'ib_division_2' => EventKind.ibDivision2,
   'ib_freshman' => EventKind.ibFreshman,

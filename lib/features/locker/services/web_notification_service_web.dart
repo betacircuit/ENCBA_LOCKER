@@ -14,7 +14,7 @@ class WebNotificationService {
     return true;
   }
 
-  bool show(String title, String body) {
+  Future<bool> show(String title, String body) async {
     if (html.Notification.permission != 'granted') return false;
     html.Notification(title, body: body, icon: 'icons/Icon-192.png');
     return true;
