@@ -19,7 +19,17 @@ class SupabaseAuthRepository {
   Stream<supabase.AuthState> get authChanges => _client.auth.onAuthStateChange;
 
   Future<UserProfile?> restoreSession() async {
-    final user = _client.auth.currentUser;
+    var user = _client.auth.currentUser;
+    if (user == null) return null;
+    try {
+      final refreshed = await _client.auth.refreshSession();
+      user = refreshed.user ?? _client.auth.currentUser;
+    } on supabase.AuthRetryableFetchException {
+      // 오프라인에서는 저장된 세션과 캐시로 앱을 계속 사용할 수 있다.
+    } on supabase.AuthException {
+      await _client.auth.signOut(scope: supabase.SignOutScope.local);
+      return null;
+    }
     if (user == null) return null;
     return _profileFor(user.id);
   }

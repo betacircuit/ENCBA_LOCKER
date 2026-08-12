@@ -341,6 +341,23 @@ void main() {
     expect(find.text('60명'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('오늘의 준비 상태는 직접 체크할 수 있는 체크리스트다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('오늘의 준비 상태'), findsOneWidget);
+    expect(find.byType(Checkbox), findsNWidgets(3));
+
+    await tester.ensureVisible(find.text('물통과 개인 준비물 챙김'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Checkbox).last);
+    await tester.pumpAndSettle();
+
+    final checks = tester.widgetList<Checkbox>(find.byType(Checkbox)).toList();
+    expect(checks.last.value, isTrue);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Widget _signedOutApp(Widget child) => ProviderScope(

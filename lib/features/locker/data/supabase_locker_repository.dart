@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:encba_locker/core/storage/local_store.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LockerSnapshot {
@@ -42,69 +43,36 @@ class SupabaseLockerRepository {
       now.day,
     ).toUtc().toIso8601String();
     final cached = await _readCache();
-    final result = await Future.wait<dynamic>([
-      _orFallback(
-        _loadEventPage(
-          todayStartsAt: todayStartsAt,
-          offset: 0,
-          limit: eventPageSize,
-          includeLocked: true,
-        ),
-        (
-          events: cached?.events ?? const <LockerEvent>[],
-          hasMore: cached?.hasMoreEvents ?? false,
-        ),
+    final eventFuture = _orFallback<({List<LockerEvent> events, bool hasMore})>(
+      _loadEventPage(
+        todayStartsAt: todayStartsAt,
+        offset: 0,
+        limit: eventPageSize,
+        includeLocked: true,
       ),
-      _orFallback(
-        _client
-            .from('event_attendance')
-            .select('event_id,choice')
-            .eq('profile_id', _userId)
-            .then<dynamic>((value) => value),
-        cached?.attendance ?? const <String, String>{},
+      (
+        events: cached?.events ?? const <LockerEvent>[],
+        hasMore: cached?.hasMoreEvents ?? false,
       ),
-      _orFallback(
-        _client
-            .from('videos')
-            .select('*,profiles!videos_uploaded_by_fkey(name,display_name)')
-            .order('created_at', ascending: false)
-            .order('id')
-            .limit(videoPageSize)
-            .then<dynamic>((value) => value),
-        cached?.videos ?? const <VideoItem>[],
-      ),
-      _orFallback(
-        _client
-            .from('video_likes')
-            .select('video_id')
-            .eq('profile_id', _userId)
-            .then<dynamic>((value) => value),
-        cached?.likedVideoIds ?? const <String>{},
-      ),
-    ]);
-    final eventPage = result[0] as ({List<LockerEvent> events, bool hasMore});
-    final rawVideos = result[2];
-    final videos = rawVideos is List<VideoItem>
-        ? rawVideos
-        : (rawVideos as List<dynamic>)
-              .map<VideoItem>(
-                (row) => _videoFromRow(Map<String, dynamic>.from(row as Map)),
-              )
-              .toList(growable: false);
-    final rawAttendance = result[1];
-    final rawLikes = result[3];
-    final attendance = rawAttendance is Map<String, String>
-        ? rawAttendance
-        : {
-            for (final row in rawAttendance as List)
-              (row as Map)['event_id'] as String: row['choice'] as String,
-          };
-    final likes = rawLikes is Set<String>
-        ? rawLikes
-        : {
-            for (final row in rawLikes as List)
-              (row as Map)['video_id'] as String,
-          };
+      debugLabel: 'events',
+    );
+    final attendanceFuture = _orFallback<Map<String, String>>(
+      _loadMyAttendance(),
+      cached?.attendance ?? const <String, String>{},
+    );
+    final videosFuture = _orFallback<List<VideoItem>>(
+      _loadVideos(),
+      cached?.videos ?? const <VideoItem>[],
+    );
+    final likesFuture = _orFallback<Set<String>>(
+      _loadLikedVideoIds(),
+      cached?.likedVideoIds ?? const <String>{},
+    );
+
+    final eventPage = await eventFuture;
+    final attendance = await attendanceFuture;
+    final videos = await videosFuture;
+    final likes = await likesFuture;
     final snapshot = LockerSnapshot(
       events: eventPage.events,
       attendance: attendance,
@@ -119,6 +87,37 @@ class SupabaseLockerRepository {
       // 온라인 응답은 로컬 캐시 저장 실패와 무관하게 그대로 사용한다.
     }
     return snapshot;
+  }
+
+  Future<Map<String, String>> _loadMyAttendance() async {
+    final rows = await _client
+        .from('event_attendance')
+        .select('event_id,choice')
+        .eq('profile_id', _userId);
+    return {
+      for (final row in rows)
+        row['event_id'] as String: row['choice'] as String,
+    };
+  }
+
+  Future<List<VideoItem>> _loadVideos() async {
+    final rows = await _client
+        .from('videos')
+        .select('*,profiles!videos_uploaded_by_fkey(name,display_name)')
+        .order('created_at', ascending: false)
+        .order('id')
+        .limit(videoPageSize);
+    return rows
+        .map<VideoItem>((row) => _videoFromRow(Map<String, dynamic>.from(row)))
+        .toList(growable: false);
+  }
+
+  Future<Set<String>> _loadLikedVideoIds() async {
+    final rows = await _client
+        .from('video_likes')
+        .select('video_id')
+        .eq('profile_id', _userId);
+    return {for (final row in rows) row['video_id'] as String};
   }
 
   Future<({List<LockerEvent> events, bool hasMore})> loadMoreEvents({
@@ -157,14 +156,14 @@ class SupabaseLockerRepository {
             const <dynamic>[],
           )
         : Future<dynamic>.value(const <dynamic>[]);
-    final rows = await Future.wait<dynamic>([normalFuture, lockedFuture]);
-    final normalRows = rows[0] as List;
+    final normalRows = await normalFuture;
+    final lockedRows = await lockedFuture;
     final events =
         <LockerEvent>[
           ...normalRows.map(
             (row) => _eventFromRow(Map<String, dynamic>.from(row as Map)),
           ),
-          ...(rows[1] as List).map(
+          ...(lockedRows as List).map(
             (row) => _eventFromRow(Map<String, dynamic>.from(row as Map)),
           ),
         ]..sort((a, b) {
@@ -174,10 +173,17 @@ class SupabaseLockerRepository {
     return (events: events, hasMore: normalRows.length == limit);
   }
 
-  Future<T> _orFallback<T>(Future<T> future, T fallback) async {
+  Future<T> _orFallback<T>(
+    Future<T> future,
+    T fallback, {
+    String? debugLabel,
+  }) async {
     try {
       return await future;
-    } on Object {
+    } on Object catch (error) {
+      if (debugLabel != null) {
+        debugPrint('Supabase $debugLabel load failed: $error');
+      }
       return fallback;
     }
   }

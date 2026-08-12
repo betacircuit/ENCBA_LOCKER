@@ -182,36 +182,52 @@ class LockerController extends StateNotifier<LockerState> {
         clearError: true,
       );
 
-      final result = await Future.wait([
-        _orDefault(repository.loadMembers(), const <MemberProfile>[]),
-        _orDefault(repository.loadAnnouncements(), const <AnnouncementItem>[]),
-        _orDefault(repository.loadOperations(), const <OperationAssignment>[]),
-        _orDefault(
-          repository.loadHomecomingContacts(),
-          const <HomecomingContact>[],
-        ),
-        _orDefault(repository.loadAuditLogs(), const <AuditEntry>[]),
-        _orDefault(repository.loadActiveHomecomingCampaign(), null),
-        _orDefault(repository.loadAttendanceRates(), const AttendanceRates()),
-        _orDefault(
-          repository.loadOperationExchangeBoard(),
-          const <OperationAssignment>[],
-        ),
-        _orDefault(
-          repository.loadOperationSwapRequests(),
-          const <OperationSwapRequest>[],
-        ),
-      ]);
+      final membersFuture = _orDefault(
+        repository.loadMembers(),
+        const <MemberProfile>[],
+      );
+      final announcementsFuture = _orDefault(
+        repository.loadAnnouncements(),
+        const <AnnouncementItem>[],
+      );
+      final operationsFuture = _orDefault(
+        repository.loadOperations(),
+        const <OperationAssignment>[],
+      );
+      final contactsFuture = _orDefault(
+        repository.loadHomecomingContacts(),
+        const <HomecomingContact>[],
+      );
+      final auditFuture = _orDefault(
+        repository.loadAuditLogs(),
+        const <AuditEntry>[],
+      );
+      final campaignFuture = _orDefault<HomecomingCampaign?>(
+        repository.loadActiveHomecomingCampaign(),
+        null,
+      );
+      final ratesFuture = _orDefault(
+        repository.loadAttendanceRates(),
+        const AttendanceRates(),
+      );
+      final exchangeBoardFuture = _orDefault(
+        repository.loadOperationExchangeBoard(),
+        const <OperationAssignment>[],
+      );
+      final swapRequestsFuture = _orDefault(
+        repository.loadOperationSwapRequests(),
+        const <OperationSwapRequest>[],
+      );
       state = state.copyWith(
-        members: result[0] as List<MemberProfile>,
-        announcements: result[1] as List<AnnouncementItem>,
-        operations: result[2] as List<OperationAssignment>,
-        homecomingContacts: result[3] as List<HomecomingContact>,
-        auditEntries: result[4] as List<AuditEntry>,
-        homecomingCampaign: result[5] as HomecomingCampaign?,
-        attendanceRates: result[6] as AttendanceRates,
-        operationExchangeBoard: result[7] as List<OperationAssignment>,
-        operationSwapRequests: result[8] as List<OperationSwapRequest>,
+        members: await membersFuture,
+        announcements: await announcementsFuture,
+        operations: await operationsFuture,
+        homecomingContacts: await contactsFuture,
+        auditEntries: await auditFuture,
+        homecomingCampaign: await campaignFuture,
+        attendanceRates: await ratesFuture,
+        operationExchangeBoard: await exchangeBoardFuture,
+        operationSwapRequests: await swapRequestsFuture,
       );
       unawaited(_scheduleUndecidedReminder());
       _announcementChannel ??= repository.subscribeToAnnouncements((record) {
@@ -289,6 +305,8 @@ class LockerController extends StateNotifier<LockerState> {
   void selectVideoSegment(int index) =>
       state = state.copyWith(videoSegment: index);
   void selectMemberSegment(int index) => _selectMemberSegment(index);
+
+  Future<void> reload() => _load();
 
   Future<void> loadMoreEvents() async {
     final repository = _repository;
@@ -499,15 +517,13 @@ class LockerController extends StateNotifier<LockerState> {
     final repository = _repository;
     if (repository == null) return;
     try {
-      final result = await Future.wait([
-        repository.loadOperations(),
-        repository.loadOperationExchangeBoard(),
-        repository.loadOperationSwapRequests(),
-      ]);
+      final operationsFuture = repository.loadOperations();
+      final boardFuture = repository.loadOperationExchangeBoard();
+      final requestsFuture = repository.loadOperationSwapRequests();
       state = state.copyWith(
-        operations: result[0] as List<OperationAssignment>,
-        operationExchangeBoard: result[1] as List<OperationAssignment>,
-        operationSwapRequests: result[2] as List<OperationSwapRequest>,
+        operations: await operationsFuture,
+        operationExchangeBoard: await boardFuture,
+        operationSwapRequests: await requestsFuture,
         clearError: true,
       );
     } on Object catch (error, stackTrace) {
@@ -1165,6 +1181,9 @@ List<LockerEvent> _seedEvents() {
 final lockerControllerProvider =
     StateNotifierProvider<LockerController, LockerState>((ref) {
       ref.watch(authControllerProvider.select((state) => state.user?.id));
+      ref.watch(
+        authControllerProvider.select((state) => state.sessionRevision),
+      );
       return LockerController(
         SupabaseLockerRepository(Supabase.instance.client, LocalStore()),
       );

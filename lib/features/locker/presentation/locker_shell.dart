@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:encba_locker/core/theme/app_theme.dart';
+import 'package:encba_locker/core/storage/local_store.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/domain/user_profile.dart';
 import 'package:encba_locker/features/auth/presentation/edit_profile_screen.dart';
@@ -11,6 +12,7 @@ import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/presentation/event_screens.dart';
 import 'package:encba_locker/features/locker/services/homecoming_import_service.dart';
 import 'package:encba_locker/features/locker/services/ib_operation_import_service.dart';
+import 'package:encba_locker/features/locker/services/error_report_service.dart';
 import 'package:encba_locker/features/locker/services/web_notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -149,7 +151,6 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(lockerControllerProvider);
     final user = ref.watch(authControllerProvider).user!;
-    final canManageSchedule = user.canAdminister;
     final events = [...state.plannerEvents]
       ..sort((a, b) => a.start.compareTo(b.start));
     final upcoming = events
@@ -196,8 +197,8 @@ class HomeScreen extends ConsumerWidget {
           _EmptyState(
             icon: Icons.calendar_month_outlined,
             title: '예정된 일정이 없습니다',
-            action: canManageSchedule ? '일정 추가' : null,
-            onTap: canManageSchedule ? () => _openEditor(context) : null,
+            action: '다시 불러오기',
+            onTap: () => ref.read(lockerControllerProvider.notifier).reload(),
           )
         else
           EventTicket(
@@ -250,7 +251,7 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _TodayReadinessCard extends StatelessWidget {
+class _TodayReadinessCard extends StatefulWidget {
   const _TodayReadinessCard({
     required this.event,
     required this.attendance,
@@ -262,20 +263,84 @@ class _TodayReadinessCard extends StatelessWidget {
   final bool hasOperationToday;
 
   @override
+  State<_TodayReadinessCard> createState() => _TodayReadinessCardState();
+}
+
+class _TodayReadinessCardState extends State<_TodayReadinessCard> {
+  LocalStore? _store;
+  bool _gearReady = false;
+  bool _personalItemsReady = false;
+
+  String get _storeKey {
+    final now = DateTime.now();
+    final date = '${now.year}-${now.month}-${now.day}';
+    return 'encba.readiness.$date.${widget.event?.id ?? 'none'}';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreChecks();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TodayReadinessCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.event?.id != widget.event?.id) {
+      _gearReady = false;
+      _personalItemsReady = false;
+      _restoreChecks();
+    }
+  }
+
+  Future<void> _restoreChecks() async {
+    final store = _localStoreOrNull();
+    if (store == null) return;
+    final raw = await store.getString(_storeKey);
+    if (!mounted || raw == null) return;
+    try {
+      final saved = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      setState(() {
+        _gearReady = saved['gear'] as bool? ?? false;
+        _personalItemsReady = saved['personal'] as bool? ?? false;
+      });
+    } on Object {
+      await store.remove(_storeKey);
+    }
+  }
+
+  Future<void> _setCheck({bool? gear, bool? personal}) async {
+    setState(() {
+      if (gear != null) _gearReady = gear;
+      if (personal != null) _personalItemsReady = personal;
+    });
+    final store = _localStoreOrNull();
+    if (store == null) return;
+    await store.setString(
+      _storeKey,
+      jsonEncode({'gear': _gearReady, 'personal': _personalItemsReady}),
+    );
+  }
+
+  LocalStore? _localStoreOrNull() {
+    try {
+      return _store ??= LocalStore();
+    } on Object {
+      return null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final current = event;
+    final current = widget.event;
     final responseReady =
         current == null ||
         !current.responseEnabled ||
-        (attendance != null && attendance != '미정');
-    final uniformReady =
-        current == null ||
-        !current.kind.isBattle ||
-        current.uniformColors.isNotEmpty;
+        (widget.attendance != null && widget.attendance != '미정');
     final readyCount = [
       responseReady,
-      uniformReady,
-      true,
+      _gearReady,
+      _personalItemsReady,
     ].where((ready) => ready).length;
     return Container(
       padding: const EdgeInsets.all(18),
@@ -307,48 +372,94 @@ class _TodayReadinessCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          _ReadinessLine(
-            ready: responseReady,
-            text: current == null
+          _ReadinessCheck(
+            checked: responseReady,
+            enabled: false,
+            label: current == null
                 ? '오늘 이후 일정 확인 완료'
                 : responseReady
                 ? '참석 응답 완료'
                 : '참석 여부를 정해 주세요',
           ),
-          _ReadinessLine(
-            ready: uniformReady,
-            text: uniformReady ? '유니폼 확인 완료' : '유니폼 색을 확인해 주세요',
+          _ReadinessCheck(
+            checked: _gearReady,
+            label: current?.kind.isBattle == true
+                ? '유니폼과 농구화 챙김'
+                : '운동복과 농구화 챙김',
+            onChanged: (value) => _setCheck(gear: value),
           ),
-          _ReadinessLine(
-            ready: true,
-            text: hasOperationToday ? '오늘 IB 운영 배정이 있습니다' : '오늘 IB 운영 없음',
+          _ReadinessCheck(
+            checked: _personalItemsReady,
+            label: '물통과 개인 준비물 챙김',
+            onChanged: (value) => _setCheck(personal: value),
           ),
+          if (widget.hasOperationToday) ...[
+            const SizedBox(height: 7),
+            const Text(
+              '오늘 IB 운영 배정이 있습니다.',
+              style: TextStyle(color: Color(0xFFFFD37A), fontSize: 12),
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _ReadinessLine extends StatelessWidget {
-  const _ReadinessLine({required this.ready, required this.text});
-  final bool ready;
-  final String text;
+class _ReadinessCheck extends StatelessWidget {
+  const _ReadinessCheck({
+    required this.checked,
+    required this.label,
+    this.enabled = true,
+    this.onChanged,
+  });
+
+  final bool checked;
+  final String label;
+  final bool enabled;
+  final ValueChanged<bool>? onChanged;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 7),
-    child: Row(
-      children: [
-        Icon(
-          ready ? Icons.check_circle_rounded : Icons.error_outline_rounded,
-          color: ready ? const Color(0xFF78D9A5) : const Color(0xFFFFC26B),
-          size: 19,
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: enabled && onChanged != null ? () => onChanged!(!checked) : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          children: [
+            SizedBox.square(
+              dimension: 30,
+              child: Checkbox(
+                value: checked,
+                onChanged: enabled && onChanged != null
+                    ? (value) => onChanged!(value ?? false)
+                    : null,
+                side: const BorderSide(color: Color(0xFFAFC9F0), width: 1.6),
+                fillColor: WidgetStateProperty.resolveWith(
+                  (states) =>
+                      checked ? const Color(0xFF78D9A5) : Colors.transparent,
+                ),
+                checkColor: EncbaColors.navy,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: checked ? Colors.white : const Color(0xFFD5E1F2),
+                  decoration: checked && enabled
+                      ? TextDecoration.lineThrough
+                      : null,
+                  decorationColor: const Color(0xFFAFC9F0),
+                ),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 9),
-        Expanded(
-          child: Text(text, style: const TextStyle(color: Colors.white)),
-        ),
-      ],
+      ),
     ),
   );
 }
@@ -695,9 +806,11 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
           _SectionHeader(title: '오늘 이후 일정 ${futureEvents.length}'),
           const SizedBox(height: 11),
           if (visible.isEmpty)
-            const _EmptyState(
+            _EmptyState(
               icon: Icons.event_available_outlined,
               title: '예정된 일정이 없습니다',
+              action: '다시 불러오기',
+              onTap: () => ref.read(lockerControllerProvider.notifier).reload(),
             )
           else
             ...visible.indexed.expand((entry) {
@@ -1067,19 +1180,30 @@ class _BugReportScreenState extends ConsumerState<BugReportScreen> {
 
 [오류 내용]
 $report''';
-    final uri = Uri(
-      scheme: 'mailto',
-      path: 'legojmon@snu.ac.kr',
-      queryParameters: {'subject': 'ENCBA LOCKER 오류 제보', 'body': body},
-    );
-    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final uri = buildErrorReportUri(body: body, isWeb: kIsWeb);
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        uri,
+        mode: kIsWeb
+            ? LaunchMode.platformDefault
+            : LaunchMode.externalApplication,
+        webOnlyWindowName: '_blank',
+      );
+    } on Object {
+      opened = false;
+    }
     if (!mounted) return;
     setState(() => _opening = false);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           opened
-              ? '메일 내용을 채웠습니다. 확인 후 보내 주세요.'
+              ? kIsWeb
+                    ? 'Gmail 작성창에 내용을 채웠습니다. 확인 후 보내 주세요.'
+                    : '메일 앱에 내용을 채웠습니다. 확인 후 보내 주세요.'
+              : kIsWeb
+              ? 'Gmail을 열지 못했습니다. 팝업 차단을 확인해 주세요.'
               : '메일 앱을 열지 못했습니다. legojmon@snu.ac.kr로 보내 주세요.',
         ),
       ),

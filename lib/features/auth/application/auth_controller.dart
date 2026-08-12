@@ -10,18 +10,21 @@ class AuthState {
   const AuthState({
     this.isReady = false,
     this.isBusy = false,
+    this.sessionRevision = 0,
     this.user,
     this.error,
   });
 
   final bool isReady;
   final bool isBusy;
+  final int sessionRevision;
   final UserProfile? user;
   final String? error;
 
   AuthState copyWith({
     bool? isReady,
     bool? isBusy,
+    int? sessionRevision,
     UserProfile? user,
     bool clearUser = false,
     String? error,
@@ -29,6 +32,7 @@ class AuthState {
   }) => AuthState(
     isReady: isReady ?? this.isReady,
     isBusy: isBusy ?? this.isBusy,
+    sessionRevision: sessionRevision ?? this.sessionRevision,
     user: clearUser ? null : user ?? this.user,
     error: clearError ? null : error ?? this.error,
   );
@@ -123,17 +127,31 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<void> _handleAuthChange(supabase.AuthState event) async {
     if (event.event == supabase.AuthChangeEvent.signedOut) {
-      state = state.copyWith(isReady: true, clearUser: true, clearError: true);
+      state = state.copyWith(
+        isReady: true,
+        sessionRevision: state.sessionRevision + 1,
+        clearUser: true,
+        clearError: true,
+      );
       return;
     }
     if (event.session?.user != null &&
         state.user?.id != event.session!.user.id) {
       try {
         final profile = await _repo.refreshProfile();
-        state = state.copyWith(isReady: true, user: profile, clearError: true);
+        state = state.copyWith(
+          isReady: true,
+          sessionRevision: state.sessionRevision + 1,
+          user: profile,
+          clearError: true,
+        );
       } on EncbaAuthException catch (error) {
         state = state.copyWith(isReady: true, error: error.message);
       }
+      return;
+    }
+    if (event.session != null) {
+      state = state.copyWith(sessionRevision: state.sessionRevision + 1);
     }
   }
 
