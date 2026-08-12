@@ -19,9 +19,9 @@ extension EventKindUi on EventKind {
     EventKind.morning => '아농',
     EventKind.internal => '내부 경기',
     EventKind.pickup => '픽업게임',
-    EventKind.ibDivision1 => 'ENCBA',
-    EventKind.ibDivision2 => 'BEN',
-    EventKind.ibFreshman => '신입생',
+    EventKind.ibDivision1 => 'IB 1부',
+    EventKind.ibDivision2 => 'IB 2부',
+    EventKind.ibFreshman => 'IB 신입생',
     EventKind.scrimmage => '연습 경기',
     EventKind.threeWay => '삼파전',
     EventKind.external => '외부 경기',
@@ -72,6 +72,7 @@ class LockerEvent {
     this.pollOptions = const ['참석', '불참', '미정'],
     this.visibility = 'team',
     this.isLocked = false,
+    this.opponents = const [],
   });
 
   final String id;
@@ -94,6 +95,7 @@ class LockerEvent {
   final List<String> pollOptions;
   final String visibility;
   final bool isLocked;
+  final List<String> opponents;
 
   bool get isBattle => kind.isBattle;
 
@@ -127,6 +129,7 @@ class LockerEvent {
     pollOptions: pollOptions,
     visibility: visibility,
     isLocked: isLocked ?? this.isLocked,
+    opponents: opponents,
   );
 
   Map<String, dynamic> toJson() => {
@@ -150,6 +153,7 @@ class LockerEvent {
     'pollOptions': pollOptions,
     'visibility': visibility,
     'isLocked': isLocked,
+    'opponents': opponents,
   };
 
   factory LockerEvent.fromJson(Map<String, dynamic> json) => LockerEvent(
@@ -180,6 +184,7 @@ class LockerEvent {
     ),
     visibility: json['visibility'] as String? ?? 'team',
     isLocked: json['isLocked'] as bool? ?? false,
+    opponents: List<String>.from(json['opponents'] as List? ?? const []),
   );
 }
 

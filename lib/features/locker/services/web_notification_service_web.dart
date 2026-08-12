@@ -14,8 +14,9 @@ class WebNotificationService {
     return true;
   }
 
-  void show(String title, String body) {
-    if (html.Notification.permission != 'granted') return;
+  bool show(String title, String body) {
+    if (html.Notification.permission != 'granted') return false;
     html.Notification(title, body: body, icon: 'icons/Icon-192.png');
+    return true;
   }
 }

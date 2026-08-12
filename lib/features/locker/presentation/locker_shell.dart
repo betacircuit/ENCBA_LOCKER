@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
+import 'package:encba_locker/features/auth/domain/user_profile.dart';
 import 'package:encba_locker/features/auth/presentation/edit_profile_screen.dart';
 import 'package:encba_locker/features/locker/application/locker_controller.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
@@ -145,7 +146,7 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(lockerControllerProvider);
     final user = ref.watch(authControllerProvider).user!;
-    final canManageSchedule = user.canAdminister || user.isScheduleManager;
+    final canManageSchedule = user.canAdminister;
     final events = [...state.events]
       ..sort((a, b) => a.start.compareTo(b.start));
     final upcoming = events
@@ -245,7 +246,7 @@ class VideosScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(lockerControllerProvider);
     final selected = state.videoSegment;
-    final isAdmin = ref.watch(authControllerProvider).user!.canAdminister;
+    final user = ref.watch(authControllerProvider).user!;
     const categories = ['하이라이트', '복기', '공유'];
     final visible = state.videos
         .where((item) => item.category == categories[selected])
@@ -272,7 +273,7 @@ class VideosScreen extends ConsumerWidget {
             child: _VideoTile(video: video),
           ),
         ),
-        if (selected == 1 || selected == 2 || isAdmin)
+        if (_canCreateVideoCategory(user, categories[selected]))
           OutlinedButton.icon(
             onPressed: () =>
                 _showVideoEditor(context, ref, categories[selected]),
@@ -291,30 +292,18 @@ class GamesScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(lockerControllerProvider);
     final gameUser = ref.watch(authControllerProvider).user!;
-    final isAdmin = gameUser.canAdminister || gameUser.isScheduleManager;
+    final isAdmin = gameUser.canAdminister;
     final selected = state.gameSegment;
     final selectedSub = state.gameSubSegment;
     final categories = switch (selected) {
-      0 => const [
-        ('아농', EventKind.morning),
-        ('내부 경기', EventKind.internal),
-        ('픽업게임', EventKind.pickup),
-      ],
-      1 => const [
-        ('ENCBA', EventKind.ibDivision1),
-        ('BEN', EventKind.ibDivision2),
-        ('신입생', EventKind.ibFreshman),
-      ],
-      _ => const [
-        ('연습 경기', EventKind.scrimmage),
-        ('삼파전', EventKind.threeWay),
-        ('외부 경기', EventKind.external),
-      ],
+      0 => const [('아농', EventKind.morning), ('픽업게임', EventKind.pickup)],
+      1 => const [('1부', EventKind.ibDivision1), ('2부', EventKind.ibDivision2)],
+      _ => const [('연습 경기', EventKind.scrimmage), ('삼파전', EventKind.threeWay)],
     };
     final filtered = state.events.where((event) {
-      return event.kind == categories[selectedSub].$2;
+      return event.kind == categories[selectedSub].$2 &&
+          !event.end.isBefore(DateTime.now());
     }).toList();
-    final ibLocked = selected == 1 && _isAcademicBreak(DateTime.now());
     return _Page(
       header: const _Header(eyebrow: 'GAME DAY', title: 'GAME'),
       children: [
@@ -334,12 +323,7 @@ class GamesScreen extends ConsumerWidget {
               .selectGameSubSegment,
         ),
         const SizedBox(height: 20),
-        if (ibLocked)
-          const _EmptyState(
-            icon: Icons.lock_clock_outlined,
-            title: '방학 중에는 IB가 잠깁니다',
-          )
-        else if (filtered.isEmpty)
+        if (filtered.isEmpty)
           _EmptyState(
             icon: Icons.sports_basketball_outlined,
             title: '예정된 경기가 없습니다',
@@ -377,62 +361,68 @@ class _SlidingTabBar extends StatelessWidget {
   final ValueChanged<int> onSelected;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final slot = constraints.maxWidth / labels.length;
-      final motion = MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : const Duration(milliseconds: 260);
-      return Container(
-        height: 48,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: EncbaColors.navy),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            AnimatedPositioned(
-              duration: motion,
-              curve: Curves.easeOutCubic,
-              left: selectedIndex * slot + 2,
-              top: 2,
-              width: slot - 4,
-              bottom: 2,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: EncbaColors.deepBlue,
-                  borderRadius: BorderRadius.circular(11),
-                ),
+  Widget build(BuildContext context) {
+    final motion = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 220);
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE7ECF3),
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: const Color(0xFFD2DAE5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: labels.asMap().entries.map((entry) {
+          final selected = entry.key == selectedIndex;
+          return Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(
+                right: entry.key == labels.length - 1 ? 0 : 3,
               ),
-            ),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: labels.asMap().entries.map((entry) {
-                final selected = entry.key == selectedIndex;
-                return Expanded(
-                  child: Semantics(
-                    selected: selected,
-                    button: true,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => onSelected(entry.key),
-                        child: Center(
+              child: Semantics(
+                selected: selected,
+                button: true,
+                label: entry.value,
+                child: Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(13),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () => onSelected(entry.key),
+                    child: AnimatedContainer(
+                      duration: motion,
+                      curve: Curves.easeOutCubic,
+                      decoration: BoxDecoration(
+                        color: selected ? EncbaColors.deepBlue : Colors.white,
+                        borderRadius: BorderRadius.circular(13),
+                        boxShadow: selected
+                            ? const [
+                                BoxShadow(
+                                  color: Color(0x260B2347),
+                                  blurRadius: 8,
+                                  offset: Offset(0, 2),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Center(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               if (icons != null) ...[
                                 Icon(
                                   icons![entry.key],
-                                  size: 18,
+                                  size: 17,
                                   color: selected
                                       ? Colors.white
                                       : EncbaColors.ink,
                                 ),
-                                const SizedBox(width: 7),
+                                const SizedBox(width: 5),
                               ],
                               AnimatedDefaultTextStyle(
                                 duration: motion,
@@ -444,7 +434,7 @@ class _SlidingTabBar extends StatelessWidget {
                                       ? Colors.white
                                       : EncbaColors.ink,
                                 ),
-                                child: Text(entry.value),
+                                child: Text(entry.value, maxLines: 1),
                               ),
                             ],
                           ),
@@ -452,62 +442,155 @@ class _SlidingTabBar extends StatelessWidget {
                       ),
                     ),
                   ),
-                );
-              }).toList(),
+                ),
+              ),
             ),
-          ],
-        ),
-      );
-    },
-  );
+          );
+        }).toList(),
+      ),
+    );
+  }
 }
 
-class ScheduleScreen extends ConsumerWidget {
+class ScheduleScreen extends ConsumerStatefulWidget {
   const ScheduleScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final events = ref.watch(lockerControllerProvider).events;
+  ConsumerState<ScheduleScreen> createState() => _ScheduleScreenState();
+}
+
+class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
+  DateTime? _selectedDate;
+  DateTime _visibleMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  bool _calendarOpen = false;
+  int _visibleCount = 10;
+
+  @override
+  Widget build(BuildContext context) {
+    final allEvents = [...ref.watch(lockerControllerProvider).events]
+      ..sort((a, b) => a.start.compareTo(b.start));
     final user = ref.watch(authControllerProvider).user!;
-    final canManage = user.canAdminister || user.isScheduleManager;
-    return _Page(
-      header: _Header(
-        eyebrow: _academicLabel(DateTime.now()),
-        title: 'PLANNER',
-        action: canManage
-            ? IconButton(
-                tooltip: '일정 추가',
-                onPressed: () => _openEditor(context),
-                icon: const Icon(Icons.add_circle_outline_rounded),
-              )
-            : null,
-      ),
-      children: [
-        const _WeekStrip(),
-        const SizedBox(height: 22),
-        _SectionHeader(title: '예정 일정 ${events.length}'),
-        const SizedBox(height: 11),
-        ...events.map(
-          (event) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: EventTicket(
-              event: event,
-              heroTag: 'schedule-${event.id}',
-              compact: true,
-              onTap: () =>
-                  openEventDetail(context, event, heroTagPrefix: 'schedule'),
-            ),
+    final today = DateUtils.dateOnly(DateTime.now());
+    final filtered = allEvents.where((event) {
+      if (_selectedDate != null) {
+        return DateUtils.isSameDay(event.start, _selectedDate);
+      }
+      return !DateUtils.dateOnly(event.start).isBefore(today);
+    }).toList();
+    final visible = filtered.take(_visibleCount).toList();
+    final canLoadMore = visible.length < filtered.length;
+    final title = _selectedDate == null
+        ? '오늘 이후 일정'
+        : '${_selectedDate!.month}월 ${_selectedDate!.day}일 일정';
+
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (canLoadMore &&
+            notification is ScrollEndNotification &&
+            notification.metrics.extentAfter < 180) {
+          setState(() => _visibleCount += 10);
+        }
+        return false;
+      },
+      child: _Page(
+        header: _Header(
+          eyebrow: _academicLabel(DateTime.now()),
+          title: 'PLANNER',
+          action: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton.filledTonal(
+                tooltip: _calendarOpen ? '달력 닫기' : '달력 펼치기',
+                onPressed: () => setState(() => _calendarOpen = !_calendarOpen),
+                icon: Icon(
+                  _calendarOpen
+                      ? Icons.calendar_view_week_rounded
+                      : Icons.calendar_month_rounded,
+                ),
+              ),
+              if (user.canAdminister)
+                IconButton(
+                  tooltip: '일정 추가',
+                  onPressed: () => _openEditor(context),
+                  icon: const Icon(Icons.add_circle_outline_rounded),
+                ),
+            ],
           ),
         ),
-        const SizedBox(height: 8),
-        if (canManage)
-          FilledButton.icon(
-            onPressed: () => _openEditor(context),
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('새 일정 등록'),
+        children: [
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 240),
+            child: _calendarOpen
+                ? _PlannerCalendar(
+                    key: const ValueKey('month'),
+                    visibleMonth: _visibleMonth,
+                    selectedDate: _selectedDate,
+                    events: allEvents,
+                    onMonthChanged: (month) =>
+                        setState(() => _visibleMonth = month),
+                    onSelected: _selectDate,
+                  )
+                : _WeekStrip(
+                    key: const ValueKey('week'),
+                    selectedDate: _selectedDate,
+                    events: allEvents,
+                    onSelected: _selectDate,
+                  ),
           ),
-      ],
+          if (_selectedDate != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => setState(() {
+                  _selectedDate = null;
+                  _visibleCount = 10;
+                }),
+                icon: const Icon(Icons.close_rounded, size: 17),
+                label: const Text('날짜 필터 해제'),
+              ),
+            ),
+          ],
+          const SizedBox(height: 20),
+          _SectionHeader(title: '$title ${filtered.length}'),
+          const SizedBox(height: 11),
+          if (visible.isEmpty)
+            const _EmptyState(
+              icon: Icons.event_available_outlined,
+              title: '이 날짜에는 일정이 없습니다',
+            )
+          else
+            ...visible.map(
+              (event) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: EventTicket(
+                  event: event,
+                  heroTag: 'schedule-${event.id}',
+                  compact: true,
+                  onTap: () => openEventDetail(
+                    context,
+                    event,
+                    heroTagPrefix: 'schedule',
+                  ),
+                ),
+              ),
+            ),
+          if (canLoadMore)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 18),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            ),
+        ],
+      ),
     );
+  }
+
+  void _selectDate(DateTime date) {
+    setState(() {
+      _selectedDate = DateUtils.dateOnly(date);
+      _visibleMonth = DateTime(date.year, date.month);
+      _visibleCount = 10;
+    });
   }
 }
 
@@ -517,7 +600,8 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authControllerProvider).user!;
-    final rates = ref.watch(lockerControllerProvider).attendanceRates;
+    final locker = ref.watch(lockerControllerProvider);
+    final rates = locker.attendanceRates;
     return _Page(
       header: _Header(
         eyebrow: 'MY LOCKER',
@@ -553,6 +637,11 @@ class ProfileScreen extends ConsumerWidget {
           subtitle: '브라우저가 열려 있을 때 공지 알림',
           onTap: () async {
             final enabled = await WebNotificationService().enableAndTest();
+            if (enabled) {
+              ref
+                  .read(lockerControllerProvider.notifier)
+                  .refreshUndecidedReminders();
+            }
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -574,7 +663,7 @@ class ProfileScreen extends ConsumerWidget {
         _MenuTile(
           icon: Icons.assignment_outlined,
           title: 'IB 운영 일정',
-          subtitle: '이번 학기 내 담당 3건',
+          subtitle: '학기 초 업로드된 엑셀 기준',
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const OperationsScreen()),
@@ -583,7 +672,9 @@ class ProfileScreen extends ConsumerWidget {
         _MenuTile(
           icon: Icons.celebration_outlined,
           title: '홈커밍 연락 보드',
-          subtitle: '연락 2/3 · 주차권 1건',
+          subtitle: locker.homecomingCampaign == null
+              ? '관리자가 이번 학기 이벤트를 열기 전입니다'
+              : '${locker.homecomingCampaign!.eventDate.month}.${locker.homecomingCampaign!.eventDate.day} 진행',
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const HomecomingScreen()),
@@ -1792,6 +1883,7 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
         .firstOrNull;
     final comments = locker.videoComments[video.id] ?? const [];
     final user = ref.watch(authControllerProvider).user;
+    final canManage = _canManageVideo(user, current ?? video);
     final canSeeWatch =
         user?.canAdminister == true ||
         video.uploader == user?.visibleName ||
@@ -1801,7 +1893,7 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(video.category),
-        actions: user?.canAdminister == true
+        actions: canManage
             ? [
                 IconButton(
                   tooltip: '영상 수정',
@@ -2064,13 +2156,6 @@ String _auditActionLabel(String action) => switch (action) {
   _ => action,
 };
 
-bool _isAcademicBreak(DateTime date) {
-  final monthDay = date.month * 100 + date.day;
-  return (monthDay >= 616 && monthDay <= 831) ||
-      monthDay >= 1215 ||
-      monthDay <= 228;
-}
-
 String _academicLabel(DateTime date) {
   final monthDay = date.month * 100 + date.day;
   if (monthDay >= 301 && monthDay <= 615) return '${date.year} · 1학기';
@@ -2079,7 +2164,17 @@ String _academicLabel(DateTime date) {
 }
 
 class _WeekStrip extends StatelessWidget {
-  const _WeekStrip();
+  const _WeekStrip({
+    super.key,
+    required this.selectedDate,
+    required this.events,
+    required this.onSelected,
+  });
+
+  final DateTime? selectedDate;
+  final List<LockerEvent> events;
+  final ValueChanged<DateTime> onSelected;
+
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
@@ -2087,41 +2182,233 @@ class _WeekStrip extends StatelessWidget {
     return Row(
       children: List.generate(7, (index) {
         final day = monday.add(Duration(days: index));
-        final selected = day.day == now.day;
+        final selected = DateUtils.isSameDay(day, selectedDate);
+        final isToday = DateUtils.isSameDay(day, now);
+        final hasEvent = events.any(
+          (event) => DateUtils.isSameDay(event.start, day),
+        );
         return Expanded(
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            margin: EdgeInsets.only(right: index == 6 ? 0 : 5),
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-              color: selected ? EncbaColors.navy : Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: selected ? EncbaColors.navy : EncbaColors.line,
+          child: Padding(
+            padding: EdgeInsets.only(right: index == 6 ? 0 : 5),
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(13),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => onSelected(day),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  decoration: BoxDecoration(
+                    color: selected ? EncbaColors.navy : Colors.white,
+                    borderRadius: BorderRadius.circular(13),
+                    border: Border.all(
+                      color: selected
+                          ? EncbaColors.navy
+                          : isToday
+                          ? EncbaColors.snuBlue
+                          : EncbaColors.line,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        weekday(day),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: selected ? Colors.white70 : EncbaColors.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${day.day}',
+                        style: TextStyle(
+                          color: selected ? Colors.white : EncbaColors.ink,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Container(
+                        width: 4,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: hasEvent
+                              ? selected
+                                    ? Colors.white
+                                    : EncbaColors.snuBlue
+                              : Colors.transparent,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-            child: Column(
-              children: [
-                Text(
-                  weekday(day),
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: selected ? Colors.white70 : EncbaColors.muted,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  '${day.day}',
-                  style: TextStyle(
-                    color: selected ? Colors.white : EncbaColors.ink,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
             ),
           ),
         );
       }),
+    );
+  }
+}
+
+class _PlannerCalendar extends StatelessWidget {
+  const _PlannerCalendar({
+    super.key,
+    required this.visibleMonth,
+    required this.selectedDate,
+    required this.events,
+    required this.onMonthChanged,
+    required this.onSelected,
+  });
+
+  final DateTime visibleMonth;
+  final DateTime? selectedDate;
+  final List<LockerEvent> events;
+  final ValueChanged<DateTime> onMonthChanged;
+  final ValueChanged<DateTime> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final first = DateTime(visibleMonth.year, visibleMonth.month);
+    final daysInMonth = DateTime(
+      visibleMonth.year,
+      visibleMonth.month + 1,
+      0,
+    ).day;
+    final leading = first.weekday - 1;
+    final cellCount = ((leading + daysInMonth + 6) ~/ 7) * 7;
+    final today = DateTime.now();
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: EncbaColors.line),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              IconButton(
+                tooltip: '이전 달',
+                onPressed: () => onMonthChanged(
+                  DateTime(visibleMonth.year, visibleMonth.month - 1),
+                ),
+                icon: const Icon(Icons.chevron_left_rounded),
+              ),
+              Expanded(
+                child: Text(
+                  '${visibleMonth.year}년 ${visibleMonth.month}월',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              IconButton(
+                tooltip: '다음 달',
+                onPressed: () => onMonthChanged(
+                  DateTime(visibleMonth.year, visibleMonth.month + 1),
+                ),
+                icon: const Icon(Icons.chevron_right_rounded),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              for (final label in ['월', '화', '수', '목', '금', '토', '일'])
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: EncbaColors.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: cellCount,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              mainAxisExtent: 45,
+            ),
+            itemBuilder: (context, index) {
+              final dayNumber = index - leading + 1;
+              if (dayNumber < 1 || dayNumber > daysInMonth) {
+                return const SizedBox.shrink();
+              }
+              final day = DateTime(
+                visibleMonth.year,
+                visibleMonth.month,
+                dayNumber,
+              );
+              final selected = DateUtils.isSameDay(day, selectedDate);
+              final isToday = DateUtils.isSameDay(day, today);
+              final hasEvent = events.any(
+                (event) => DateUtils.isSameDay(event.start, day),
+              );
+              return Semantics(
+                button: true,
+                selected: selected,
+                label: '$dayNumber일${hasEvent ? ', 일정 있음' : ''}',
+                child: Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () => onSelected(day),
+                    customBorder: const CircleBorder(),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      margin: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: selected ? EncbaColors.navy : Colors.transparent,
+                        border: isToday && !selected
+                            ? Border.all(color: EncbaColors.snuBlue)
+                            : null,
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            '$dayNumber',
+                            style: TextStyle(
+                              color: selected ? Colors.white : EncbaColors.ink,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Container(
+                            width: 4,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: hasEvent
+                                  ? selected
+                                        ? Colors.white
+                                        : EncbaColors.snuBlue
+                                  : Colors.transparent,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2712,12 +2999,14 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     final isReview = widget.category == '복기';
+    final isHighlight = widget.category == '하이라이트';
     final quarterUrls = _quarters.map((item) => item.text.trim()).toList();
     final sourceUrl = isReview
         ? quarterUrls.firstWhere((url) => url.isNotEmpty, orElse: () => '')
         : _url.text.trim();
     final youtubeId = _youtubeIdFrom(sourceUrl);
-    if (youtubeId == null) return;
+    final isInstagram = isHighlight && _isInstagramReel(sourceUrl);
+    if (youtubeId == null && !isInstagram) return;
     if (isReview) {
       final blankQuarters = <int>[
         for (var i = 0; i < quarterUrls.length; i++)
@@ -2754,7 +3043,8 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
       durationLabel: _duration.text.trim(),
       category: widget.category,
       url: sourceUrl,
-      youtubeId: youtubeId,
+      youtubeId: youtubeId ?? '',
+      sourceType: isInstagram ? 'instagram' : 'youtube',
       quarterUrls: isReview
           ? quarterUrls.map((url) => url.isEmpty ? null : url).toList()
           : const [],
@@ -2823,10 +3113,20 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
             TextFormField(
               controller: _url,
               keyboardType: TextInputType.url,
-              decoration: const InputDecoration(labelText: 'YouTube 링크'),
-              validator: (value) => _youtubeIdFrom(value?.trim() ?? '') == null
-                  ? '올바른 YouTube 링크를 입력해 주세요.'
-                  : null,
+              decoration: InputDecoration(
+                labelText: widget.category == '하이라이트'
+                    ? 'YouTube 또는 Instagram Reel 링크'
+                    : 'YouTube 링크',
+              ),
+              validator: (value) {
+                final text = value?.trim() ?? '';
+                final validYoutube = _youtubeIdFrom(text) != null;
+                final validInstagram =
+                    widget.category == '하이라이트' && _isInstagramReel(text);
+                return validYoutube || validInstagram
+                    ? null
+                    : '올바른 영상 링크를 입력해 주세요.';
+              },
             ),
             const SizedBox(height: 10),
           ],
@@ -2968,6 +3268,29 @@ String? _youtubeIdFrom(String input) {
     }
   }
   return null;
+}
+
+bool _isInstagramReel(String input) {
+  final uri = Uri.tryParse(input);
+  if (uri == null) return false;
+  final host = uri.host.toLowerCase();
+  return (host == 'instagram.com' || host == 'www.instagram.com') &&
+      uri.pathSegments.length >= 2 &&
+      uri.pathSegments.first == 'reel' &&
+      uri.pathSegments[1].isNotEmpty;
+}
+
+bool _canCreateVideoCategory(UserProfile user, String category) {
+  if (category == '하이라이트') return user.canManageHighlights;
+  return category == '복기' || category == '공유';
+}
+
+bool _canManageVideo(UserProfile? user, VideoItem video) {
+  if (user == null) return false;
+  if (video.category == '하이라이트') {
+    return user.canManageHighlights || user.canAdminister;
+  }
+  return video.category == '복기' || video.category == '공유';
 }
 
 void _showTask(BuildContext context, String text) => showModalBottomSheet<void>(

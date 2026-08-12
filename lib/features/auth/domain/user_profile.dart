@@ -151,6 +151,8 @@ class UserProfile {
 
   bool get canAdminister => isAdmin || leadershipRole == 'captain';
 
+  bool get canManageHighlights => leadershipRole == 'manager';
+
   String? get leadershipLabel => switch (leadershipRole) {
     'admin' => '관리자',
     'captain' => '주장',

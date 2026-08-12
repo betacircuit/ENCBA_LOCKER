@@ -158,6 +158,18 @@ class EventTicket extends ConsumerWidget {
                                 color: EncbaColors.ink,
                               ),
                             ),
+                            if (event.opponents.isNotEmpty) ...[
+                              const SizedBox(height: 5),
+                              Text(
+                                'vs ${event.opponents.join(' · ')}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: EncbaColors.snuBlue,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 10),
                             _MetaLine(
                               icon: Icons.schedule_rounded,
@@ -221,8 +233,6 @@ class EventDetailScreen extends ConsumerWidget {
         events.where((item) => item.id == eventId).firstOrNull ?? initialEvent;
     final isAdmin =
         ref.watch(authControllerProvider).user?.canAdminister ?? false;
-    final canManage =
-        ref.watch(authControllerProvider).user?.isScheduleManager ?? false;
     if (event.isLocked) {
       return Scaffold(
         appBar: AppBar(title: const Text('외부 경기')),
@@ -268,7 +278,7 @@ class EventDetailScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('일정 상세'),
         actions: [
-          if (isAdmin || canManage)
+          if (isAdmin)
             IconButton(
               tooltip: '일정 수정',
               onPressed: () => Navigator.of(context).push(
@@ -313,7 +323,7 @@ class EventDetailScreen extends ConsumerWidget {
               ),
             ],
           ),
-          if ((isAdmin || canManage) && event.kind == EventKind.external) ...[
+          if (isAdmin && event.kind == EventKind.external) ...[
             const SizedBox(height: 10),
             OutlinedButton.icon(
               onPressed: () => Navigator.of(context).push(
@@ -480,6 +490,16 @@ class _ExpandedTicket extends StatelessWidget {
               height: 1.1,
             ),
           ),
+          if (event.opponents.isNotEmpty) ...[
+            const SizedBox(height: 7),
+            Text(
+              'vs ${event.opponents.join(' · ')}',
+              style: TextStyle(
+                color: event.isBattle ? Colors.white70 : EncbaColors.snuBlue,
+                fontSize: 15,
+              ),
+            ),
+          ],
           const SizedBox(height: 18),
           _MetaLine(
             icon: Icons.calendar_today_outlined,
@@ -678,8 +698,9 @@ class EventEditorScreen extends ConsumerStatefulWidget {
 
 class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _title;
   late final TextEditingController _memo;
+  late final TextEditingController _opponentOne;
+  late final TextEditingController _opponentTwo;
   late bool _hasCapacity;
   late double _capacity;
   late EventKind _kind;
@@ -694,16 +715,39 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   late DateTime _end;
   late bool _recurring;
   late bool _responseEnabled;
+  late DateTime _responseDeadline;
+  bool _deadlineCustomized = false;
   bool _saving = false;
 
   static const _places = ['71동 종합체육관', '71-1동 신체육관', '900동 기숙사체육관'];
+  static const _editableKinds = [
+    EventKind.training,
+    EventKind.morning,
+    EventKind.pickup,
+    EventKind.scrimmage,
+    EventKind.threeWay,
+  ];
+  static const _ibDivisionOneTeams = [
+    '농구부',
+    '스티즈',
+    '그래비티',
+    '썬샷',
+    '노바스',
+    '호바스',
+    '새턴OB',
+  ];
 
   @override
   void initState() {
     super.initState();
     final existing = widget.existing;
-    _title = TextEditingController(text: existing?.title ?? '');
     _memo = TextEditingController(text: existing?.memo ?? '');
+    _opponentOne = TextEditingController(
+      text: existing?.opponents.elementAtOrNull(0) ?? '',
+    );
+    _opponentTwo = TextEditingController(
+      text: existing?.opponents.elementAtOrNull(1) ?? '',
+    );
     _hasCapacity = existing?.capacity != null;
     _capacity = (existing?.capacity ?? 20).clamp(2, 60).toDouble();
     _kind = existing?.kind ?? EventKind.training;
@@ -727,13 +771,20 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
         DateTime.now().add(const Duration(days: 1, hours: 1));
     _end = existing?.end ?? _start.add(const Duration(hours: 2));
     _recurring = existing?.isRecurring ?? false;
-    _responseEnabled = existing?.responseEnabled ?? true;
+    _responseEnabled = true;
+    _responseDeadline =
+        existing?.responseDeadline ??
+        _start.subtract(
+          _kind.isMatch ? const Duration(hours: 3) : const Duration(hours: 1),
+        );
+    _deadlineCustomized = existing?.responseDeadlineOverride != null;
   }
 
   @override
   void dispose() {
-    _title.dispose();
     _memo.dispose();
+    _opponentOne.dispose();
+    _opponentTwo.dispose();
     _pollOption.dispose();
     super.dispose();
   }
@@ -741,8 +792,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authControllerProvider).user;
-    final canManage =
-        (user?.canAdminister ?? false) || (user?.isScheduleManager ?? false);
+    final canManage = user?.canAdminister ?? false;
     if (!canManage) {
       return Scaffold(
         appBar: AppBar(title: const Text('일정')),
@@ -753,6 +803,9 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     final placeOptions = _places.contains(_place)
         ? _places
         : [..._places, _place];
+    final kindOptions = _editableKinds.contains(_kind)
+        ? _editableKinds
+        : [_kind, ..._editableKinds];
     return Scaffold(
       appBar: AppBar(title: Text(editing ? '일정 수정' : '새 일정')),
       body: Form(
@@ -762,20 +815,14 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
           children: [
             const _FormSectionTitle('기본 정보'),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _title,
-              decoration: const InputDecoration(
-                labelText: '제목 *',
-                hintText: '예: 정기 훈련',
-              ),
-              validator: _required,
-            ),
-            const SizedBox(height: 12),
             DropdownButtonFormField<EventKind>(
               initialValue: _kind,
               isExpanded: true,
-              decoration: const InputDecoration(labelText: '유형 *'),
-              items: EventKind.values
+              decoration: const InputDecoration(
+                labelText: '일정 유형 *',
+                helperText: '선택한 유형이 일정 제목으로 표시됩니다.',
+              ),
+              items: kindOptions
                   .map(
                     (kind) =>
                         DropdownMenuItem(value: kind, child: Text(kind.label)),
@@ -783,8 +830,17 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                   .toList(),
               onChanged: (value) => setState(() {
                 _kind = value!;
-                if (_kind == EventKind.training) {
-                  _pollOptions = ['참석', '불참', '미정'];
+                if (!_deadlineCustomized) {
+                  _responseDeadline = _start.subtract(
+                    _kind.isMatch
+                        ? const Duration(hours: 3)
+                        : const Duration(hours: 1),
+                  );
+                }
+                if (_kind != EventKind.training &&
+                    _kind != EventKind.morning &&
+                    _uniforms.isEmpty) {
+                  _uniforms = {'검정', '흰색'};
                 }
               }),
             ),
@@ -801,6 +857,44 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                   .toList(),
               onChanged: (value) => _team = value!,
             ),
+            if (_kind == EventKind.scrimmage ||
+                _kind == EventKind.threeWay) ...[
+              const SizedBox(height: 18),
+              TextFormField(
+                controller: _opponentOne,
+                decoration: InputDecoration(
+                  labelText: _kind == EventKind.threeWay ? '상대팀 1 *' : '상대팀 *',
+                  hintText: 'IB 1부 팀 선택 또는 직접 입력',
+                ),
+                validator: _required,
+              ),
+              const SizedBox(height: 8),
+              _TeamSuggestionStrip(
+                teams: _ibDivisionOneTeams,
+                onSelected: (team) {
+                  _opponentOne.text = team;
+                  setState(() {});
+                },
+              ),
+              if (_kind == EventKind.threeWay) ...[
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _opponentTwo,
+                  decoration: const InputDecoration(
+                    labelText: '상대팀 2 *',
+                    hintText: '두 번째 상대팀 직접 입력',
+                  ),
+                  validator: (value) {
+                    final requiredError = _required(value);
+                    if (requiredError != null) return requiredError;
+                    if (value!.trim() == _opponentOne.text.trim()) {
+                      return '서로 다른 팀을 입력해 주세요.';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+            ],
             const SizedBox(height: 24),
             const _FormSectionTitle('시간과 장소'),
             const SizedBox(height: 12),
@@ -863,67 +957,25 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            Material(
-              color: Colors.white,
-              shape: RoundedRectangleBorder(
-                side: const BorderSide(color: EncbaColors.line),
-                borderRadius: BorderRadius.circular(13),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 4, 10, 10),
-                child: Column(
-                  children: [
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      value: _hasCapacity,
-                      title: const Text('인원 제한'),
-                      subtitle: Text(
-                        _hasCapacity ? '${_capacity.round()}명까지' : '제한 없음',
-                      ),
-                      onChanged: (value) =>
-                          setState(() => _hasCapacity = value),
-                    ),
-                    if (_hasCapacity)
-                      Row(
-                        children: [
-                          const Text('2'),
-                          Expanded(
-                            child: Slider(
-                              value: _capacity,
-                              min: 2,
-                              max: 60,
-                              divisions: 58,
-                              label: '${_capacity.round()}명',
-                              onChanged: (value) =>
-                                  setState(() => _capacity = value),
-                            ),
-                          ),
-                          const Text('60'),
-                        ],
-                      ),
-                  ],
-                ),
-              ),
+            _CapacitySelector(
+              enabled: _hasCapacity,
+              value: _capacity,
+              onEnabledChanged: (value) => setState(() => _hasCapacity = value),
+              onChanged: (value) => setState(() => _capacity = value),
             ),
             if (_kind != EventKind.training && _kind != EventKind.morning) ...[
               const SizedBox(height: 14),
               const Text('유니폼 색 *'),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: ['검정', '흰색']
-                    .map(
-                      (color) => FilterChip(
-                        label: Text(color),
-                        selected: _uniforms.contains(color),
-                        onSelected: (selected) => setState(() {
-                          selected
-                              ? _uniforms.add(color)
-                              : _uniforms.remove(color);
-                        }),
-                      ),
-                    )
-                    .toList(),
+              _UniformSelector(
+                selected: _uniformSelection,
+                onSelected: (value) => setState(() {
+                  _uniforms = switch (value) {
+                    '검' => {'검정'},
+                    '흰' => {'흰색'},
+                    _ => {'검정', '흰색'},
+                  };
+                }),
               ),
             ],
             const SizedBox(height: 18),
@@ -936,42 +988,39 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                   .map(
                     (option) => InputChip(
                       label: Text(option),
-                      onDeleted:
-                          _kind == EventKind.training ||
-                              _pollOptions.length <= 2
+                      avatar: const Icon(Icons.edit_outlined, size: 15),
+                      onPressed: () => _editPollOption(option),
+                      onDeleted: _pollOptions.length <= 2
                           ? null
                           : () => setState(() => _pollOptions.remove(option)),
                     ),
                   )
                   .toList(),
             ),
-            if (_kind != EventKind.training) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _pollOption,
-                      decoration: const InputDecoration(
-                        hintText: '예: 토요일 15시 참석',
-                      ),
-                    ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _pollOption,
+                    decoration: const InputDecoration(hintText: '새 투표 항목'),
                   ),
-                  IconButton(
-                    onPressed: () {
-                      final value = _pollOption.text.trim();
-                      if (value.isNotEmpty &&
-                          !_pollOptions.contains(value) &&
-                          _pollOptions.length < 8) {
-                        setState(() => _pollOptions.add(value));
-                        _pollOption.clear();
-                      }
-                    },
-                    icon: const Icon(Icons.add_circle_outline_rounded),
-                  ),
-                ],
-              ),
-            ],
+                ),
+                IconButton(
+                  tooltip: '투표 항목 추가',
+                  onPressed: () {
+                    final value = _pollOption.text.trim();
+                    if (value.isNotEmpty &&
+                        !_pollOptions.contains(value) &&
+                        _pollOptions.length < 8) {
+                      setState(() => _pollOptions.add(value));
+                      _pollOption.clear();
+                    }
+                  },
+                  icon: const Icon(Icons.add_circle_outline_rounded),
+                ),
+              ],
+            ),
             if (_kind == EventKind.external) ...[
               const SizedBox(height: 12),
               SwitchListTile.adaptive(
@@ -984,15 +1033,41 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                 subtitle: const Text('다른 부원에게는 잠긴 경기로 표시합니다.'),
               ),
             ],
-            const SizedBox(height: 8),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _responseEnabled,
-              onChanged: (value) => setState(() => _responseEnabled = value),
-              title: const Text('참석 응답 받기'),
-              subtitle: Text(
-                _kind.isMatch ? '경기 시작 3시간 전 마감' : '훈련 시작 1시간 전 마감',
-              ),
+            const SizedBox(height: 14),
+            _DateTimeButton(
+              label: '마감 정하기',
+              value: _responseDeadline,
+              onTap: _pickResponseDeadline,
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _deadlineCustomized
+                        ? '직접 정한 마감 시간입니다.'
+                        : _kind.isMatch
+                        ? '기본값 · 경기 시작 3시간 전'
+                        : '기본값 · 일정 시작 1시간 전',
+                    style: const TextStyle(
+                      color: EncbaColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                if (_deadlineCustomized)
+                  TextButton(
+                    onPressed: () => setState(() {
+                      _deadlineCustomized = false;
+                      _responseDeadline = _start.subtract(
+                        _kind.isMatch
+                            ? const Duration(hours: 3)
+                            : const Duration(hours: 1),
+                      );
+                    }),
+                    child: const Text('기본값'),
+                  ),
+              ],
             ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
@@ -1034,6 +1109,12 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     );
   }
 
+  String get _uniformSelection {
+    if (_uniforms.contains('검정') && _uniforms.contains('흰색')) return '모두';
+    if (_uniforms.contains('흰색')) return '흰';
+    return '검';
+  }
+
   String? _required(String? value) =>
       value == null || value.trim().isEmpty ? '필수 항목입니다.' : null;
 
@@ -1062,9 +1143,84 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       if (start) {
         _start = value;
         if (_end.isBefore(value)) _end = value.add(const Duration(hours: 2));
+        if (!_deadlineCustomized) {
+          _responseDeadline = value.subtract(
+            _kind.isMatch ? const Duration(hours: 3) : const Duration(hours: 1),
+          );
+        }
       } else {
         _end = value;
       }
+    });
+  }
+
+  Future<void> _pickResponseDeadline() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _responseDeadline,
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: _start,
+    );
+    if (!mounted || date == null) return;
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_responseDeadline),
+    );
+    if (!mounted || pickedTime == null) return;
+    final value = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+    if (value.isAfter(_start)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('응답 마감은 일정 시작 전이어야 합니다.')));
+      return;
+    }
+    setState(() {
+      _responseDeadline = value;
+      _deadlineCustomized = true;
+    });
+  }
+
+  Future<void> _editPollOption(String option) async {
+    final controller = TextEditingController(text: option);
+    final edited = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('투표 항목 수정'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 40,
+          decoration: const InputDecoration(hintText: '투표 항목'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted || edited == null || edited.isEmpty) return;
+    if (_pollOptions.contains(edited) && edited != option) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('이미 같은 투표 항목이 있습니다.')));
+      return;
+    }
+    setState(() {
+      final index = _pollOptions.indexOf(option);
+      if (index >= 0) _pollOptions[index] = edited;
     });
   }
 
@@ -1074,6 +1230,12 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('종료 시간은 시작 시간보다 늦어야 합니다.')));
+      return;
+    }
+    if (_responseDeadline.isAfter(_start)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('응답 마감은 일정 시작 전이어야 합니다.')));
       return;
     }
     if (_kind != EventKind.training &&
@@ -1090,7 +1252,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       id:
           widget.existing?.id ??
           'event-${DateTime.now().microsecondsSinceEpoch}',
-      title: _title.text.trim(),
+      title: _kind.label,
       start: _start,
       end: _end,
       place: _place,
@@ -1105,8 +1267,17 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       updatedAt: '방금 전',
       isRecurring: _kind == EventKind.training && _recurring,
       responseEnabled: _responseEnabled,
+      responseDeadlineOverride: _responseDeadline,
       pollOptions: _pollOptions,
       visibility: _visibility,
+      opponents: switch (_kind) {
+        EventKind.scrimmage => [_opponentOne.text.trim()],
+        EventKind.threeWay => [
+          _opponentOne.text.trim(),
+          _opponentTwo.text.trim(),
+        ],
+        _ => const [],
+      },
     );
     final saved = await ref
         .read(lockerControllerProvider.notifier)
@@ -1175,6 +1346,180 @@ class EventKindLabel extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TeamSuggestionStrip extends StatelessWidget {
+  const _TeamSuggestionStrip({required this.teams, required this.onSelected});
+  final List<String> teams;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 38,
+    child: ListView.separated(
+      scrollDirection: Axis.horizontal,
+      itemCount: teams.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 6),
+      itemBuilder: (context, index) => ActionChip(
+        visualDensity: VisualDensity.compact,
+        label: Text(teams[index]),
+        onPressed: () => onSelected(teams[index]),
+      ),
+    ),
+  );
+}
+
+class _CapacitySelector extends StatelessWidget {
+  const _CapacitySelector({
+    required this.enabled,
+    required this.value,
+    required this.onEnabledChanged,
+    required this.onChanged,
+  });
+
+  final bool enabled;
+  final double value;
+  final ValueChanged<bool> onEnabledChanged;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white,
+    shape: RoundedRectangleBorder(
+      side: const BorderSide(color: EncbaColors.line),
+      borderRadius: BorderRadius.circular(16),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 10, 12),
+      child: Column(
+        children: [
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: enabled,
+            title: const Text('인원 제한'),
+            subtitle: Text(enabled ? '${value.round()}명까지' : '제한 없음'),
+            onChanged: onEnabledChanged,
+          ),
+          if (enabled)
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const badgeWidth = 58.0;
+                final progress = (value - 2) / 58;
+                final badgeLeft =
+                    (progress * (constraints.maxWidth - 28) -
+                            badgeWidth / 2 +
+                            14)
+                        .clamp(0.0, constraints.maxWidth - badgeWidth)
+                        .toDouble();
+                return Column(
+                  children: [
+                    SizedBox(
+                      height: 30,
+                      child: Stack(
+                        children: [
+                          AnimatedPositioned(
+                            duration: const Duration(milliseconds: 100),
+                            left: badgeLeft,
+                            top: 0,
+                            width: badgeWidth,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: EncbaColors.navy,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 5,
+                                ),
+                                child: Text(
+                                  '${value.round()}명',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        const SizedBox(width: 24, child: Text('2')),
+                        Expanded(
+                          child: Slider(
+                            value: value,
+                            min: 2,
+                            max: 60,
+                            divisions: 58,
+                            onChanged: onChanged,
+                          ),
+                        ),
+                        const SizedBox(
+                          width: 30,
+                          child: Text('60', textAlign: TextAlign.right),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _UniformSelector extends StatelessWidget {
+  const _UniformSelector({required this.selected, required this.onSelected});
+  final String selected;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 50,
+    padding: const EdgeInsets.all(3),
+    decoration: BoxDecoration(
+      color: const Color(0xFFE7ECF3),
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Row(
+      children: ['검', '흰', '모두'].map((label) {
+        final active = selected == label;
+        return Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => onSelected(label),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  decoration: BoxDecoration(
+                    color: active ? EncbaColors.navy : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      color: active ? Colors.white : EncbaColors.ink,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    ),
+  );
 }
 
 class _DateTimeButton extends StatelessWidget {

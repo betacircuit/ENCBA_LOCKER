@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:encba_locker/core/storage/local_store.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/locker/data/supabase_locker_repository.dart';
@@ -131,6 +134,8 @@ class LockerController extends StateNotifier<LockerState> {
 
   final SupabaseLockerRepository? _repository;
   RealtimeChannel? _announcementChannel;
+  Timer? _undecidedReminderTimer;
+  static const _reminderStoreKey = 'encba.undecided-reminders.v1';
 
   Future<void> _load() async {
     final repository = _repository!;
@@ -167,6 +172,7 @@ class LockerController extends StateNotifier<LockerState> {
         homecomingCampaign: result[5] as HomecomingCampaign?,
         attendanceRates: result[6] as AttendanceRates,
       );
+      unawaited(_scheduleUndecidedReminder());
       _announcementChannel ??= repository.subscribeToAnnouncements((record) {
         final announcement = AnnouncementItem(
           id: record['id'] as String,
@@ -199,6 +205,7 @@ class LockerController extends StateNotifier<LockerState> {
 
   @override
   void dispose() {
+    _undecidedReminderTimer?.cancel();
     final channel = _announcementChannel;
     if (channel != null) _repository?.unsubscribe(channel);
     super.dispose();
@@ -222,6 +229,7 @@ class LockerController extends StateNotifier<LockerState> {
       state = state.copyWith(videoSegment: index);
   void selectMemberSegment(int index) => _selectMemberSegment(index);
   void readNotifications() => state = state.copyWith(unreadNotifications: 0);
+  void refreshUndecidedReminders() => unawaited(_scheduleUndecidedReminder());
 
   Future<void> _selectMemberSegment(int index) async {
     state = state.copyWith(memberSegment: index);
@@ -370,6 +378,7 @@ class LockerController extends StateNotifier<LockerState> {
     state = state.copyWith(attendance: next, events: nextEvents);
     try {
       await _repository?.vote(eventId, value, absenceReason: absenceReason);
+      unawaited(_scheduleUndecidedReminder());
       return true;
     } on Object {
       state = state.copyWith(
@@ -378,6 +387,57 @@ class LockerController extends StateNotifier<LockerState> {
         error: '참석 응답을 저장하지 못했습니다.',
       );
       return false;
+    }
+  }
+
+  Future<void> _scheduleUndecidedReminder() async {
+    if (_repository == null) return;
+    _undecidedReminderTimer?.cancel();
+    final store = LocalStore();
+    final raw = await store.getString(_reminderStoreKey);
+    var sent = <String>{};
+    if (raw != null) {
+      try {
+        sent = (jsonDecode(raw) as List<dynamic>).cast<String>().toSet();
+      } on Object {
+        await store.remove(_reminderStoreKey);
+      }
+    }
+    final now = DateTime.now();
+    final undecided = state.events.where(
+      (event) => state.attendance[event.id] == '미정' && event.start.isAfter(now),
+    );
+    final due = undecided.where(
+      (event) =>
+          !sent.contains(event.id) &&
+          !now.isBefore(event.start.subtract(const Duration(hours: 3))),
+    );
+    var changed = false;
+    for (final event in due) {
+      final shown = WebNotificationService().show(
+        '일정을 확정해 주세요',
+        '${event.title} · ${event.start.month}.${event.start.day} ${event.start.hour.toString().padLeft(2, '0')}:${event.start.minute.toString().padLeft(2, '0')}',
+      );
+      if (shown) {
+        sent.add(event.id);
+        changed = true;
+      }
+    }
+    if (changed) {
+      await store.setString(_reminderStoreKey, jsonEncode(sent.toList()));
+    }
+    final futureTargets =
+        undecided
+            .where((event) => !sent.contains(event.id))
+            .map((event) => event.start.subtract(const Duration(hours: 3)))
+            .where((target) => target.isAfter(now))
+            .toList()
+          ..sort();
+    if (futureTargets.isNotEmpty) {
+      _undecidedReminderTimer = Timer(
+        futureTargets.first.difference(now),
+        () => unawaited(_scheduleUndecidedReminder()),
+      );
     }
   }
 
@@ -762,13 +822,14 @@ List<MemberProfile> _seedMembers() => const [
 
 List<LockerEvent> _seedEvents() {
   final now = DateTime.now();
-  DateTime todayAt(int hour) => DateTime(now.year, now.month, now.day, hour);
+  DateTime futureAt(int days, int hour, [int minute = 0]) =>
+      DateTime(now.year, now.month, now.day + days, hour, minute);
   return [
     LockerEvent(
       id: 'training-01',
       title: '정기 훈련',
-      start: todayAt(18),
-      end: todayAt(20),
+      start: futureAt(1, 18),
+      end: futureAt(1, 20),
       place: '71동 종합체육관',
       court: 'A코트',
       kind: EventKind.training,
@@ -780,23 +841,35 @@ List<LockerEvent> _seedEvents() {
     ),
     LockerEvent(
       id: 'ib-01',
-      title: 'ENCBA vs BEN',
-      start: now.add(const Duration(days: 2, hours: 3)),
-      end: now.add(const Duration(days: 2, hours: 5)),
+      title: 'IB 1부',
+      start: futureAt(3, 20),
+      end: futureAt(3, 21),
       place: '71동 종합체육관',
       court: 'B코트',
       kind: EventKind.ibDivision1,
       memo: '경기 시작 40분 전 집합합니다. 학생증과 개인 물병을 지참해 주세요.',
       uniformColors: const ['검정'],
       attending: 9,
-      targetTeam: 'ENCBA',
+      createdBy: 'IB 운영 김민수',
+    ),
+    LockerEvent(
+      id: 'ib-02',
+      title: 'IB 2부',
+      start: futureAt(5, 19),
+      end: futureAt(5, 20),
+      place: '71동 종합체육관',
+      court: 'A코트',
+      kind: EventKind.ibDivision2,
+      memo: '경기 시작 30분 전 집합합니다.',
+      uniformColors: const ['흰색'],
+      attending: 8,
       createdBy: 'IB 운영 김민수',
     ),
     LockerEvent(
       id: 'morning-01',
-      title: '목요일 아농',
-      start: now.add(const Duration(days: 4)),
-      end: now.add(const Duration(days: 4, hours: 2)),
+      title: '아농',
+      start: futureAt(2, 8),
+      end: futureAt(2, 10),
       place: '71-1동 신체육관',
       kind: EventKind.morning,
       memo: '자율 게임입니다. 8명 이상 모이면 진행합니다.',
@@ -804,16 +877,42 @@ List<LockerEvent> _seedEvents() {
       attending: 7,
     ),
     LockerEvent(
-      id: 'external-01',
-      title: '공대 올스타 연습 경기',
-      start: now.add(const Duration(days: 7, hours: 1)),
-      end: now.add(const Duration(days: 7, hours: 3)),
+      id: 'pickup-01',
+      title: '픽업게임',
+      start: futureAt(7, 16),
+      end: futureAt(7, 18),
+      place: '71-1동 신체육관',
+      kind: EventKind.pickup,
+      memo: '팀은 현장에서 나눕니다.',
+      uniformColors: const ['검정', '흰색'],
+      attending: 10,
+    ),
+    LockerEvent(
+      id: 'scrimmage-01',
+      title: '연습 경기',
+      start: futureAt(9, 18, 30),
+      end: futureAt(9, 20, 30),
       place: '900동 기숙사체육관',
-      kind: EventKind.external,
-      memo: '원정 경기입니다. 단체 이동 출발 시간을 확인해 주세요.',
+      kind: EventKind.scrimmage,
+      memo: '경기 시작 30분 전까지 도착해 주세요.',
       uniformColors: const ['흰색'],
       attending: 11,
-      createdBy: '경기 운영 박지성',
+      opponents: const ['스티즈'],
+      createdBy: '관리자 최재원',
+    ),
+    LockerEvent(
+      id: 'threeway-01',
+      title: '삼파전',
+      start: futureAt(12, 14),
+      end: futureAt(12, 18),
+      place: '71동 종합체육관',
+      court: '전체',
+      kind: EventKind.threeWay,
+      memo: '세 팀이 순환 경기로 진행합니다.',
+      uniformColors: const ['검정', '흰색'],
+      attending: 13,
+      opponents: const ['농구부', '그래비티'],
+      createdBy: '관리자 최재원',
     ),
   ];
 }

@@ -469,6 +469,8 @@ class SupabaseLockerRepository {
       'place_label': event.place,
       'court': event.court,
       'target_team': event.targetTeam,
+      'opponent': event.opponents.isEmpty ? null : event.opponents.join(' · '),
+      'opponents': event.opponents,
       'uniform_colors': event.uniformColors
           .map(_uniformToDatabase)
           .whereType<String>()
@@ -488,21 +490,33 @@ class SupabaseLockerRepository {
       r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
       caseSensitive: false,
     ).hasMatch(event.id);
-    late final Map<String, dynamic> row;
-    if (isUuid) {
-      row = await _client
-          .from('events')
-          .update(payload)
-          .eq('id', event.id)
-          .select('*,places(name),profiles!events_created_by_fkey(name)')
-          .single();
-    } else {
+    Future<Map<String, dynamic>> persist() async {
+      if (isUuid) {
+        return _client
+            .from('events')
+            .update(payload)
+            .eq('id', event.id)
+            .select('*,places(name),profiles!events_created_by_fkey(name)')
+            .single();
+      }
       payload['created_by'] = _userId;
-      row = await _client
+      return _client
           .from('events')
           .insert(payload)
           .select('*,places(name),profiles!events_created_by_fkey(name)')
           .single();
+    }
+
+    late final Map<String, dynamic> row;
+    try {
+      row = await persist();
+    } on PostgrestException catch (error) {
+      final schemaCacheMissing =
+          error.code == 'PGRST204' &&
+          error.message.toLowerCase().contains('opponents');
+      if (!schemaCacheMissing) rethrow;
+      payload.remove('opponents');
+      row = await persist();
     }
     return _eventFromRow(row);
   }
@@ -726,6 +740,9 @@ class SupabaseLockerRepository {
       ),
       visibility: row['visibility'] as String? ?? 'team',
       isLocked: row['locked'] as bool? ?? false,
+      opponents:
+          (row['opponents'] as List?)?.cast<String>() ??
+          (row['opponent'] == null ? const [] : [row['opponent'] as String]),
     );
   }
 

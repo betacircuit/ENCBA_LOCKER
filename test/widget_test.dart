@@ -91,8 +91,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('새 일정'), findsOneWidget);
-    expect(find.text('제목 *'), findsOneWidget);
-    expect(find.text('유형 *'), findsOneWidget);
+    expect(find.text('제목 *'), findsNothing);
+    expect(find.text('일정 유형 *'), findsOneWidget);
     expect(find.text('장소 *'), findsOneWidget);
     expect(find.text('공지 메모'), findsOneWidget);
     await tester.scrollUntilVisible(
@@ -102,11 +102,11 @@ void main() {
     );
     expect(find.text('제한 없음'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('참석 응답 받기'),
+      find.text('마감 정하기'),
       300,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('참석 응답 받기'), findsOneWidget);
+    expect(find.text('마감 정하기'), findsOneWidget);
   });
 
   testWidgets('일반 부원에게 일정 생성·제안·수정을 노출하지 않는다', (tester) async {
@@ -138,15 +138,16 @@ void main() {
 
     await tester.tap(find.text('경기').last);
     await tester.pump();
-    expect(find.text('ENCBA'), findsWidgets);
-    expect(find.text('BEN'), findsOneWidget);
-    expect(find.text('신입생'), findsOneWidget);
+    expect(find.text('1부'), findsOneWidget);
+    expect(find.text('2부'), findsOneWidget);
+    expect(find.text('신입생'), findsNothing);
+    expect(find.text('방학 중에는 IB가 잠깁니다'), findsNothing);
 
     await tester.tap(find.text('외부'));
     await tester.pump();
-    expect(find.text('연습 경기'), findsOneWidget);
-    expect(find.text('삼파전'), findsOneWidget);
-    expect(find.text('외부 경기'), findsOneWidget);
+    expect(find.text('연습 경기'), findsWidgets);
+    expect(find.text('삼파전'), findsWidgets);
+    expect(find.text('외부 경기'), findsNothing);
   });
 
   testWidgets('430px 모바일 폭에서도 일정 시간과 장소 강조가 넘치지 않는다', (tester) async {
@@ -189,11 +190,13 @@ void main() {
       memo: '공지',
       uniformColors: const ['검정', '흰색'],
       pollOptions: const ['18시 참석', '19시 참석', '불참'],
+      opponents: const ['스티즈'],
     );
     final restored = LockerEvent.fromJson(event.toJson());
     expect(restored.kind, EventKind.pickup);
     expect(restored.uniformColors, ['검정', '흰색']);
     expect(restored.pollOptions, ['18시 참석', '19시 참석', '불참']);
+    expect(restored.opponents, ['스티즈']);
   });
 
   test('주장은 관리자 권한을 가지며 복수 팀 소속은 하나의 라벨로 표시된다', () {
@@ -232,6 +235,57 @@ void main() {
     expect(restored.sourceType, 'youtube');
     expect(restored.quarterUrls, video.quarterUrls);
     expect(restored.uploader, '김민수');
+  });
+
+  test('매니저만 하이라이트 등록 권한을 가진다', () {
+    final manager = testUser.copyWith(
+      isAdmin: false,
+      leadershipRole: 'manager',
+    );
+    final captain = testUser.copyWith(
+      isAdmin: false,
+      leadershipRole: 'captain',
+    );
+
+    expect(manager.canManageHighlights, isTrue);
+    expect(captain.canManageHighlights, isFalse);
+    expect(captain.canAdminister, isTrue);
+  });
+
+  testWidgets('플래너 달력은 펼쳐지고 일정이 있는 날을 표시한다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('일정').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('달력 펼치기'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('달력 닫기'), findsOneWidget);
+    expect(find.byTooltip('이전 달'), findsOneWidget);
+    expect(find.byTooltip('다음 달'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('인원 제한 슬라이더의 숫자는 60명에서도 영역을 벗어나지 않는다', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_signedInApp(const EventEditorScreen()));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('인원 제한'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('인원 제한'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(Slider), const Offset(600, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('60명'), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 }
 
