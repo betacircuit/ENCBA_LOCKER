@@ -1,5 +1,5 @@
 name: encba_locker
-description: "A new Flutter project."
+description: "ENCBA의 일정, 경기, 영상과 운영 업무를 한곳에 모은 모바일 우선 라커 앱."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -38,7 +38,11 @@ dependencies:
   go_router: ^17.5.0
   url_launcher: ^6.3.2
   intl: ^0.20.3
-  google_fonts: ^8.2.1
+  shared_preferences: ^2.5.5
+  supabase_flutter: ^2.17.1
+  add_2_calendar: ^3.1.1
+  image_picker: ^1.2.3
+  youtube_player_iframe: ^6.0.2
 
 dev_dependencies:
   flutter_test:
@@ -61,6 +65,21 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/images/encba_logo.png
+    - assets/images/basketball_thumbnail.png
+
+  fonts:
+    - family: Jua
+      fonts:
+        - asset: assets/fonts/Jua-Regular.ttf
+    - family: GowunDodum
+      fonts:
+        - asset: assets/fonts/GowunDodum-Regular.ttf
+    - family: BlackHanSans
+      fonts:
+        - asset: assets/fonts/BlackHanSans-Regular.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

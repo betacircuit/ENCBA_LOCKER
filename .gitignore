@@ -32,6 +32,11 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+.playwright-mcp/
+encba-*.png
+.env
+.env.*
+!.env.example
 
 # Symbolication related
 app.*.symbols

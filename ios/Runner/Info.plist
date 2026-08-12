@@ -51,6 +51,17 @@
 	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>ENCBA 일정을 사용자의 캘린더에 추가하기 위해 접근합니다.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>캘린더 장소 입력 시 연락처 기반 제안을 사용하기 위해 접근합니다.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ENCBA 프로필 사진을 선택하기 위해 사진 보관함을 사용합니다.</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>ko</string>
+		<string>en</string>
+	</array>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>UISupportedInterfaceOrientations</key>

@@ -1,30 +1,170 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
+import 'package:encba_locker/core/theme/app_theme.dart';
+import 'package:encba_locker/features/auth/application/auth_controller.dart';
+import 'package:encba_locker/features/auth/domain/user_profile.dart';
+import 'package:encba_locker/features/auth/presentation/auth_screen.dart';
+import 'package:encba_locker/features/locker/application/locker_controller.dart';
+import 'package:encba_locker/features/locker/domain/locker_models.dart';
+import 'package:encba_locker/features/locker/presentation/event_screens.dart';
+import 'package:encba_locker/features/locker/presentation/locker_shell.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:encba_locker/main.dart';
+const testUser = UserProfile(
+  email: 'member@encba.local',
+  name: '김민수',
+  studentId: '22학번',
+  generation: 41,
+  phone: '010-1234-5678',
+  position: 'PG',
+  jerseyNumber: 23,
+  status: 'YB',
+  teams: ['ENCBA'],
+  isAdmin: true,
+);
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  test('참석 마감은 경기는 3시간, 그 외 일정은 1시간 전이다', () {
+    final start = DateTime(2026, 9, 1, 18);
+    LockerEvent event(EventKind kind) => LockerEvent(
+      id: kind.name,
+      title: kind.label,
+      start: start,
+      end: start.add(const Duration(hours: 2)),
+      place: '71동 종합체육관',
+      kind: kind,
+      memo: '공지',
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(
+      start.difference(event(EventKind.ibDivision1).responseDeadline),
+      const Duration(hours: 3),
+    );
+    expect(
+      start.difference(event(EventKind.operations).responseDeadline),
+      const Duration(hours: 1),
+    );
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  testWidgets('첫 실행에는 로그인과 회원가입 진입점을 표시한다', (tester) async {
+    await tester.pumpWidget(_signedOutApp(const AuthScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Welcome to ENCBA'), findsOneWidget);
+    expect(find.text('로그인'), findsOneWidget);
+    expect(find.text('처음이라면 회원가입'), findsOneWidget);
+
+    await tester.tap(find.text('처음이라면 회원가입'));
+    await tester.pumpAndSettle();
+    expect(find.text('라커에 자리 만들기'), findsOneWidget);
+    expect(find.text('이름'), findsOneWidget);
+    expect(find.text('가입하고 시작'), findsOneWidget);
+  });
+
+  testWidgets('일정 카드에서 바로 참석을 고르고 상세 화면을 연다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('참석').first);
+    await tester.tap(find.text('참석').first);
     await tester.pump();
+    expect(find.textContaining('저장했습니다'), findsOneWidget);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    await tester.tap(find.text('일정').last);
+    await tester.pump();
+    await tester.tap(find.byType(EventTicket).first);
+    await tester.pumpAndSettle();
+    expect(find.text('일정 상세'), findsOneWidget);
+    expect(find.text('네이버 지도'), findsOneWidget);
+    expect(find.text('캘린더에 추가'), findsOneWidget);
+    expect(find.text('참석 여부'), findsNothing);
+  });
+
+  testWidgets('일정 등록 화면은 필수 운영 필드를 제공한다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const EventEditorScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('새 일정'), findsOneWidget);
+    expect(find.text('제목 *'), findsOneWidget);
+    expect(find.text('유형 *'), findsOneWidget);
+    expect(find.text('장소 *'), findsOneWidget);
+    expect(find.text('공지 메모 *'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('참석 응답 받기'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('참석 응답 받기'), findsOneWidget);
+  });
+
+  testWidgets('일반 부원에게 일정 생성·제안·수정을 노출하지 않는다', (tester) async {
+    await tester.pumpWidget(
+      _signedInApp(
+        const LockerShell(),
+        user: testUser.copyWith(isAdmin: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('ENCBA LOCKER'), findsOneWidget);
+    expect(find.text('일정 만들기'), findsNothing);
+
+    await tester.tap(find.text('일정').last);
+    await tester.pump();
+    expect(find.text('제안하기'), findsNothing);
+
+    await tester.tap(find.text('정기 훈련').last);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('일정 수정'), findsNothing);
+  });
+
+  testWidgets('홈에는 바로 하기가 없고 경기에는 2단 카테고리가 표시된다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('바로 하기'), findsNothing);
+
+    await tester.tap(find.text('경기').last);
+    await tester.pump();
+    expect(find.text('1부  1'), findsOneWidget);
+    expect(find.text('2부  0'), findsOneWidget);
+
+    await tester.tap(find.text('외부'));
+    await tester.pump();
+    expect(find.text('연습 경기  0'), findsOneWidget);
+    expect(find.text('삼파전  0'), findsOneWidget);
+    expect(find.text('외부 경기  1'), findsOneWidget);
+  });
+
+  testWidgets('430px 모바일 폭에서도 일정 시간과 장소 강조가 넘치지 않는다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('일정').last);
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.schedule_rounded), findsWidgets);
+    expect(find.byIcon(Icons.location_on_outlined), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 }
+
+Widget _signedOutApp(Widget child) => ProviderScope(
+  overrides: [
+    authControllerProvider.overrideWith((ref) => AuthController.seeded(null)),
+  ],
+  child: MaterialApp(theme: AppTheme.lightTheme, home: child),
+);
+
+Widget _signedInApp(
+  Widget child, {
+  UserProfile user = testUser,
+}) => ProviderScope(
+  overrides: [
+    authControllerProvider.overrideWith((ref) => AuthController.seeded(user)),
+    lockerControllerProvider.overrideWith((ref) => LockerController.seeded()),
+  ],
+  child: MaterialApp(theme: AppTheme.lightTheme, home: child),
+);
