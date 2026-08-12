@@ -53,9 +53,13 @@ class EncbaLockerApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         builder: (context, child) {
           if (child == null) return const SizedBox.shrink();
+          final fontSafeChild = DefaultTextStyle.merge(
+            style: const TextStyle(fontFamilyFallback: encbaFontFallback),
+            child: child,
+          );
           return LayoutBuilder(
             builder: (context, constraints) {
-              if (constraints.maxWidth < 600) return child;
+              if (constraints.maxWidth < 600) return fontSafeChild;
 
               final frameHeight = constraints.maxHeight > 900
                   ? 900.0
@@ -83,7 +87,7 @@ class EncbaLockerApp extends StatelessWidget {
                       data: MediaQuery.of(
                         context,
                       ).copyWith(size: Size(430, frameHeight)),
-                      child: child,
+                      child: fontSafeChild,
                     ),
                   ),
                 ),

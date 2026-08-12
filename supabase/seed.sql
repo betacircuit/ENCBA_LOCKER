@@ -51,6 +51,17 @@ on conflict (login_name) do update set
   is_schedule_manager = excluded.is_schedule_manager,
   team_codes = excluded.team_codes;
 
+update public.member_allowlist
+set leadership_role = case name
+  when '최재원' then 'admin'
+  when '임준호' then 'captain'
+  when '홍성준' then 'manager'
+  else leadership_role
+end,
+is_admin = name = '최재원',
+is_schedule_manager = case when name = '임준호' then true else is_schedule_manager end
+where name in ('최재원', '임준호', '홍성준');
+
 insert into public.app_settings (key, value)
 values ('ib_team_divisions', '{"ENCBA": 2, "BEN": 2, "신입생": 2}'::jsonb)
 on conflict (key) do update set value = excluded.value;

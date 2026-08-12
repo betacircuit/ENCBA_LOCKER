@@ -189,6 +189,7 @@ class MemberProfile {
     required this.name,
     required this.studentId,
     required this.generation,
+    this.joinedYear,
     required this.status,
     required this.position,
     required this.teams,
@@ -197,12 +198,14 @@ class MemberProfile {
     this.phone = '010-0000-0000',
     this.jerseyNumber = 0,
     this.isActive = true,
+    this.leadershipRole = 'member',
   });
 
   final String? id;
   final String name;
   final String studentId;
   final int generation;
+  final int? joinedYear;
   final String status;
   final String position;
   final List<String> teams;
@@ -211,6 +214,52 @@ class MemberProfile {
   final String phone;
   final int jerseyNumber;
   final bool isActive;
+  final String leadershipRole;
+
+  bool get canAdminister =>
+      leadershipRole == 'admin' || leadershipRole == 'captain';
+
+  String? get leadershipLabel => switch (leadershipRole) {
+    'admin' => '관리자',
+    'captain' => '주장',
+    'manager' => '매니저',
+    _ => null,
+  };
+
+  String get teamLabel {
+    final hasEncba = teams.contains('ENCBA');
+    final hasBen = teams.contains('BEN');
+    if (hasEncba && hasBen) return 'ENCBA & BEN';
+    return teams.join(' & ');
+  }
+
+  MemberProfile copyWith({
+    String? name,
+    String? studentId,
+    int? joinedYear,
+    String? status,
+    String? position,
+    List<String>? teams,
+    String? phone,
+    int? jerseyNumber,
+    bool? isActive,
+    String? leadershipRole,
+  }) => MemberProfile(
+    id: id,
+    name: name ?? this.name,
+    studentId: studentId ?? this.studentId,
+    generation: generation,
+    joinedYear: joinedYear ?? this.joinedYear,
+    status: status ?? this.status,
+    position: position ?? this.position,
+    teams: teams ?? this.teams,
+    note: note,
+    badge: badge,
+    phone: phone ?? this.phone,
+    jerseyNumber: jerseyNumber ?? this.jerseyNumber,
+    isActive: isActive ?? this.isActive,
+    leadershipRole: leadershipRole ?? this.leadershipRole,
+  );
 }
 
 class AnnouncementItem {
@@ -226,6 +275,14 @@ class AnnouncementItem {
   final String body;
   final String author;
   final DateTime publishedAt;
+}
+
+class AttendanceRates {
+  const AttendanceRates({this.training = 0, this.morning = 0, this.game = 0});
+
+  final int training;
+  final int morning;
+  final int game;
 }
 
 class OperationAssignment {
@@ -383,6 +440,8 @@ class VideoItem {
     required this.uploader,
     required this.accent,
     this.likeCount = 0,
+    this.sourceType = 'youtube',
+    this.quarterUrls = const [],
   });
 
   final String id;
@@ -395,18 +454,31 @@ class VideoItem {
   final String uploader;
   final int accent;
   final int likeCount;
+  final String sourceType;
+  final List<String?> quarterUrls;
 
-  VideoItem copyWith({int? likeCount}) => VideoItem(
+  VideoItem copyWith({
+    String? title,
+    String? durationLabel,
+    String? category,
+    String? url,
+    String? youtubeId,
+    int? likeCount,
+    String? sourceType,
+    List<String?>? quarterUrls,
+  }) => VideoItem(
     id: id,
-    title: title,
-    durationLabel: durationLabel,
-    category: category,
-    url: url,
-    youtubeId: youtubeId,
+    title: title ?? this.title,
+    durationLabel: durationLabel ?? this.durationLabel,
+    category: category ?? this.category,
+    url: url ?? this.url,
+    youtubeId: youtubeId ?? this.youtubeId,
     uploadedAt: uploadedAt,
     uploader: uploader,
     accent: accent,
     likeCount: likeCount ?? this.likeCount,
+    sourceType: sourceType ?? this.sourceType,
+    quarterUrls: quarterUrls ?? this.quarterUrls,
   );
 
   Map<String, dynamic> toJson() => {
@@ -420,6 +492,8 @@ class VideoItem {
     'uploader': uploader,
     'accent': accent,
     'likeCount': likeCount,
+    'sourceType': sourceType,
+    'quarterUrls': quarterUrls,
   };
 
   factory VideoItem.fromJson(Map<String, dynamic> json) => VideoItem(
@@ -433,6 +507,10 @@ class VideoItem {
     uploader: json['uploader'] as String? ?? 'ENCBA',
     accent: json['accent'] as int? ?? 0xFF00539B,
     likeCount: json['likeCount'] as int? ?? 0,
+    sourceType: json['sourceType'] as String? ?? 'youtube',
+    quarterUrls: (json['quarterUrls'] as List? ?? const [])
+        .map((value) => value as String?)
+        .toList(),
   );
 }
 

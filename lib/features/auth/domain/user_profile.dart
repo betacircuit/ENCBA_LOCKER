@@ -6,6 +6,7 @@ class UserProfile {
     this.displayName,
     required this.studentId,
     required this.generation,
+    this.joinedYear,
     required this.phone,
     required this.position,
     required this.jerseyNumber,
@@ -16,6 +17,7 @@ class UserProfile {
     this.isAdmin = false,
     this.isScheduleManager = false,
     this.isActive = true,
+    this.leadershipRole = 'member',
   });
 
   final String? id;
@@ -24,6 +26,7 @@ class UserProfile {
   final String? displayName;
   final String studentId;
   final int generation;
+  final int? joinedYear;
   final String phone;
   final String position;
   final int jerseyNumber;
@@ -34,6 +37,7 @@ class UserProfile {
   final bool isAdmin;
   final bool isScheduleManager;
   final bool isActive;
+  final String leadershipRole;
 
   UserProfile copyWith({
     String? id,
@@ -41,6 +45,7 @@ class UserProfile {
     String? displayName,
     String? studentId,
     int? generation,
+    int? joinedYear,
     String? phone,
     String? position,
     int? jerseyNumber,
@@ -52,6 +57,7 @@ class UserProfile {
     bool? isAdmin,
     bool? isScheduleManager,
     bool? isActive,
+    String? leadershipRole,
   }) {
     return UserProfile(
       id: id ?? this.id,
@@ -60,6 +66,7 @@ class UserProfile {
       displayName: displayName ?? this.displayName,
       studentId: studentId ?? this.studentId,
       generation: generation ?? this.generation,
+      joinedYear: joinedYear ?? this.joinedYear,
       phone: phone ?? this.phone,
       position: position ?? this.position,
       jerseyNumber: jerseyNumber ?? this.jerseyNumber,
@@ -70,6 +77,7 @@ class UserProfile {
       isAdmin: isAdmin ?? this.isAdmin,
       isScheduleManager: isScheduleManager ?? this.isScheduleManager,
       isActive: isActive ?? this.isActive,
+      leadershipRole: leadershipRole ?? this.leadershipRole,
     );
   }
 
@@ -80,6 +88,7 @@ class UserProfile {
     'displayName': displayName,
     'studentId': studentId,
     'generation': generation,
+    'joinedYear': joinedYear,
     'phone': phone,
     'position': position,
     'jerseyNumber': jerseyNumber,
@@ -90,6 +99,7 @@ class UserProfile {
     'isAdmin': isAdmin,
     'isScheduleManager': isScheduleManager,
     'isActive': isActive,
+    'leadershipRole': leadershipRole,
   };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
@@ -99,6 +109,7 @@ class UserProfile {
     displayName: json['displayName'] as String?,
     studentId: json['studentId'] as String,
     generation: json['generation'] as int,
+    joinedYear: json['joinedYear'] as int?,
     phone: json['phone'] as String,
     position: json['position'] as String,
     jerseyNumber: json['jerseyNumber'] as int? ?? 0,
@@ -109,6 +120,7 @@ class UserProfile {
     isAdmin: json['isAdmin'] as bool? ?? false,
     isScheduleManager: json['isScheduleManager'] as bool? ?? false,
     isActive: json['isActive'] as bool? ?? true,
+    leadershipRole: json['leadershipRole'] as String? ?? 'member',
   );
 
   factory UserProfile.fromSupabase(Map<String, dynamic> row) => UserProfile(
@@ -118,6 +130,7 @@ class UserProfile {
     displayName: row['display_name'] as String?,
     studentId: '${row['student_year']}학번',
     generation: row['generation'] as int,
+    joinedYear: row['joined_year'] as int?,
     phone: row['phone'] as String? ?? '',
     position: row['position'] as String? ?? '미정',
     jerseyNumber: row['jersey_number'] as int? ?? 0,
@@ -128,8 +141,27 @@ class UserProfile {
     isAdmin: row['is_admin'] as bool? ?? false,
     isScheduleManager: row['is_schedule_manager'] as bool? ?? false,
     isActive: row['is_active'] as bool? ?? true,
+    leadershipRole:
+        row['leadership_role'] as String? ??
+        ((row['is_admin'] as bool? ?? false) ? 'admin' : 'member'),
   );
 
   String get visibleName =>
       (displayName?.trim().isNotEmpty ?? false) ? displayName!.trim() : name;
+
+  bool get canAdminister => isAdmin || leadershipRole == 'captain';
+
+  String? get leadershipLabel => switch (leadershipRole) {
+    'admin' => '관리자',
+    'captain' => '주장',
+    'manager' => '매니저',
+    _ => null,
+  };
+
+  String get teamLabel {
+    final hasEncba = teams.contains('ENCBA');
+    final hasBen = teams.contains('BEN');
+    if (hasEncba && hasBen) return 'ENCBA & BEN';
+    return teams.join(' & ');
+  }
 }

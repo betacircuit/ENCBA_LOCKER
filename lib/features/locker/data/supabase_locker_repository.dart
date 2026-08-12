@@ -71,9 +71,11 @@ class SupabaseLockerRepository {
         for (final row in result[1] as List)
           (row as Map)['event_id'] as String: row['choice'] as String,
       };
-      final videos = (result[2] as List)
-          .map((row) => _videoFromRow(Map<String, dynamic>.from(row as Map)))
-          .toList();
+      final videos = (result[2] as List<dynamic>)
+          .map<VideoItem>(
+            (row) => _videoFromRow(Map<String, dynamic>.from(row as Map)),
+          )
+          .toList(growable: false);
       final likes = {
         for (final row in result[3] as List) (row as Map)['video_id'] as String,
       };
@@ -107,29 +109,66 @@ class SupabaseLockerRepository {
         'requested_query': query.trim(),
       },
     );
-    return rows.map((row) {
-      final map = Map<String, dynamic>.from(row);
-      return MemberProfile(
-        id: map['directory_id'] as String,
-        name: map['name'] as String,
-        studentId: map['student_year'] == null
-            ? '학번 미등록'
-            : '${map['student_year']}학번',
-        generation: 1,
-        status: (map['membership_status'] as String).toUpperCase(),
-        position: '미정',
-        teams: const ['ENCBA'],
-        note: '',
-        badge: map['membership_status'] == 'military_leave' ? '군복무' : null,
-        isActive: map['is_active'] as bool? ?? true,
-      );
-    }).toList();
+    return (rows as List<dynamic>)
+        .map<MemberProfile>((row) {
+          final map = Map<String, dynamic>.from(row);
+          return MemberProfile(
+            id: map['directory_id'] as String,
+            name: map['name'] as String,
+            studentId: map['student_year'] == null
+                ? '학번 미등록'
+                : '${map['student_year']}학번',
+            generation: map['generation'] as int? ?? 1,
+            joinedYear: map['joined_year'] as int?,
+            status: (map['membership_status'] as String).toUpperCase(),
+            position: map['position'] as String? ?? '미정',
+            teams:
+                (map['team_codes'] as List?)?.cast<String>() ?? const ['ENCBA'],
+            note: '',
+            badge: map['membership_status'] == 'military_leave' ? '군복무' : null,
+            isActive: map['is_active'] as bool? ?? true,
+            phone: map['phone'] as String? ?? '',
+            jerseyNumber: map['jersey_number'] as int? ?? 0,
+            leadershipRole: map['leadership_role'] as String? ?? 'member',
+          );
+        })
+        .toList(growable: false);
   }
 
   Future<void> setMemberActive(String profileId, bool isActive) => _client.rpc(
     'set_member_account_active',
     params: {'requested_directory_id': profileId, 'requested_active': isActive},
   );
+
+  Future<void> updateMember(MemberProfile member) => _client.rpc(
+    'admin_update_member',
+    params: {
+      'requested_directory_id': member.id,
+      'requested_name': member.name,
+      'requested_student_year': int.tryParse(
+        member.studentId.replaceAll(RegExp(r'[^0-9]'), ''),
+      ),
+      'requested_joined_year': member.joinedYear,
+      'requested_phone': member.phone,
+      'requested_position': member.position,
+      'requested_jersey_number': member.jerseyNumber,
+      'requested_membership_status': member.status.toLowerCase(),
+      'requested_team_codes': member.teams,
+      'requested_leadership_role': member.leadershipRole,
+      'requested_active': member.isActive,
+    },
+  );
+
+  Future<AttendanceRates> loadAttendanceRates() async {
+    final rows = await _client.rpc('get_my_attendance_rates');
+    if ((rows as List).isEmpty) return const AttendanceRates();
+    final row = Map<String, dynamic>.from(rows.first as Map);
+    return AttendanceRates(
+      training: row['training_rate'] as int? ?? 0,
+      morning: row['morning_rate'] as int? ?? 0,
+      game: row['game_rate'] as int? ?? 0,
+    );
+  }
 
   Future<List<AnnouncementItem>> loadAnnouncements() async {
     final rows = await _client
@@ -182,6 +221,41 @@ class SupabaseLockerRepository {
       publishedAt: DateTime.parse(row['published_at'] as String).toLocal(),
     );
   }
+
+  Future<AnnouncementItem> updateAnnouncement({
+    required String id,
+    required String title,
+    required String body,
+    required bool pinned,
+  }) async {
+    final row = await _client
+        .from('announcements')
+        .update({
+          'title': title,
+          'body': body,
+          'pinned': pinned,
+          'updated_by': _userId,
+        })
+        .eq('id', id)
+        .select(
+          'id,title,body,published_at,profiles!announcements_created_by_fkey(name,display_name)',
+        )
+        .single();
+    final profile = row['profiles'] as Map?;
+    return AnnouncementItem(
+      id: row['id'] as String,
+      title: row['title'] as String,
+      body: row['body'] as String,
+      author:
+          profile?['display_name'] as String? ??
+          profile?['name'] as String? ??
+          '운영진',
+      publishedAt: DateTime.parse(row['published_at'] as String).toLocal(),
+    );
+  }
+
+  Future<void> deleteAnnouncement(String id) =>
+      _client.from('announcements').delete().eq('id', id);
 
   RealtimeChannel subscribeToAnnouncements(
     void Function(Map<String, dynamic> record) onInsert,
@@ -464,6 +538,11 @@ class SupabaseLockerRepository {
           'category': _videoCategoryToDatabase(video.category),
           'source_url': video.url,
           'youtube_id': video.youtubeId,
+          'source_type': video.sourceType,
+          'quarter_1_url': video.quarterUrls.elementAtOrNull(0),
+          'quarter_2_url': video.quarterUrls.elementAtOrNull(1),
+          'quarter_3_url': video.quarterUrls.elementAtOrNull(2),
+          'quarter_4_url': video.quarterUrls.elementAtOrNull(3),
           'duration_seconds': _durationToSeconds(video.durationLabel),
           'uploaded_by': _userId,
         })
@@ -471,6 +550,30 @@ class SupabaseLockerRepository {
         .single();
     return _videoFromRow(row);
   }
+
+  Future<VideoItem> updateVideo(VideoItem video) async {
+    final row = await _client
+        .from('videos')
+        .update({
+          'title': video.title,
+          'category': _videoCategoryToDatabase(video.category),
+          'source_url': video.url,
+          'youtube_id': video.youtubeId.isEmpty ? null : video.youtubeId,
+          'source_type': video.sourceType,
+          'quarter_1_url': video.quarterUrls.elementAtOrNull(0),
+          'quarter_2_url': video.quarterUrls.elementAtOrNull(1),
+          'quarter_3_url': video.quarterUrls.elementAtOrNull(2),
+          'quarter_4_url': video.quarterUrls.elementAtOrNull(3),
+          'duration_seconds': _durationToSeconds(video.durationLabel),
+        })
+        .eq('id', video.id)
+        .select('*,profiles!videos_uploaded_by_fkey(name,display_name)')
+        .single();
+    return _videoFromRow(row);
+  }
+
+  Future<void> deleteVideo(String id) =>
+      _client.from('videos').delete().eq('id', id);
 
   Future<List<VideoCommentItem>> loadVideoComments(String videoId) async {
     final rows = await _client
@@ -634,11 +737,18 @@ class SupabaseLockerRepository {
       durationLabel: _formatDuration(row['duration_seconds'] as int?),
       category: _videoCategoryFromDatabase(row['category'] as String),
       url: row['source_url'] as String,
-      youtubeId: row['youtube_id'] as String,
+      youtubeId: row['youtube_id'] as String? ?? '',
       uploadedAt: DateTime.parse(row['created_at'] as String).toLocal(),
       uploader: uploader?['name'] as String? ?? 'ENCBA',
       accent: 0xFF00539B,
       likeCount: row['like_count'] as int? ?? 0,
+      sourceType: row['source_type'] as String? ?? 'youtube',
+      quarterUrls: [
+        row['quarter_1_url'] as String?,
+        row['quarter_2_url'] as String?,
+        row['quarter_3_url'] as String?,
+        row['quarter_4_url'] as String?,
+      ],
     );
   }
 

@@ -25,6 +25,29 @@ String encbaFontFor(String text, {bool display = false}) {
   return 'BlackHanSans';
 }
 
+const encbaFontFallback = <String>['GowunDodum', 'Arial'];
+
+TextStyle? _fallback(TextStyle? style) =>
+    style?.copyWith(fontFamilyFallback: encbaFontFallback);
+
+TextTheme _withKoreanFallback(TextTheme theme) => theme.copyWith(
+  displayLarge: _fallback(theme.displayLarge),
+  displayMedium: _fallback(theme.displayMedium),
+  displaySmall: _fallback(theme.displaySmall),
+  headlineLarge: _fallback(theme.headlineLarge),
+  headlineMedium: _fallback(theme.headlineMedium),
+  headlineSmall: _fallback(theme.headlineSmall),
+  titleLarge: _fallback(theme.titleLarge),
+  titleMedium: _fallback(theme.titleMedium),
+  titleSmall: _fallback(theme.titleSmall),
+  bodyLarge: _fallback(theme.bodyLarge),
+  bodyMedium: _fallback(theme.bodyMedium),
+  bodySmall: _fallback(theme.bodySmall),
+  labelLarge: _fallback(theme.labelLarge),
+  labelMedium: _fallback(theme.labelMedium),
+  labelSmall: _fallback(theme.labelSmall),
+);
+
 class AppTheme {
   static ThemeData get lightTheme {
     final base = ThemeData(
@@ -40,38 +63,40 @@ class AppTheme {
         error: EncbaColors.absent,
       ),
     );
-    final text = base.textTheme.copyWith(
-      displaySmall: const TextStyle(
-        fontFamily: 'Jua',
-        fontSize: 34,
-        height: 1.12,
-        color: EncbaColors.navy,
+    final text = _withKoreanFallback(
+      base.textTheme.copyWith(
+        displaySmall: const TextStyle(
+          fontFamily: 'Jua',
+          fontSize: 34,
+          height: 1.12,
+          color: EncbaColors.navy,
+        ),
+        headlineLarge: const TextStyle(
+          fontFamily: 'Jua',
+          fontSize: 30,
+          height: 1.1,
+          color: EncbaColors.navy,
+        ),
+        headlineMedium: const TextStyle(
+          fontFamily: 'Jua',
+          fontSize: 25,
+          height: 1.15,
+          color: EncbaColors.navy,
+        ),
+        titleLarge: const TextStyle(
+          fontSize: 21,
+          fontWeight: FontWeight.w700,
+          color: EncbaColors.ink,
+        ),
+        titleMedium: const TextStyle(
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: EncbaColors.ink,
+        ),
+        bodyLarge: const TextStyle(fontSize: 16, height: 1.55),
+        bodyMedium: const TextStyle(fontSize: 14, height: 1.5),
+        labelLarge: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
       ),
-      headlineLarge: const TextStyle(
-        fontFamily: 'Jua',
-        fontSize: 30,
-        height: 1.1,
-        color: EncbaColors.navy,
-      ),
-      headlineMedium: const TextStyle(
-        fontFamily: 'Jua',
-        fontSize: 25,
-        height: 1.15,
-        color: EncbaColors.navy,
-      ),
-      titleLarge: const TextStyle(
-        fontSize: 21,
-        fontWeight: FontWeight.w700,
-        color: EncbaColors.ink,
-      ),
-      titleMedium: const TextStyle(
-        fontSize: 17,
-        fontWeight: FontWeight.w700,
-        color: EncbaColors.ink,
-      ),
-      bodyLarge: const TextStyle(fontSize: 16, height: 1.55),
-      bodyMedium: const TextStyle(fontSize: 14, height: 1.5),
-      labelLarge: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
     );
 
     return base.copyWith(
@@ -81,7 +106,7 @@ class AppTheme {
         builders: {
           TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
           TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
-          TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
         },
       ),
       appBarTheme: AppBarTheme(
@@ -124,8 +149,14 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.white,
-        labelStyle: const TextStyle(color: EncbaColors.muted),
-        hintStyle: const TextStyle(color: Color(0xFFA1A5AD)),
+        labelStyle: const TextStyle(
+          color: EncbaColors.muted,
+          fontFamilyFallback: encbaFontFallback,
+        ),
+        hintStyle: const TextStyle(
+          color: Color(0xFFA1A5AD),
+          fontFamilyFallback: encbaFontFallback,
+        ),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 15,
@@ -189,7 +220,11 @@ class AppTheme {
             BorderSide(color: EncbaColors.navy),
           ),
           textStyle: const WidgetStatePropertyAll(
-            TextStyle(fontFamily: 'Jua', fontSize: 14),
+            TextStyle(
+              fontFamily: 'Jua',
+              fontFamilyFallback: encbaFontFallback,
+              fontSize: 14,
+            ),
           ),
         ),
       ),

@@ -195,6 +195,44 @@ void main() {
     expect(restored.uniformColors, ['검정', '흰색']);
     expect(restored.pollOptions, ['18시 참석', '19시 참석', '불참']);
   });
+
+  test('주장은 관리자 권한을 가지며 복수 팀 소속은 하나의 라벨로 표시된다', () {
+    final captain = testUser.copyWith(
+      isAdmin: false,
+      leadershipRole: 'captain',
+      teams: const ['ENCBA', 'BEN'],
+    );
+
+    expect(captain.canAdminister, isTrue);
+    expect(captain.leadershipLabel, '주장');
+    expect(captain.teamLabel, 'ENCBA & BEN');
+  });
+
+  test('복기 영상의 네 쿼터 링크와 출처가 캐시에 보존된다', () {
+    final video = VideoItem(
+      id: 'review-1',
+      title: '정기전 복기',
+      durationLabel: '',
+      category: '복기',
+      url: 'https://youtu.be/quarter-1',
+      youtubeId: 'quarter-1',
+      uploadedAt: DateTime(2026, 8, 13),
+      uploader: '김민수',
+      accent: 0xFF00539B,
+      sourceType: 'youtube',
+      quarterUrls: const [
+        'https://youtu.be/quarter-1',
+        null,
+        'https://youtu.be/quarter-3',
+        null,
+      ],
+    );
+
+    final restored = VideoItem.fromJson(video.toJson());
+    expect(restored.sourceType, 'youtube');
+    expect(restored.quarterUrls, video.quarterUrls);
+    expect(restored.uploader, '김민수');
+  });
 }
 
 Widget _signedOutApp(Widget child) => ProviderScope(

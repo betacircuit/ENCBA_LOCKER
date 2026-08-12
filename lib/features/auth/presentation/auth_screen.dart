@@ -17,7 +17,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _passwordConfirm = TextEditingController();
   final _name = TextEditingController();
   final _studentId = TextEditingController();
-  final _generation = TextEditingController();
+  final _joinedYear = TextEditingController();
   final _phone = TextEditingController();
   final _jerseyNumber = TextEditingController();
   bool _signUp = false;
@@ -31,7 +31,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       _passwordConfirm,
       _name,
       _studentId,
-      _generation,
+      _joinedYear,
       _phone,
       _jerseyNumber,
     ]) {
@@ -84,14 +84,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             children: [
                               Expanded(
                                 child: _Field(
-                                  controller: _generation,
-                                  label: '기수',
-                                  hint: '41',
+                                  controller: _joinedYear,
+                                  label: '엔크바 가입 년도',
+                                  hint: '${DateTime.now().year}',
                                   keyboardType: TextInputType.number,
-                                  validator: (value) =>
-                                      int.tryParse(value ?? '') == null
-                                      ? '숫자로 입력해 주세요.'
-                                      : null,
+                                  validator: (value) {
+                                    final year = int.tryParse(value ?? '');
+                                    if (year == null ||
+                                        year < 1977 ||
+                                        year > DateTime.now().year) {
+                                      return '올바른 가입 년도를 입력해 주세요.';
+                                    }
+                                    return null;
+                                  },
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -239,7 +244,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           email: '',
           name: _name.text.trim(),
           studentId: '${_studentId.text.trim()}학번',
-          generation: int.parse(_generation.text.trim()),
+          generation: 1,
+          joinedYear: int.parse(_joinedYear.text.trim()),
           phone: _phone.text.trim(),
           position: _position,
           jerseyNumber: int.parse(_jerseyNumber.text),

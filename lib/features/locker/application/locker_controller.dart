@@ -3,6 +3,7 @@ import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/locker/data/supabase_locker_repository.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/services/web_notification_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -28,6 +29,7 @@ class LockerState {
     this.videoWatchSummaries = const {},
     this.eventRosters = const {},
     this.auditEntries = const [],
+    this.attendanceRates = const AttendanceRates(),
     this.isOfflineCache = false,
     this.error,
   });
@@ -52,6 +54,7 @@ class LockerState {
   final Map<String, List<VideoWatchSummary>> videoWatchSummaries;
   final Map<String, List<EventRosterMember>> eventRosters;
   final List<AuditEntry> auditEntries;
+  final AttendanceRates attendanceRates;
   final bool isOfflineCache;
   final String? error;
 
@@ -77,6 +80,7 @@ class LockerState {
     Map<String, List<VideoWatchSummary>>? videoWatchSummaries,
     Map<String, List<EventRosterMember>>? eventRosters,
     List<AuditEntry>? auditEntries,
+    AttendanceRates? attendanceRates,
     bool? isOfflineCache,
     String? error,
     bool clearError = false,
@@ -103,6 +107,7 @@ class LockerState {
     videoWatchSummaries: videoWatchSummaries ?? this.videoWatchSummaries,
     eventRosters: eventRosters ?? this.eventRosters,
     auditEntries: auditEntries ?? this.auditEntries,
+    attendanceRates: attendanceRates ?? this.attendanceRates,
     isOfflineCache: isOfflineCache ?? this.isOfflineCache,
     error: clearError ? null : error ?? this.error,
   );
@@ -151,6 +156,7 @@ class LockerController extends StateNotifier<LockerState> {
         ),
         _orDefault(repository.loadAuditLogs(), const <AuditEntry>[]),
         _orDefault(repository.loadActiveHomecomingCampaign(), null),
+        _orDefault(repository.loadAttendanceRates(), const AttendanceRates()),
       ]);
       state = state.copyWith(
         members: result[0] as List<MemberProfile>,
@@ -159,6 +165,7 @@ class LockerController extends StateNotifier<LockerState> {
         homecomingContacts: result[3] as List<HomecomingContact>,
         auditEntries: result[4] as List<AuditEntry>,
         homecomingCampaign: result[5] as HomecomingCampaign?,
+        attendanceRates: result[6] as AttendanceRates,
       );
       _announcementChannel ??= repository.subscribeToAnnouncements((record) {
         final announcement = AnnouncementItem(
@@ -179,7 +186,8 @@ class LockerController extends StateNotifier<LockerState> {
         );
         WebNotificationService().show(announcement.title, announcement.body);
       });
-    } on Object {
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA data sync failed: $error\n$stackTrace');
       state = state.copyWith(
         isReady: true,
         events: const [],
@@ -199,7 +207,8 @@ class LockerController extends StateNotifier<LockerState> {
   Future<T> _orDefault<T>(Future<T> future, T fallback) async {
     try {
       return await future;
-    } on Object {
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA secondary sync failed: $error\n$stackTrace');
       return fallback;
     }
   }
@@ -246,22 +255,8 @@ class LockerController extends StateNotifier<LockerState> {
     state = state.copyWith(
       members: previous
           .map(
-            (item) => item.id == member.id
-                ? MemberProfile(
-                    id: item.id,
-                    name: item.name,
-                    studentId: item.studentId,
-                    generation: item.generation,
-                    status: item.status,
-                    position: item.position,
-                    teams: item.teams,
-                    note: item.note,
-                    badge: item.badge,
-                    phone: item.phone,
-                    jerseyNumber: item.jerseyNumber,
-                    isActive: isActive,
-                  )
-                : item,
+            (item) =>
+                item.id == member.id ? item.copyWith(isActive: isActive) : item,
           )
           .toList(),
     );
@@ -270,6 +265,21 @@ class LockerController extends StateNotifier<LockerState> {
       return true;
     } on Object {
       state = state.copyWith(members: previous, error: '계정 상태를 변경하지 못했습니다.');
+      return false;
+    }
+  }
+
+  Future<bool> updateMember(MemberProfile member) async {
+    if (_repository == null || member.id == null) return false;
+    try {
+      await _repository.updateMember(member);
+      final members = state.members
+          .map((item) => item.id == member.id ? member : item)
+          .toList();
+      state = state.copyWith(members: members, clearError: true);
+      return true;
+    } on Object {
+      state = state.copyWith(error: '멤버 정보를 수정하지 못했습니다.');
       return false;
     }
   }
@@ -511,6 +521,49 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
+  Future<bool> updateAnnouncement({
+    required AnnouncementItem announcement,
+    required String title,
+    required String body,
+    required bool pinned,
+  }) async {
+    try {
+      final saved = await _repository?.updateAnnouncement(
+        id: announcement.id,
+        title: title,
+        body: body,
+        pinned: pinned,
+      );
+      if (saved == null) return false;
+      state = state.copyWith(
+        announcements: state.announcements
+            .map((item) => item.id == saved.id ? saved : item)
+            .toList(),
+        clearError: true,
+      );
+      return true;
+    } on Object {
+      state = state.copyWith(error: '공지를 수정하지 못했습니다.');
+      return false;
+    }
+  }
+
+  Future<bool> deleteAnnouncement(String id) async {
+    try {
+      await _repository?.deleteAnnouncement(id);
+      state = state.copyWith(
+        announcements: state.announcements
+            .where((item) => item.id != id)
+            .toList(),
+        clearError: true,
+      );
+      return true;
+    } on Object {
+      state = state.copyWith(error: '공지를 삭제하지 못했습니다.');
+      return false;
+    }
+  }
+
   Future<bool> deleteEvent(String id) async {
     try {
       await _repository?.deleteEvent(id);
@@ -564,6 +617,36 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
+  Future<bool> updateVideo(VideoItem video) async {
+    try {
+      final saved = await _repository?.updateVideo(video) ?? video;
+      state = state.copyWith(
+        videos: state.videos
+            .map((item) => item.id == saved.id ? saved : item)
+            .toList(),
+        clearError: true,
+      );
+      return true;
+    } on Object {
+      state = state.copyWith(error: '영상을 수정하지 못했습니다.');
+      return false;
+    }
+  }
+
+  Future<bool> deleteVideo(String id) async {
+    try {
+      await _repository?.deleteVideo(id);
+      state = state.copyWith(
+        videos: state.videos.where((item) => item.id != id).toList(),
+        clearError: true,
+      );
+      return true;
+    } on Object {
+      state = state.copyWith(error: '영상을 삭제하지 못했습니다.');
+      return false;
+    }
+  }
+
   Future<void> loadVideoComments(String videoId) async {
     if (_repository == null) return;
     try {
@@ -608,18 +691,25 @@ class LockerController extends StateNotifier<LockerState> {
 List<VideoItem> _seedVideos() {
   final now = DateTime.now();
   return [
-    VideoItem(
-      id: 'highlight-01',
-      title: 'ENCBA 경기 하이라이트',
-      durationLabel: '3:18',
-      category: '하이라이트',
-      url: 'https://www.youtube.com/watch?v=ScMzIvxBSi4',
-      youtubeId: 'ScMzIvxBSi4',
-      uploadedAt: now.subtract(const Duration(hours: 2)),
-      uploader: '경기 운영 박지성',
-      accent: 0xFF00539B,
-      likeCount: 12,
-    ),
+    for (final (index, code) in [
+      'Db2nVhDz4Fq',
+      'DajgzpRTc4e',
+      'DZDMprWogCr',
+      'DXPE0fsEwcm',
+      'DTnGCB7E50t',
+    ].indexed)
+      VideoItem(
+        id: 'instagram-$code',
+        title: 'ENCBA REEL ${index + 1}',
+        durationLabel: '',
+        category: '하이라이트',
+        url: 'https://www.instagram.com/reel/$code/',
+        youtubeId: '',
+        sourceType: 'instagram',
+        uploadedAt: now.subtract(Duration(days: index)),
+        uploader: 'ENCBA',
+        accent: 0xFF00539B,
+      ),
     VideoItem(
       id: 'review-01',
       title: '지역방어 로테이션 복기',

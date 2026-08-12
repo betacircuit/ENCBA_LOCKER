@@ -18,7 +18,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   late final TextEditingController _name;
   late final TextEditingController _displayName;
   late final TextEditingController _studentId;
-  late final TextEditingController _generation;
+  late final TextEditingController _joinedYear;
   late final TextEditingController _phone;
   late final TextEditingController _jerseyNumber;
   late String _position;
@@ -34,7 +34,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _studentId = TextEditingController(
       text: user.studentId.replaceAll('학번', ''),
     );
-    _generation = TextEditingController(text: '${user.generation}');
+    _joinedYear = TextEditingController(
+      text: '${user.joinedYear ?? DateTime.now().year}',
+    );
     _phone = TextEditingController(text: user.phone);
     _jerseyNumber = TextEditingController(text: '${user.jerseyNumber}');
     _position = user.position;
@@ -46,7 +48,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _name.dispose();
     _displayName.dispose();
     _studentId.dispose();
-    _generation.dispose();
+    _joinedYear.dispose();
     _phone.dispose();
     _jerseyNumber.dispose();
     super.dispose();
@@ -174,10 +176,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: TextFormField(
-                    controller: _generation,
+                    controller: _joinedYear,
                     keyboardType: TextInputType.number,
                     readOnly: true,
-                    decoration: const InputDecoration(labelText: '기수 *'),
+                    decoration: const InputDecoration(labelText: '엔크바 가입 년도 *'),
                     validator: (value) =>
                         int.tryParse(value ?? '') == null ? '숫자를 입력하세요.' : null,
                   ),

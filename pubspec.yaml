@@ -78,6 +78,9 @@ flutter:
     - family: BlackHanSans
       fonts:
         - asset: assets/fonts/BlackHanSans-Regular.ttf
+    - family: GowunDodum
+      fonts:
+        - asset: assets/fonts/GowunDodum-Regular.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

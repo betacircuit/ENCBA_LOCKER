@@ -219,7 +219,8 @@ class EventDetailScreen extends ConsumerWidget {
     final events = ref.watch(lockerControllerProvider).events;
     final event =
         events.where((item) => item.id == eventId).firstOrNull ?? initialEvent;
-    final isAdmin = ref.watch(authControllerProvider).user?.isAdmin ?? false;
+    final isAdmin =
+        ref.watch(authControllerProvider).user?.canAdminister ?? false;
     final canManage =
         ref.watch(authControllerProvider).user?.isScheduleManager ?? false;
     if (event.isLocked) {
@@ -531,7 +532,8 @@ class AttendanceSelector extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final selected =
         ref.watch(lockerControllerProvider).attendance[event.id] ?? '미정';
-    final isAdmin = ref.watch(authControllerProvider).user?.isAdmin ?? false;
+    final isAdmin =
+        ref.watch(authControllerProvider).user?.canAdminister ?? false;
     final isClosed = DateTime.now().isAfter(event.responseDeadline) && !isAdmin;
     final choices = event.pollOptions
         .map((label) => (label, _choiceIcon(label), _choiceColor(label)))
@@ -740,7 +742,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   Widget build(BuildContext context) {
     final user = ref.watch(authControllerProvider).user;
     final canManage =
-        (user?.isAdmin ?? false) || (user?.isScheduleManager ?? false);
+        (user?.canAdminister ?? false) || (user?.isScheduleManager ?? false);
     if (!canManage) {
       return Scaffold(
         appBar: AppBar(title: const Text('일정')),

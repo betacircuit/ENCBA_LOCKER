@@ -39,6 +39,7 @@ class SupabaseAuthRepository {
           'name': profile.name,
           'student_year': _studentYear(profile.studentId),
           'generation': profile.generation,
+          'joined_year': profile.joinedYear,
           'phone': profile.phone,
           'position': profile.position,
           'jersey_number': profile.jerseyNumber,
@@ -156,8 +157,8 @@ class SupabaseAuthRepository {
       final row = await _client
           .from('profiles')
           .select(
-            'id,email,name,display_name,student_year,generation,phone,position,'
-            'jersey_number,membership_status,badge,avatar_path,is_admin,is_schedule_manager,is_active,'
+            'id,email,name,display_name,student_year,generation,joined_year,phone,position,'
+            'jersey_number,membership_status,badge,avatar_path,is_admin,is_schedule_manager,is_active,leadership_role,'
             'profile_teams(teams(code))',
           )
           .eq('id', userId)
