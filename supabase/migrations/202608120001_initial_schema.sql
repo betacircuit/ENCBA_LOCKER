@@ -1227,4 +1227,7 @@ using (
   (storage.foldername(name))[1] = (select auth.uid())::text
 );
 
+-- 새 테이블과 RPC를 PostgREST가 즉시 노출하도록 스키마 캐시를 갱신합니다.
+notify pgrst, 'reload schema';
+
 commit;
