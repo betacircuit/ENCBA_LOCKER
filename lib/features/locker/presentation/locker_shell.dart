@@ -2988,6 +2988,7 @@ class _VideoDetailScreen extends ConsumerStatefulWidget {
 
 class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
   YoutubePlayerController? _player;
+  int? _selectedQuarter;
   final _comment = TextEditingController();
   String _capturedTimestamp = '00:00';
   Timer? _watchTimer;
@@ -2998,12 +2999,17 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
   @override
   void initState() {
     super.initState();
-    if (video.youtubeId.isNotEmpty) {
-      _player = YoutubePlayerController.fromVideoId(
-        videoId: video.youtubeId,
-        autoPlay: false,
-        params: const YoutubePlayerParams(showFullscreenButton: true),
-      );
+    final quarterEntries = video.quarterUrls.indexed
+        .where((entry) => _youtubeIdFrom(entry.$2 ?? '') != null)
+        .toList();
+    if (video.category == '복기' && quarterEntries.isNotEmpty) {
+      _selectedQuarter = quarterEntries.first.$1;
+    }
+    final initialId = _selectedQuarter == null
+        ? (_validatedYoutubeId(video.youtubeId) ?? _youtubeIdFrom(video.url))
+        : _youtubeIdFrom(video.quarterUrls[_selectedQuarter!] ?? '');
+    if (initialId != null) {
+      _player = _createPlayer(initialId);
     }
     if (video.category == '복기') {
       Future.microtask(
@@ -3063,6 +3069,34 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
     if (!mounted) return;
     setState(() => _capturedTimestamp = _formatTimestamp(seconds));
   }
+
+  Future<void> _selectQuarter(int index, String url) async {
+    final id = _youtubeIdFrom(url);
+    if (id == null || _selectedQuarter == index) return;
+    await _recordWatch();
+    _lastPositionSeconds = 0;
+    final previous = _player;
+    final next = _createPlayer(id);
+    if (!mounted) return;
+    setState(() {
+      _player = next;
+      _selectedQuarter = index;
+      _capturedTimestamp = '00:00';
+    });
+    await previous?.close();
+  }
+
+  YoutubePlayerController _createPlayer(String id) =>
+      YoutubePlayerController.fromVideoId(
+        videoId: id,
+        autoPlay: false,
+        params: const YoutubePlayerParams(
+          showControls: true,
+          showFullscreenButton: true,
+          interfaceLanguage: 'ko',
+        ),
+        credentialless: true,
+      );
 
   Future<void> _addComment() async {
     final value = _comment.text.trim();
@@ -3145,7 +3179,16 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
           if (_player case final player?)
             ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              child: YoutubePlayer(controller: player, aspectRatio: 16 / 9),
+              child: ColoredBox(
+                color: EncbaColors.navy,
+                child: YoutubePlayerThumbnail(
+                  key: ValueKey('video-${video.id}-${_selectedQuarter ?? -1}'),
+                  controller: player,
+                  aspectRatio: 16 / 9,
+                  thumbnailFormat: ThumbnailFormat.jpeg,
+                  thumbnailQuality: ThumbnailQuality.high,
+                ),
+              ),
             )
           else
             InkWell(
@@ -3185,20 +3228,33 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
           if (video.category == '복기' &&
               video.quarterUrls.any((url) => url?.isNotEmpty == true)) ...[
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            Row(
               children: video.quarterUrls.indexed
-                  .where((entry) => entry.$2?.isNotEmpty == true)
-                  .map(
-                    (entry) => OutlinedButton(
-                      onPressed: () {
-                        final id = _youtubeIdFrom(entry.$2!);
-                        if (id != null) _player?.loadVideoById(videoId: id);
-                      },
-                      child: Text('${entry.$1 + 1}쿼터'),
-                    ),
-                  )
+                  .where((entry) => _youtubeIdFrom(entry.$2 ?? '') != null)
+                  .map((entry) {
+                    final selected = _selectedQuarter == entry.$1;
+                    return Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(left: entry.$1 == 0 ? 0 : 6),
+                        child: selected
+                            ? FilledButton(
+                                onPressed: () {},
+                                style: FilledButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(48),
+                                ),
+                                child: Text('${entry.$1 + 1}쿼터'),
+                              )
+                            : OutlinedButton(
+                                onPressed: () =>
+                                    _selectQuarter(entry.$1, entry.$2!),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(48),
+                                ),
+                                child: Text('${entry.$1 + 1}쿼터'),
+                              ),
+                      ),
+                    );
+                  })
                   .toList(),
             ),
           ],
@@ -4256,6 +4312,8 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
   final _title = TextEditingController();
   final _duration = TextEditingController();
   late final List<TextEditingController> _quarters;
+  late String _audienceType;
+  late Set<String> _audienceValues;
 
   @override
   void initState() {
@@ -4270,6 +4328,8 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
         text: existing?.quarterUrls.elementAtOrNull(index) ?? '',
       ),
     );
+    _audienceType = existing?.audienceType ?? 'all';
+    _audienceValues = existing?.audienceValues.toSet() ?? <String>{};
   }
 
   @override
@@ -4294,6 +4354,14 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
     final youtubeId = _youtubeIdFrom(sourceUrl);
     final isInstagram = isHighlight && _isInstagramReel(sourceUrl);
     if (youtubeId == null && !isInstagram) return;
+    if (widget.category == '공유' &&
+        (_audienceType == 'position' || _audienceType == 'student_year') &&
+        _audienceValues.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('추천 대상을 하나 이상 선택해 주세요.')));
+      return;
+    }
     if (isReview) {
       final blankQuarters = <int>[
         for (var i = 0; i < quarterUrls.length; i++)
@@ -4339,6 +4407,10 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
       uploader: widget.existing?.uploader ?? user?.name ?? 'ENCBA',
       accent: EncbaColors.snuBlue.toARGB32(),
       likeCount: widget.existing?.likeCount ?? 0,
+      audienceType: widget.category == '공유' ? _audienceType : 'all',
+      audienceValues: widget.category == '공유'
+          ? _audienceValues.toList()
+          : const [],
     );
     final notifier = ref.read(lockerControllerProvider.notifier);
     final saved = widget.existing == null
@@ -4446,6 +4518,17 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
                   validator: (value) =>
                       (value?.trim().isEmpty ?? true) ? '제목을 입력해 주세요.' : null,
                 ),
+                if (widget.category == '공유') ...[
+                  const SizedBox(height: 16),
+                  _VideoAudienceSelector(
+                    type: _audienceType,
+                    values: _audienceValues,
+                    onChanged: (type, values) => setState(() {
+                      _audienceType = type;
+                      _audienceValues = values;
+                    }),
+                  ),
+                ],
                 if (!isReview) ...[
                   const SizedBox(height: 10),
                   TextFormField(
@@ -4467,6 +4550,85 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _VideoAudienceSelector extends StatelessWidget {
+  const _VideoAudienceSelector({
+    required this.type,
+    required this.values,
+    required this.onChanged,
+  });
+
+  final String type;
+  final Set<String> values;
+  final void Function(String type, Set<String> values) onChanged;
+
+  static const _types = <(String, String)>[
+    ('all', '전체'),
+    ('position', '포지션'),
+    ('freshman', '신입생'),
+    ('student_year', '학번'),
+  ];
+  static const _positions = ['PG', 'SG', 'SF', 'PF', 'C', '미정'];
+
+  @override
+  Widget build(BuildContext context) {
+    final currentYear = DateTime.now().year % 100;
+    final studentYears = [
+      for (var year = currentYear - 8; year <= currentYear; year++)
+        year.toString().padLeft(2, '0'),
+    ].reversed.toList();
+    final choices = type == 'position'
+        ? _positions
+        : type == 'student_year'
+        ? studentYears
+        : const <String>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('추천 대상', style: TextStyle(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 4),
+        const Text(
+          '선택한 부원에게만 이 공유 영상이 보입니다.',
+          style: TextStyle(color: EncbaColors.muted, fontSize: 12),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 7,
+          runSpacing: 7,
+          children: _types
+              .map(
+                (item) => ChoiceChip(
+                  label: Text(item.$2),
+                  selected: type == item.$1,
+                  onSelected: (_) => onChanged(item.$1, <String>{}),
+                ),
+              )
+              .toList(),
+        ),
+        if (choices.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: choices
+                .map(
+                  (value) => FilterChip(
+                    label: Text(type == 'student_year' ? '$value학번' : value),
+                    selected: values.contains(value),
+                    onSelected: (selected) {
+                      final next = {...values};
+                      selected ? next.add(value) : next.remove(value);
+                      onChanged(type, next);
+                    },
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ],
     );
   }
 }

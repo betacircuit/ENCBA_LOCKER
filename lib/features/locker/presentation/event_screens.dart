@@ -981,6 +981,8 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   late final TextEditingController _title;
   late final TextEditingController _opponentOne;
   late final TextEditingController _opponentTwo;
+  late final TextEditingController _customPlace;
+  late final TextEditingController _mapReference;
   late bool _hasCapacity;
   late double _capacity;
   late EventKind _kind;
@@ -1002,6 +1004,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   bool _saving = false;
 
   static const _places = ['71동 종합체육관', '71-1동 신체육관', '900동 기숙사체육관'];
+  static const _customPlaceOption = '직접 입력';
   static const _editableKinds = [
     EventKind.training,
     EventKind.morning,
@@ -1014,13 +1017,13 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     EventKind.external,
   ];
   static const _ibDivisionOneTeams = [
-    '농구부',
+    '서울대 농구부',
     '스티즈',
     '그래비티',
     '썬샷',
     '노바스',
     '호바스',
-    '새턴OB',
+    '새턴',
   ];
 
   @override
@@ -1039,11 +1042,16 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     _opponentTwo = TextEditingController(
       text: existing?.opponents.elementAtOrNull(1) ?? '',
     );
+    final knownPlace = existing == null || _places.contains(existing.place);
+    _customPlace = TextEditingController(
+      text: knownPlace ? '' : existing.place,
+    );
+    _mapReference = TextEditingController(text: existing?.mapReference ?? '');
     _hasCapacity = existing?.capacity != null;
     _capacity = (existing?.capacity ?? 20).clamp(2, 60).toDouble();
     _kind = existing?.kind ?? EventKind.training;
     _place = existing?.place.trim().isNotEmpty == true
-        ? existing!.place
+        ? (knownPlace ? existing!.place : _customPlaceOption)
         : _places.first;
     _court = existing?.court ?? 'A코트';
     _team = switch (existing?.targetTeam) {
@@ -1089,6 +1097,8 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     _title.dispose();
     _opponentOne.dispose();
     _opponentTwo.dispose();
+    _customPlace.dispose();
+    _mapReference.dispose();
     _pollOption.dispose();
     super.dispose();
   }
@@ -1104,9 +1114,9 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       );
     }
     final editing = widget.existing != null;
-    final placeOptions = _places.contains(_place)
-        ? _places
-        : [..._places, _place];
+    final placeOptions = _kind == EventKind.external
+        ? [..._places, _customPlaceOption]
+        : _places;
     final kindOptions = _editableKinds.contains(_kind)
         ? _editableKinds
         : [_kind, ..._editableKinds];
@@ -1203,10 +1213,13 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                     const SizedBox(height: 8),
                     _TeamSuggestionStrip(
                       teams: _ibDivisionOneTeams,
-                      onSelected: (team) {
-                        _opponentOne.text = team;
-                        setState(() {});
-                      },
+                      selected: {
+                        _opponentOne.text.trim(),
+                        if (_kind == EventKind.threeWay)
+                          _opponentTwo.text.trim(),
+                      }..remove(''),
+                      maximumSelected: _kind == EventKind.threeWay ? 2 : 1,
+                      onSelected: _selectSuggestedOpponent,
                     ),
                     if (_kind == EventKind.threeWay) ...[
                       const SizedBox(height: 12),
@@ -1285,6 +1298,16 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: _DateTimeButton(
+                      label: '날짜',
+                      value: _start,
+                      dateOnly: true,
+                      onTap: _pickEventDate,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       Expanded(
@@ -1292,7 +1315,8 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                           label: '시작',
                           value: _start,
                           showMinutes: _preciseMinutes,
-                          onTap: () => _pickDateTime(true),
+                          timeOnly: true,
+                          onTap: () => _pickEventTime(true),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1301,7 +1325,8 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                           label: '종료',
                           value: _end,
                           showMinutes: _preciseMinutes,
-                          onTap: () => _pickDateTime(false),
+                          timeOnly: true,
+                          onTap: () => _pickEventTime(false),
                         ),
                       ),
                     ],
@@ -1329,6 +1354,31 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                         .toList(),
                     onChanged: (value) => setState(() => _place = value!),
                   ),
+                  if (_kind == EventKind.external &&
+                      _place == _customPlaceOption) ...[
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _customPlace,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: '장소 이름 *',
+                        hintText: '예: 관악구민종합체육센터',
+                      ),
+                      validator: (value) => _place == _customPlaceOption
+                          ? _required(value)
+                          : null,
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _mapReference,
+                      keyboardType: TextInputType.url,
+                      decoration: const InputDecoration(
+                        labelText: '네이버 지도 링크 또는 주소',
+                        hintText: '공유 링크나 도로명 주소를 붙여 넣어 주세요.',
+                        helperText: '일정의 지도 버튼이 입력한 위치를 바로 엽니다.',
+                      ),
+                    ),
+                  ],
                   if (_place == _places.first) ...[
                     const SizedBox(height: 12),
                     SegmentedButton<String>(
@@ -1559,15 +1609,56 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   String? _required(String? value) =>
       value == null || value.trim().isEmpty ? '필수 항목입니다.' : null;
 
-  Future<void> _pickDateTime(bool start) async {
-    final current = start ? _start : _end;
+  void _selectSuggestedOpponent(String team) {
+    setState(() {
+      final first = _opponentOne.text.trim();
+      final second = _opponentTwo.text.trim();
+      if (first == team) {
+        _opponentOne.clear();
+        return;
+      }
+      if (second == team) {
+        _opponentTwo.clear();
+        return;
+      }
+      if (_kind != EventKind.threeWay || first.isEmpty) {
+        _opponentOne.text = team;
+      } else if (second.isEmpty) {
+        _opponentTwo.text = team;
+      } else {
+        _opponentTwo.text = team;
+      }
+    });
+  }
+
+  Future<void> _pickEventDate() async {
     final date = await showDatePicker(
       context: context,
-      initialDate: current,
+      initialDate: _start,
       firstDate: DateTime.now().subtract(const Duration(days: 1)),
       lastDate: DateTime.now().add(const Duration(days: 730)),
     );
     if (!mounted || date == null) return;
+    setState(() {
+      _start = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        _start.hour,
+        _start.minute,
+      );
+      _end = DateTime(date.year, date.month, date.day, _end.hour, _end.minute);
+      if (!_end.isAfter(_start)) _end = _start.add(const Duration(hours: 2));
+      if (!_deadlineCustomized) {
+        _responseDeadline = _start.subtract(
+          _kind.isMatch ? const Duration(hours: 3) : const Duration(hours: 1),
+        );
+      }
+    });
+  }
+
+  Future<void> _pickEventTime(bool start) async {
+    final current = start ? _start : _end;
     final pickedTime = _preciseMinutes
         ? await showTimePicker(
             context: context,
@@ -1576,9 +1667,9 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
         : await _pickHourOnly(current.hour);
     if (!mounted || pickedTime == null) return;
     final value = DateTime(
-      date.year,
-      date.month,
-      date.day,
+      _start.year,
+      _start.month,
+      _start.day,
       pickedTime.hour,
       _preciseMinutes ? pickedTime.minute : 0,
     );
@@ -1700,7 +1791,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       title: _title.text.trim().isEmpty ? _kind.label : _title.text.trim(),
       start: _start,
       end: _end,
-      place: _place,
+      place: _place == _customPlaceOption ? _customPlace.text.trim() : _place,
       court: _place == _places.first ? _court : null,
       kind: _kind,
       memo: _memo.text.trim(),
@@ -1732,6 +1823,11 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                 .map((member) => member.name)
                 .toList()
           : const [],
+      mapReference: _place == _customPlaceOption
+          ? (_mapReference.text.trim().isEmpty
+                ? null
+                : _mapReference.text.trim())
+          : null,
     );
     final saved = await ref
         .read(lockerControllerProvider.notifier)
@@ -1881,8 +1977,15 @@ class EventKindLabel extends StatelessWidget {
 }
 
 class _TeamSuggestionStrip extends StatelessWidget {
-  const _TeamSuggestionStrip({required this.teams, required this.onSelected});
+  const _TeamSuggestionStrip({
+    required this.teams,
+    required this.selected,
+    required this.maximumSelected,
+    required this.onSelected,
+  });
   final List<String> teams;
+  final Set<String> selected;
+  final int maximumSelected;
   final ValueChanged<String> onSelected;
 
   @override
@@ -1892,10 +1995,11 @@ class _TeamSuggestionStrip extends StatelessWidget {
       scrollDirection: Axis.horizontal,
       itemCount: teams.length,
       separatorBuilder: (_, _) => const SizedBox(width: 6),
-      itemBuilder: (context, index) => ActionChip(
+      itemBuilder: (context, index) => FilterChip(
         visualDensity: VisualDensity.compact,
         label: Text(teams[index]),
-        onPressed: () => onSelected(teams[index]),
+        selected: selected.contains(teams[index]),
+        onSelected: (_) => onSelected(teams[index]),
       ),
     ),
   );
@@ -2176,11 +2280,15 @@ class _DateTimeButton extends StatelessWidget {
     required this.value,
     required this.onTap,
     this.showMinutes = true,
+    this.dateOnly = false,
+    this.timeOnly = false,
   });
   final String label;
   final DateTime value;
   final VoidCallback onTap;
   final bool showMinutes;
+  final bool dateOnly;
+  final bool timeOnly;
 
   @override
   Widget build(BuildContext context) => OutlinedButton(
@@ -2198,7 +2306,13 @@ class _DateTimeButton extends StatelessWidget {
         ),
         const SizedBox(height: 3),
         Text(
-          showMinutes
+          dateOnly
+              ? '${DateFormat('yyyy. M. d.').format(value)} (${weekday(value)})'
+              : timeOnly
+              ? (showMinutes
+                    ? DateFormat('HH:mm').format(value)
+                    : '${value.hour}시')
+              : showMinutes
               ? DateFormat('M.d  HH:mm').format(value)
               : '${DateFormat('M.d').format(value)}  ${value.hour}시',
         ),
@@ -2321,10 +2435,18 @@ Future<void> _openMap(BuildContext context, LockerEvent event) async {
     '900동 기숙사체육관':
         'https://map.naver.com/p/search/%EC%84%9C%EC%9A%B8%EB%8C%80%EA%B8%B0%EC%88%99%EC%82%AC900%EB%8F%99/place/1289118439?c=15.00,0,0,0,dh',
   };
-  final uri = Uri.parse(
-    places[event.place] ??
-        'https://map.naver.com/p/search/${Uri.encodeComponent(event.fullPlace)}',
-  );
+  final reference = event.mapReference?.trim();
+  final pastedUri = reference == null ? null : Uri.tryParse(reference);
+  final isWebLink =
+      pastedUri != null &&
+      (pastedUri.scheme == 'https' || pastedUri.scheme == 'http');
+  final target = reference != null && reference.isNotEmpty
+      ? (isWebLink
+            ? reference
+            : 'https://map.naver.com/p/search/${Uri.encodeComponent(reference)}')
+      : places[event.place] ??
+            'https://map.naver.com/p/search/${Uri.encodeComponent(event.fullPlace)}';
+  final uri = Uri.parse(target);
   if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
       context.mounted) {
     ScaffoldMessenger.of(

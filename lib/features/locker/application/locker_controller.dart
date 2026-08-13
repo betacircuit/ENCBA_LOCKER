@@ -1246,7 +1246,7 @@ List<LockerEvent> _seedEvents() {
       memo: '세 팀이 순환 경기로 진행합니다.',
       uniformColors: const ['검정', '흰색'],
       attending: 13,
-      opponents: const ['농구부', '그래비티'],
+      opponents: const ['서울대 농구부', '그래비티'],
       createdBy: '관리자 최재원',
     ),
   ];

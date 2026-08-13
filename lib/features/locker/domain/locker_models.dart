@@ -77,6 +77,7 @@ class LockerEvent {
     this.opponents = const [],
     this.starterProfileIds = const [],
     this.starterNames = const [],
+    this.mapReference,
   });
 
   final String id;
@@ -102,6 +103,7 @@ class LockerEvent {
   final List<String> opponents;
   final List<String> starterProfileIds;
   final List<String> starterNames;
+  final String? mapReference;
 
   bool get isBattle => kind.isBattle;
 
@@ -119,6 +121,7 @@ class LockerEvent {
     bool? isLocked,
     List<String>? starterProfileIds,
     List<String>? starterNames,
+    String? mapReference,
   }) => LockerEvent(
     id: id,
     title: title,
@@ -143,6 +146,7 @@ class LockerEvent {
     opponents: opponents,
     starterProfileIds: starterProfileIds ?? this.starterProfileIds,
     starterNames: starterNames ?? this.starterNames,
+    mapReference: mapReference ?? this.mapReference,
   );
 
   Map<String, dynamic> toJson() => {
@@ -169,6 +173,7 @@ class LockerEvent {
     'opponents': opponents,
     'starterProfileIds': starterProfileIds,
     'starterNames': starterNames,
+    'mapReference': mapReference,
   };
 
   factory LockerEvent.fromJson(Map<String, dynamic> json) => LockerEvent(
@@ -204,6 +209,7 @@ class LockerEvent {
       json['starterProfileIds'] as List? ?? const [],
     ),
     starterNames: List<String>.from(json['starterNames'] as List? ?? const []),
+    mapReference: json['mapReference'] as String?,
   );
 }
 
@@ -562,6 +568,8 @@ class VideoItem {
     this.likeCount = 0,
     this.sourceType = 'youtube',
     this.quarterUrls = const [],
+    this.audienceType = 'all',
+    this.audienceValues = const [],
   });
 
   final String id;
@@ -576,6 +584,8 @@ class VideoItem {
   final int likeCount;
   final String sourceType;
   final List<String?> quarterUrls;
+  final String audienceType;
+  final List<String> audienceValues;
 
   VideoItem copyWith({
     String? title,
@@ -586,6 +596,8 @@ class VideoItem {
     int? likeCount,
     String? sourceType,
     List<String?>? quarterUrls,
+    String? audienceType,
+    List<String>? audienceValues,
   }) => VideoItem(
     id: id,
     title: title ?? this.title,
@@ -599,6 +611,8 @@ class VideoItem {
     likeCount: likeCount ?? this.likeCount,
     sourceType: sourceType ?? this.sourceType,
     quarterUrls: quarterUrls ?? this.quarterUrls,
+    audienceType: audienceType ?? this.audienceType,
+    audienceValues: audienceValues ?? this.audienceValues,
   );
 
   Map<String, dynamic> toJson() => {
@@ -614,6 +628,8 @@ class VideoItem {
     'likeCount': likeCount,
     'sourceType': sourceType,
     'quarterUrls': quarterUrls,
+    'audienceType': audienceType,
+    'audienceValues': audienceValues,
   };
 
   factory VideoItem.fromJson(Map<String, dynamic> json) => VideoItem(
@@ -631,6 +647,10 @@ class VideoItem {
     quarterUrls: (json['quarterUrls'] as List? ?? const [])
         .map((value) => value as String?)
         .toList(),
+    audienceType: json['audienceType'] as String? ?? 'all',
+    audienceValues: List<String>.from(
+      json['audienceValues'] as List? ?? const [],
+    ),
   );
 }
 

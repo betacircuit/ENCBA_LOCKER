@@ -272,6 +272,39 @@ void main() {
     expect(restored.uploader, '김민수');
   });
 
+  test('영상 공유 대상과 외부 장소 지도 주소가 캐시에 보존된다', () {
+    final video = VideoItem(
+      id: 'shared-1',
+      title: '가드 스킬 영상',
+      durationLabel: '',
+      category: '공유',
+      url: 'https://youtu.be/M7lc1UVf-VE',
+      youtubeId: 'M7lc1UVf-VE',
+      uploadedAt: DateTime(2026, 8, 13),
+      uploader: '최재원',
+      accent: 0xFF00539B,
+      audienceType: 'position',
+      audienceValues: const ['PG', 'SG'],
+    );
+    final restoredVideo = VideoItem.fromJson(video.toJson());
+    expect(restoredVideo.audienceType, 'position');
+    expect(restoredVideo.audienceValues, ['PG', 'SG']);
+
+    final event = LockerEvent(
+      id: 'external-1',
+      title: '외부 경기',
+      start: DateTime(2026, 8, 20, 18),
+      end: DateTime(2026, 8, 20, 20),
+      place: '관악구민종합체육센터',
+      kind: EventKind.external,
+      memo: '',
+      mapReference: '서울 관악구 낙성대로3길 37',
+    );
+    final restoredEvent = LockerEvent.fromJson(event.toJson());
+    expect(restoredEvent.mapReference, '서울 관악구 낙성대로3길 37');
+    expect(restoredEvent.start.day, restoredEvent.end.day);
+  });
+
   test('매니저만 하이라이트 등록 권한을 가진다', () {
     final manager = testUser.copyWith(
       isAdmin: false,

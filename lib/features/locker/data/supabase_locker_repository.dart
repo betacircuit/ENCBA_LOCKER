@@ -757,6 +757,9 @@ class SupabaseLockerRepository {
           : null,
       'poll_options': event.pollOptions,
       'visibility': event.visibility,
+      'map_reference': event.mapReference?.trim().isEmpty == true
+          ? null
+          : event.mapReference?.trim(),
       'updated_by': _userId,
     };
     final isUuid = RegExp(
@@ -784,11 +787,14 @@ class SupabaseLockerRepository {
     try {
       row = await persist();
     } on PostgrestException catch (error) {
+      final missingColumn = error.message.toLowerCase();
       final schemaCacheMissing =
           error.code == 'PGRST204' &&
-          error.message.toLowerCase().contains('opponents');
+          (missingColumn.contains('opponents') ||
+              missingColumn.contains('map_reference'));
       if (!schemaCacheMissing) rethrow;
       payload.remove('opponents');
+      payload.remove('map_reference');
       row = await persist();
     }
     final saved = _eventFromRow(row).copyWith(
@@ -893,6 +899,8 @@ class SupabaseLockerRepository {
           'quarter_2_url': video.quarterUrls.elementAtOrNull(1),
           'quarter_3_url': video.quarterUrls.elementAtOrNull(2),
           'quarter_4_url': video.quarterUrls.elementAtOrNull(3),
+          'audience_type': video.audienceType,
+          'audience_values': video.audienceValues,
           'duration_seconds': _durationToSeconds(video.durationLabel),
           'uploaded_by': _userId,
         })
@@ -914,6 +922,8 @@ class SupabaseLockerRepository {
           'quarter_2_url': video.quarterUrls.elementAtOrNull(1),
           'quarter_3_url': video.quarterUrls.elementAtOrNull(2),
           'quarter_4_url': video.quarterUrls.elementAtOrNull(3),
+          'audience_type': video.audienceType,
+          'audience_values': video.audienceValues,
           'duration_seconds': _durationToSeconds(video.durationLabel),
         })
         .eq('id', video.id)
@@ -1079,6 +1089,7 @@ class SupabaseLockerRepository {
       opponents:
           (row['opponents'] as List?)?.cast<String>() ??
           (row['opponent'] == null ? const [] : [row['opponent'] as String]),
+      mapReference: row['map_reference'] as String?,
     );
   }
 
@@ -1105,6 +1116,10 @@ class SupabaseLockerRepository {
         row['quarter_3_url'] as String?,
         row['quarter_4_url'] as String?,
       ],
+      audienceType: row['audience_type'] as String? ?? 'all',
+      audienceValues: List<String>.from(
+        row['audience_values'] as List? ?? const [],
+      ),
     );
   }
 
