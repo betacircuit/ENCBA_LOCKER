@@ -93,8 +93,13 @@ void main() {
     expect(find.text('새 일정'), findsOneWidget);
     expect(find.text('제목 *'), findsNothing);
     expect(find.text('일정 유형 *'), findsOneWidget);
-    expect(find.text('장소 *'), findsOneWidget);
     expect(find.text('공지 메모'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('장소 *'),
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('장소 *'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('인원 제한'),
       250,
@@ -107,6 +112,36 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('마감 정하기'), findsOneWidget);
+  });
+
+  testWidgets('일정 제목은 선택 입력이고 정각 선택은 분 없는 시간 선택기를 연다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const EventEditorScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('제목 (선택)'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('시작'),
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('정각'), findsOneWidget);
+    expect(find.text('분 설정'), findsOneWidget);
+  });
+
+  testWidgets('외부 경기 등록은 주전 선택을 노출한다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const EventEditorScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('훈련').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('외부 경기').last);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('주전 선택'),
+      260,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('주전 선택'), findsOneWidget);
   });
 
   testWidgets('일반 부원에게 일정 생성·제안·수정을 노출하지 않는다', (tester) async {
@@ -147,7 +182,7 @@ void main() {
     await tester.pump();
     expect(find.text('연습 경기'), findsWidgets);
     expect(find.text('삼파전'), findsWidgets);
-    expect(find.text('외부 경기'), findsNothing);
+    expect(find.text('외부 경기'), findsOneWidget);
   });
 
   testWidgets('430px 모바일 폭에서도 일정 시간과 장소 강조가 넘치지 않는다', (tester) async {

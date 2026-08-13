@@ -168,7 +168,7 @@ class SupabaseAuthRepository {
           .from('profiles')
           .select(
             'id,email,name,display_name,student_year,generation,joined_year,phone,position,'
-            'jersey_number,membership_status,badge,avatar_path,is_admin,is_schedule_manager,is_active,leadership_role,'
+            'jersey_number,membership_status,badge,avatar_path,is_admin,is_schedule_manager,is_active,leadership_role,is_reservation_manager,'
             'profile_teams(teams(code))',
           )
           .eq('id', userId)

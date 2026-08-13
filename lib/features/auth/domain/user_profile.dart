@@ -18,6 +18,7 @@ class UserProfile {
     this.isScheduleManager = false,
     this.isActive = true,
     this.leadershipRole = 'member',
+    this.isReservationManager = false,
   });
 
   final String? id;
@@ -38,6 +39,7 @@ class UserProfile {
   final bool isScheduleManager;
   final bool isActive;
   final String leadershipRole;
+  final bool isReservationManager;
 
   UserProfile copyWith({
     String? id,
@@ -58,6 +60,7 @@ class UserProfile {
     bool? isScheduleManager,
     bool? isActive,
     String? leadershipRole,
+    bool? isReservationManager,
   }) {
     return UserProfile(
       id: id ?? this.id,
@@ -78,6 +81,7 @@ class UserProfile {
       isScheduleManager: isScheduleManager ?? this.isScheduleManager,
       isActive: isActive ?? this.isActive,
       leadershipRole: leadershipRole ?? this.leadershipRole,
+      isReservationManager: isReservationManager ?? this.isReservationManager,
     );
   }
 
@@ -100,6 +104,7 @@ class UserProfile {
     'isScheduleManager': isScheduleManager,
     'isActive': isActive,
     'leadershipRole': leadershipRole,
+    'isReservationManager': isReservationManager,
   };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
@@ -121,6 +126,7 @@ class UserProfile {
     isScheduleManager: json['isScheduleManager'] as bool? ?? false,
     isActive: json['isActive'] as bool? ?? true,
     leadershipRole: json['leadershipRole'] as String? ?? 'member',
+    isReservationManager: json['isReservationManager'] as bool? ?? false,
   );
 
   factory UserProfile.fromSupabase(Map<String, dynamic> row) => UserProfile(
@@ -144,6 +150,7 @@ class UserProfile {
     leadershipRole:
         row['leadership_role'] as String? ??
         ((row['is_admin'] as bool? ?? false) ? 'admin' : 'member'),
+    isReservationManager: row['is_reservation_manager'] as bool? ?? false,
   );
 
   String get visibleName =>

@@ -16,7 +16,7 @@ enum EventKind {
 
 extension EventKindUi on EventKind {
   String get label => switch (this) {
-    EventKind.training => '정기 훈련',
+    EventKind.training => '훈련',
     EventKind.morning => '아농',
     EventKind.freeOpen => '자개',
     EventKind.internal => '내부 경기',
@@ -75,6 +75,8 @@ class LockerEvent {
     this.visibility = 'team',
     this.isLocked = false,
     this.opponents = const [],
+    this.starterProfileIds = const [],
+    this.starterNames = const [],
   });
 
   final String id;
@@ -98,6 +100,8 @@ class LockerEvent {
   final String visibility;
   final bool isLocked;
   final List<String> opponents;
+  final List<String> starterProfileIds;
+  final List<String> starterNames;
 
   bool get isBattle => kind.isBattle;
 
@@ -110,7 +114,12 @@ class LockerEvent {
   DateTime get responseDeadline =>
       responseDeadlineOverride ?? start.subtract(responseBuffer);
 
-  LockerEvent copyWith({int? attending, bool? isLocked}) => LockerEvent(
+  LockerEvent copyWith({
+    int? attending,
+    bool? isLocked,
+    List<String>? starterProfileIds,
+    List<String>? starterNames,
+  }) => LockerEvent(
     id: id,
     title: title,
     start: start,
@@ -132,6 +141,8 @@ class LockerEvent {
     visibility: visibility,
     isLocked: isLocked ?? this.isLocked,
     opponents: opponents,
+    starterProfileIds: starterProfileIds ?? this.starterProfileIds,
+    starterNames: starterNames ?? this.starterNames,
   );
 
   Map<String, dynamic> toJson() => {
@@ -156,6 +167,8 @@ class LockerEvent {
     'visibility': visibility,
     'isLocked': isLocked,
     'opponents': opponents,
+    'starterProfileIds': starterProfileIds,
+    'starterNames': starterNames,
   };
 
   factory LockerEvent.fromJson(Map<String, dynamic> json) => LockerEvent(
@@ -187,7 +200,32 @@ class LockerEvent {
     visibility: json['visibility'] as String? ?? 'team',
     isLocked: json['isLocked'] as bool? ?? false,
     opponents: List<String>.from(json['opponents'] as List? ?? const []),
+    starterProfileIds: List<String>.from(
+      json['starterProfileIds'] as List? ?? const [],
+    ),
+    starterNames: List<String>.from(json['starterNames'] as List? ?? const []),
   );
+}
+
+class EventStrategy {
+  const EventStrategy({
+    required this.eventId,
+    this.offense = '',
+    this.defense = '',
+    this.notes = '',
+    this.updatedBy = '',
+    this.updatedAt,
+  });
+
+  final String eventId;
+  final String offense;
+  final String defense;
+  final String notes;
+  final String updatedBy;
+  final DateTime? updatedAt;
+
+  bool get isEmpty =>
+      offense.trim().isEmpty && defense.trim().isEmpty && notes.trim().isEmpty;
 }
 
 class MemberProfile {
@@ -206,6 +244,8 @@ class MemberProfile {
     this.jerseyNumber = 0,
     this.isActive = true,
     this.leadershipRole = 'member',
+    this.isReservationManager = false,
+    this.department = '',
   });
 
   final String? id;
@@ -222,6 +262,8 @@ class MemberProfile {
   final int jerseyNumber;
   final bool isActive;
   final String leadershipRole;
+  final bool isReservationManager;
+  final String department;
 
   bool get canAdminister =>
       leadershipRole == 'admin' || leadershipRole == 'captain';
@@ -251,6 +293,8 @@ class MemberProfile {
     int? jerseyNumber,
     bool? isActive,
     String? leadershipRole,
+    bool? isReservationManager,
+    String? department,
   }) => MemberProfile(
     id: id,
     name: name ?? this.name,
@@ -266,6 +310,8 @@ class MemberProfile {
     jerseyNumber: jerseyNumber ?? this.jerseyNumber,
     isActive: isActive ?? this.isActive,
     leadershipRole: leadershipRole ?? this.leadershipRole,
+    isReservationManager: isReservationManager ?? this.isReservationManager,
+    department: department ?? this.department,
   );
 }
 

@@ -48,6 +48,30 @@ import UserNotifications
         UNUserNotificationCenter.current().add(request) { error in
           DispatchQueue.main.async { result(error == nil) }
         }
+      case "schedule":
+        guard
+          let arguments = call.arguments as? [String: Any],
+          let id = arguments["id"] as? String,
+          let title = arguments["title"] as? String,
+          let body = arguments["body"] as? String,
+          let scheduledAtMs = arguments["scheduledAtMs"] as? NSNumber
+        else {
+          result(FlutterError(code: "invalid_arguments", message: nil, details: nil))
+          return
+        }
+        let delay = max(1.0, scheduledAtMs.doubleValue / 1000.0 - Date().timeIntervalSince1970)
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let request = UNNotificationRequest(
+          identifier: id,
+          content: content,
+          trigger: UNTimeIntervalNotificationTrigger(timeInterval: delay, repeats: false)
+        )
+        UNUserNotificationCenter.current().add(request) { error in
+          DispatchQueue.main.async { result(error == nil) }
+        }
       default:
         result(FlutterMethodNotImplemented)
       }

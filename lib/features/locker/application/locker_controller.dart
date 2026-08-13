@@ -32,6 +32,7 @@ class LockerState {
     this.videoWatchSummaries = const {},
     this.eventRosters = const {},
     this.eventAttendance = const {},
+    this.eventStrategies = const {},
     this.operationExchangeBoard = const [],
     this.operationSwapRequests = const [],
     this.auditEntries = const [],
@@ -62,6 +63,7 @@ class LockerState {
   final Map<String, List<VideoWatchSummary>> videoWatchSummaries;
   final Map<String, List<EventRosterMember>> eventRosters;
   final Map<String, List<AttendanceResponse>> eventAttendance;
+  final Map<String, EventStrategy> eventStrategies;
   final List<OperationAssignment> operationExchangeBoard;
   final List<OperationSwapRequest> operationSwapRequests;
   final List<AuditEntry> auditEntries;
@@ -101,6 +103,7 @@ class LockerState {
     Map<String, List<VideoWatchSummary>>? videoWatchSummaries,
     Map<String, List<EventRosterMember>>? eventRosters,
     Map<String, List<AttendanceResponse>>? eventAttendance,
+    Map<String, EventStrategy>? eventStrategies,
     List<OperationAssignment>? operationExchangeBoard,
     List<OperationSwapRequest>? operationSwapRequests,
     List<AuditEntry>? auditEntries,
@@ -133,6 +136,7 @@ class LockerState {
     videoWatchSummaries: videoWatchSummaries ?? this.videoWatchSummaries,
     eventRosters: eventRosters ?? this.eventRosters,
     eventAttendance: eventAttendance ?? this.eventAttendance,
+    eventStrategies: eventStrategies ?? this.eventStrategies,
     operationExchangeBoard:
         operationExchangeBoard ?? this.operationExchangeBoard,
     operationSwapRequests: operationSwapRequests ?? this.operationSwapRequests,
@@ -777,6 +781,76 @@ class LockerController extends StateNotifier<LockerState> {
       state = state.copyWith(error: '일정을 저장하지 못했습니다.');
       return false;
     }
+  }
+
+  Future<void> loadEventStrategy(String eventId) async {
+    if (state.eventStrategies.containsKey(eventId)) return;
+    try {
+      final strategy =
+          await _repository?.loadEventStrategy(eventId) ??
+          EventStrategy(eventId: eventId);
+      state = state.copyWith(
+        eventStrategies: {...state.eventStrategies, eventId: strategy},
+      );
+    } on Object {
+      state = state.copyWith(
+        eventStrategies: {
+          ...state.eventStrategies,
+          eventId: EventStrategy(eventId: eventId),
+        },
+      );
+    }
+  }
+
+  Future<bool> saveEventStrategy(EventStrategy strategy) async {
+    try {
+      final saved = await _repository?.saveEventStrategy(strategy) ?? strategy;
+      state = state.copyWith(
+        eventStrategies: {...state.eventStrategies, strategy.eventId: saved},
+        clearError: true,
+      );
+      return true;
+    } on Object {
+      state = state.copyWith(error: '전술을 저장하지 못했습니다.');
+      return false;
+    }
+  }
+
+  Future<DateTime> serverNow() async {
+    try {
+      return await _repository?.loadServerTime() ?? DateTime.now();
+    } on Object {
+      return DateTime.now();
+    }
+  }
+
+  Future<void> scheduleReservationOpeningReminder({
+    required bool isReservationManager,
+  }) async {
+    if (!isReservationManager || !await WebNotificationService().isEnabled()) {
+      return;
+    }
+    final serverNow = await this.serverNow();
+    var opening = DateTime(
+      serverNow.year,
+      serverNow.month,
+      serverNow.day,
+      9,
+      30,
+    );
+    final daysUntilTuesday = (DateTime.tuesday - serverNow.weekday + 7) % 7;
+    opening = opening.add(Duration(days: daysUntilTuesday));
+    if (!opening.isAfter(serverNow)) {
+      opening = opening.add(const Duration(days: 7));
+    }
+    final reminderAt = opening.subtract(const Duration(minutes: 5));
+    final deviceTarget = DateTime.now().add(reminderAt.difference(serverNow));
+    await WebNotificationService().scheduleAt(
+      'encba-court-reservation-opening',
+      '체육관 예약 오픈 5분 전',
+      '71동·71-1동 다음 주 예약이 곧 열립니다.',
+      deviceTarget,
+    );
   }
 
   Future<int> createDemoEvents() async {

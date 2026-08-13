@@ -17,6 +17,7 @@ import 'package:encba_locker/features/locker/services/web_notification_service.d
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 
@@ -179,6 +180,7 @@ class HomeScreen extends ConsumerWidget {
                   ref,
                   state.announcements,
                   canManage: user.canAdminister,
+                  user: user,
                 );
               },
               icon: Badge(
@@ -553,7 +555,11 @@ class GamesScreen extends ConsumerWidget {
         ('픽업게임', EventKind.pickup),
       ],
       1 => const [('1부', EventKind.ibDivision1), ('2부', EventKind.ibDivision2)],
-      _ => const [('연습 경기', EventKind.scrimmage), ('삼파전', EventKind.threeWay)],
+      _ => const [
+        ('연습 경기', EventKind.scrimmage),
+        ('삼파전', EventKind.threeWay),
+        ('외부 경기', EventKind.external),
+      ],
     };
     final filtered = state.events.where((event) {
       return event.kind == categories[selectedSub].$2 &&
@@ -931,6 +937,261 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
   }
 }
 
+class CourtReservationScreen extends ConsumerStatefulWidget {
+  const CourtReservationScreen({super.key});
+
+  @override
+  ConsumerState<CourtReservationScreen> createState() =>
+      _CourtReservationScreenState();
+}
+
+class _CourtReservationScreenState
+    extends ConsumerState<CourtReservationScreen> {
+  Timer? _ticker;
+  DateTime? _serverReference;
+  DateTime? _deviceReference;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncClock();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+    final user = ref.read(authControllerProvider).user;
+    Future.microtask(
+      () => ref
+          .read(lockerControllerProvider.notifier)
+          .scheduleReservationOpeningReminder(
+            isReservationManager: user?.isReservationManager ?? false,
+          ),
+    );
+  }
+
+  Future<void> _syncClock() async {
+    final serverNow = await ref
+        .read(lockerControllerProvider.notifier)
+        .serverNow();
+    if (!mounted) return;
+    setState(() {
+      _serverReference = serverNow;
+      _deviceReference = DateTime.now();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  DateTime get _now {
+    final server = _serverReference;
+    final device = _deviceReference;
+    if (server == null || device == null) return DateTime.now();
+    return server.add(DateTime.now().difference(device));
+  }
+
+  ({bool open, DateTime target}) _reservationWindow(DateTime now) {
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    final thisTuesday = startOfDay.add(
+      Duration(days: DateTime.tuesday - now.weekday),
+    );
+    final opening = thisTuesday.add(const Duration(hours: 9, minutes: 30));
+    final closes = thisTuesday.add(const Duration(days: 6));
+    if (!now.isBefore(opening) && now.isBefore(closes)) {
+      return (open: true, target: closes);
+    }
+    var nextOpening = opening;
+    if (!nextOpening.isAfter(now)) {
+      nextOpening = nextOpening.add(const Duration(days: 7));
+    }
+    return (open: false, target: nextOpening);
+  }
+
+  String _countdown(Duration value) {
+    final duration = value.isNegative ? Duration.zero : value;
+    final days = duration.inDays;
+    final hours = duration.inHours.remainder(24);
+    final minutes = duration.inMinutes.remainder(60);
+    final seconds = duration.inSeconds.remainder(60);
+    return '${days > 0 ? '$days일 ' : ''}'
+        '${hours.toString().padLeft(2, '0')}:'
+        '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = ref.watch(authControllerProvider).user!;
+    final now = _now;
+    final window = _reservationWindow(now);
+    return Scaffold(
+      appBar: AppBar(title: const Text('농구장 예약')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: EncbaColors.navy,
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      window.open ? 'RESERVATION OPEN' : 'NEXT OPEN',
+                      style: const TextStyle(
+                        fontFamily: 'BlackHanSans',
+                        color: Color(0xFFFFD84D),
+                        letterSpacing: .8,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (user.isReservationManager)
+                      const _ReservationRoleBadge(),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  window.open ? '이번 주 예약 오픈 중' : '화요일 09:30까지',
+                  style: const TextStyle(
+                    fontFamily: 'Jua',
+                    color: Colors.white,
+                    fontSize: 25,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _countdown(window.target.difference(now)),
+                  style: const TextStyle(
+                    fontFamily: 'BlackHanSans',
+                    fontSize: 36,
+                    color: Colors.white,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '서버 기준 ${DateFormat('M월 d일 HH:mm:ss', 'ko').format(now)}',
+                  style: const TextStyle(
+                    color: Color(0xFFB9C8DC),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          const _ReservationVenueCard(
+            building: '71동',
+            title: '종합체육관',
+            rule: '매주 화요일 09:30 · 다음 주 월–일 오픈\n1인 주 1회 · 최대 2시간 · 기본 2인 이상',
+            buttonLabel: '71동 예약하기',
+            url: 'https://athletics.snu.ac.kr/facility/list',
+          ),
+          const SizedBox(height: 12),
+          const _ReservationVenueCard(
+            building: '71-1동',
+            title: '신체육관',
+            rule: '매주 화요일 09:30 · 다음 주 월–일 오픈\n최대 2시간 · 일부 대형 공간 최소 4인',
+            buttonLabel: '71-1동 예약하기',
+            url: 'https://athletics.snu.ac.kr/facility/list',
+          ),
+          const SizedBox(height: 12),
+          const _ReservationVenueCard(
+            building: '900동',
+            title: '기숙사 체육관',
+            rule: '일반 예약은 사용 2주 전–3일 전\n주 1회 · 최대 2시간 · 평일 승인 확인',
+            buttonLabel: '900동 예약하기',
+            url: 'https://my.snu.ac.kr/',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReservationRoleBadge extends StatelessWidget {
+  const _ReservationRoleBadge();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFD84D),
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: const Text(
+      '예약자',
+      style: TextStyle(
+        color: EncbaColors.navy,
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+  );
+}
+
+class _ReservationVenueCard extends StatelessWidget {
+  const _ReservationVenueCard({
+    required this.building,
+    required this.title,
+    required this.rule,
+    required this.buttonLabel,
+    required this.url,
+  });
+
+  final String building;
+  final String title;
+  final String rule;
+  final String buttonLabel;
+  final String url;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: EncbaColors.line),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          building,
+          style: const TextStyle(
+            color: EncbaColors.snuBlue,
+            fontWeight: FontWeight.w800,
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(title, style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 9),
+        Text(
+          rule,
+          style: const TextStyle(color: EncbaColors.muted, height: 1.55),
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: () =>
+                launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+            icon: const Icon(Icons.open_in_new_rounded, size: 18),
+            label: Text(buttonLabel),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
@@ -969,28 +1230,13 @@ class ProfileScreen extends ConsumerWidget {
         const _SectionHeader(title: '내 메뉴'),
         const SizedBox(height: 10),
         _MenuTile(
-          icon: Icons.notifications_active_outlined,
-          title: kIsWeb ? '웹 알림 켜기' : '앱 알림 켜기',
-          subtitle: kIsWeb ? '브라우저가 열려 있을 때 공지 알림' : 'iOS 알림 센터로 공지 알림',
-          onTap: () async {
-            final enabled = await WebNotificationService().enableAndTest();
-            if (enabled) {
-              ref
-                  .read(lockerControllerProvider.notifier)
-                  .refreshUndecidedReminders();
-            }
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    enabled
-                        ? (kIsWeb ? '웹 알림을 켰습니다.' : '앱 알림을 켰습니다.')
-                        : (kIsWeb ? '브라우저 알림 권한이 필요합니다.' : 'iOS 알림 권한이 필요합니다.'),
-                  ),
-                ),
-              );
-            }
-          },
+          icon: Icons.sports_basketball_outlined,
+          title: '농구장 예약',
+          subtitle: '71동 · 71-1동 · 900동 예약과 오픈 시간',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const CourtReservationScreen()),
+          ),
         ),
         _MenuTile(
           icon: Icons.groups_2_outlined,
@@ -1225,6 +1471,7 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
   _MemberSort _sort = _MemberSort.studentYear;
   bool _showMilitary = false;
   bool _showInactive = false;
+  bool _reservationOnly = false;
 
   @override
   Widget build(BuildContext context) {
@@ -1234,6 +1481,7 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
     final list = locker.members.where((member) {
       if (!_showMilitary && member.status == 'MILITARY_LEAVE') return false;
       if (!_showInactive && !member.isActive) return false;
+      if (_reservationOnly && !member.isReservationManager) return false;
       return true;
     }).toList()..sort(_compareMembers);
     return Scaffold(
@@ -1292,6 +1540,13 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
                   label: const Text('비활성 계정 표시'),
                   selected: _showInactive,
                   onSelected: (value) => setState(() => _showInactive = value),
+                ),
+              if (isAdmin)
+                FilterChip(
+                  label: const Text('예약자만'),
+                  selected: _reservationOnly,
+                  onSelected: (value) =>
+                      setState(() => _reservationOnly = value),
                 ),
             ],
           ),
@@ -1387,6 +1642,18 @@ class MemberDetailScreen extends ConsumerWidget {
                     title: const Text('직책'),
                     trailing: _SmallBadge(member.leadershipLabel!),
                   ),
+                if (member.department.isNotEmpty)
+                  ListTile(
+                    leading: const Icon(Icons.school_outlined),
+                    title: const Text('학과'),
+                    trailing: Text(member.department),
+                  ),
+                if (member.isReservationManager)
+                  const ListTile(
+                    leading: Icon(Icons.event_available_outlined),
+                    title: Text('체육관 예약자'),
+                    trailing: _SmallBadge('예약자'),
+                  ),
                 ListTile(
                   leading: const Icon(Icons.groups_outlined),
                   title: const Text('소속'),
@@ -1456,10 +1723,12 @@ Future<void> _showMemberEditor(
     text: member.joinedYear?.toString() ?? '',
   );
   final phone = TextEditingController(text: member.phone);
+  final department = TextEditingController(text: member.department);
   final jersey = TextEditingController(text: member.jerseyNumber.toString());
   var position = member.position;
   var status = member.status;
   var role = member.leadershipRole;
+  var isReservationManager = member.isReservationManager;
   var isActive = member.isActive;
   var teams = {...member.teams};
 
@@ -1516,6 +1785,11 @@ Future<void> _showMemberEditor(
                   controller: phone,
                   keyboardType: TextInputType.phone,
                   decoration: const InputDecoration(labelText: '전화번호'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: department,
+                  decoration: const InputDecoration(labelText: '학과'),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -1610,6 +1884,14 @@ Future<void> _showMemberEditor(
                   title: const Text('계정 활성화'),
                   onChanged: (value) => setState(() => isActive = value),
                 ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: isReservationManager,
+                  title: const Text('체육관 예약자'),
+                  subtitle: const Text('화요일 09:30 예약 오픈 알림 대상'),
+                  onChanged: (value) =>
+                      setState(() => isReservationManager = value),
+                ),
                 const SizedBox(height: 8),
                 FilledButton(
                   onPressed: () {
@@ -1652,6 +1934,8 @@ Future<void> _showMemberEditor(
       teams: teams.toList()..sort(),
       leadershipRole: role,
       isActive: isActive,
+      isReservationManager: isReservationManager,
+      department: department.text.trim(),
     );
     final saved = await ref
         .read(lockerControllerProvider.notifier)
@@ -1667,6 +1951,7 @@ Future<void> _showMemberEditor(
   studentYear.dispose();
   joinedYear.dispose();
   phone.dispose();
+  department.dispose();
   jersey.dispose();
 }
 
@@ -3539,7 +3824,7 @@ class _MemberTile extends StatelessWidget {
         ],
       ),
       subtitle: Text(
-        '${member.status == 'MILITARY_LEAVE' ? '군 휴학' : '재학'} · ${member.teamLabel}${member.joinedYear == null ? '' : ' · ${member.joinedYear} 가입'}',
+        '${member.department.isEmpty ? (member.status == 'MILITARY_LEAVE' ? '군 휴학' : '재학') : member.department} · ${member.teamLabel}${member.joinedYear == null ? '' : ' · ${member.joinedYear} 가입'}',
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -3842,69 +4127,107 @@ void _openNotice(
   ),
 );
 
-void _showNotifications(
+Future<void> _showNotifications(
   BuildContext context,
   WidgetRef ref,
   List<AnnouncementItem> announcements, {
   required bool canManage,
-}) => showModalBottomSheet<void>(
-  context: context,
-  showDragHandle: true,
-  builder: (_) => SafeArea(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '알림',
-            style: TextStyle(
-              fontFamily: 'Jua',
-              fontSize: 25,
-              color: EncbaColors.navy,
-            ),
-          ),
-          const SizedBox(height: 10),
-          if (announcements.isEmpty)
-            const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                Icons.notifications_none_rounded,
-                color: EncbaColors.muted,
-              ),
-              title: Text('새 알림이 없습니다'),
-            )
-          else
-            ...announcements
-                .take(3)
-                .map(
-                  (notice) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(
-                      Icons.campaign_outlined,
-                      color: EncbaColors.snuBlue,
-                    ),
-                    title: Text(notice.title),
-                    subtitle: Text(
-                      '${notice.author} · ${_relativeTime(notice.publishedAt)}',
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      _openNotice(
-                        context,
-                        notice,
-                        ref: ref,
-                        canManage: canManage,
-                      );
-                    },
-                  ),
+  required UserProfile user,
+}) async {
+  final service = WebNotificationService();
+  var enabled = await service.isEnabled();
+  if (!context.mounted) return;
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (_) => StatefulBuilder(
+      builder: (sheetContext, setState) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '알림',
+                style: TextStyle(
+                  fontFamily: 'Jua',
+                  fontSize: 25,
+                  color: EncbaColors.navy,
                 ),
-        ],
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: enabled,
+                title: const Text('알림 받기'),
+                subtitle: Text(
+                  user.isReservationManager
+                      ? '공지 · 미정 응답 · 체육관 예약 오픈 알림'
+                      : '공지와 미정 응답 알림',
+                ),
+                onChanged: (value) async {
+                  if (value) {
+                    final granted = await service.enableAndTest();
+                    if (!sheetContext.mounted) return;
+                    setState(() => enabled = granted);
+                    if (granted) {
+                      ref
+                          .read(lockerControllerProvider.notifier)
+                          .refreshUndecidedReminders();
+                      await ref
+                          .read(lockerControllerProvider.notifier)
+                          .scheduleReservationOpeningReminder(
+                            isReservationManager: user.isReservationManager,
+                          );
+                    }
+                  } else {
+                    await service.disable();
+                    if (sheetContext.mounted) setState(() => enabled = false);
+                  }
+                },
+              ),
+              const Divider(),
+              if (announcements.isEmpty)
+                const ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    Icons.notifications_none_rounded,
+                    color: EncbaColors.muted,
+                  ),
+                  title: Text('새 알림이 없습니다'),
+                )
+              else
+                ...announcements
+                    .take(3)
+                    .map(
+                      (notice) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(
+                          Icons.campaign_outlined,
+                          color: EncbaColors.snuBlue,
+                        ),
+                        title: Text(notice.title),
+                        subtitle: Text(
+                          '${notice.author} · ${_relativeTime(notice.publishedAt)}',
+                        ),
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          _openNotice(
+                            context,
+                            notice,
+                            ref: ref,
+                            canManage: canManage,
+                          );
+                        },
+                      ),
+                    ),
+            ],
+          ),
+        ),
       ),
     ),
-  ),
-);
+  );
+}
 
 void _showVideoEditor(
   BuildContext context,

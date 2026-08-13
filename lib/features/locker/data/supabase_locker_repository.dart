@@ -158,7 +158,7 @@ class SupabaseLockerRepository {
         : Future<dynamic>.value(const <dynamic>[]);
     final normalRows = await normalFuture;
     final lockedRows = await lockedFuture;
-    final events =
+    var events =
         <LockerEvent>[
           ...normalRows.map(
             (row) => _eventFromRow(Map<String, dynamic>.from(row as Map)),
@@ -170,6 +170,36 @@ class SupabaseLockerRepository {
           final byStart = a.start.compareTo(b.start);
           return byStart != 0 ? byStart : a.id.compareTo(b.id);
         });
+    final starterRows = events.isEmpty
+        ? const <dynamic>[]
+        : await _orFallback<List<dynamic>>(
+            _client.rpc(
+              'list_event_starters',
+              params: {
+                'requested_event_ids': events.map((event) => event.id).toList(),
+              },
+            ),
+            const <dynamic>[],
+            debugLabel: 'event starters',
+          );
+    if (starterRows.isNotEmpty) {
+      final ids = <String, List<String>>{};
+      final names = <String, List<String>>{};
+      for (final raw in starterRows) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        final eventId = row['event_id'] as String;
+        ids.putIfAbsent(eventId, () => []).add(row['directory_id'] as String);
+        names.putIfAbsent(eventId, () => []).add(row['name'] as String);
+      }
+      events = events
+          .map(
+            (event) => event.copyWith(
+              starterProfileIds: ids[event.id] ?? const [],
+              starterNames: names[event.id] ?? const [],
+            ),
+          )
+          .toList(growable: false);
+    }
     return (events: events, hasMore: normalRows.length == limit);
   }
 
@@ -220,6 +250,9 @@ class SupabaseLockerRepository {
             phone: map['phone'] as String? ?? '',
             jerseyNumber: map['jersey_number'] as int? ?? 0,
             leadershipRole: map['leadership_role'] as String? ?? 'member',
+            isReservationManager:
+                map['is_reservation_manager'] as bool? ?? false,
+            department: map['department'] as String? ?? '',
           );
         })
         .toList(growable: false);
@@ -230,24 +263,45 @@ class SupabaseLockerRepository {
     params: {'requested_directory_id': profileId, 'requested_active': isActive},
   );
 
-  Future<void> updateMember(MemberProfile member) => _client.rpc(
-    'admin_update_member',
-    params: {
-      'requested_directory_id': member.id,
-      'requested_name': member.name,
-      'requested_student_year': int.tryParse(
-        member.studentId.replaceAll(RegExp(r'[^0-9]'), ''),
-      ),
-      'requested_joined_year': member.joinedYear,
-      'requested_phone': member.phone,
-      'requested_position': member.position,
-      'requested_jersey_number': member.jerseyNumber,
-      'requested_membership_status': member.status.toLowerCase(),
-      'requested_team_codes': member.teams,
-      'requested_leadership_role': member.leadershipRole,
-      'requested_active': member.isActive,
-    },
-  );
+  Future<void> updateMember(MemberProfile member) async {
+    await _client.rpc(
+      'admin_update_member',
+      params: {
+        'requested_directory_id': member.id,
+        'requested_name': member.name,
+        'requested_student_year': int.tryParse(
+          member.studentId.replaceAll(RegExp(r'[^0-9]'), ''),
+        ),
+        'requested_joined_year': member.joinedYear,
+        'requested_phone': member.phone,
+        'requested_position': member.position,
+        'requested_jersey_number': member.jerseyNumber,
+        'requested_membership_status': member.status.toLowerCase(),
+        'requested_team_codes': member.teams,
+        'requested_leadership_role': member.leadershipRole,
+        'requested_active': member.isActive,
+      },
+    );
+    await _client.rpc(
+      'set_member_reservation_manager',
+      params: {
+        'requested_directory_id': member.id,
+        'requested_value': member.isReservationManager,
+      },
+    );
+    await _client.rpc(
+      'set_member_department',
+      params: {
+        'requested_directory_id': member.id,
+        'requested_department': member.department,
+      },
+    );
+  }
+
+  Future<DateTime> loadServerTime() async {
+    final value = await _client.rpc('get_server_time');
+    return DateTime.parse(value as String).toLocal();
+  }
 
   Future<AttendanceRates> loadAttendanceRates() async {
     final rows = await _client.rpc('get_my_attendance_rates');
@@ -737,11 +791,74 @@ class SupabaseLockerRepository {
       payload.remove('opponents');
       row = await persist();
     }
-    return _eventFromRow(row);
+    final saved = _eventFromRow(row).copyWith(
+      starterProfileIds: event.starterProfileIds,
+      starterNames: event.starterNames,
+    );
+    await _client.rpc(
+      'replace_event_starters',
+      params: {
+        'requested_event_id': saved.id,
+        'requested_directory_ids': event.starterProfileIds,
+      },
+    );
+    return saved;
   }
 
   Future<void> deleteEvent(String id) async {
     await _client.from('events').delete().eq('id', id);
+  }
+
+  Future<EventStrategy> loadEventStrategy(String eventId) async {
+    final rows = await _client
+        .from('event_strategies')
+        .select(
+          'event_id,offense,defense,notes,updated_at,profiles!event_strategies_updated_by_fkey(name,display_name)',
+        )
+        .eq('event_id', eventId)
+        .limit(1);
+    if (rows.isEmpty) return EventStrategy(eventId: eventId);
+    final row = Map<String, dynamic>.from(rows.first);
+    final profile = row['profiles'] as Map?;
+    return EventStrategy(
+      eventId: eventId,
+      offense: row['offense'] as String? ?? '',
+      defense: row['defense'] as String? ?? '',
+      notes: row['notes'] as String? ?? '',
+      updatedBy:
+          profile?['display_name'] as String? ??
+          profile?['name'] as String? ??
+          '',
+      updatedAt: DateTime.parse(row['updated_at'] as String).toLocal(),
+    );
+  }
+
+  Future<EventStrategy> saveEventStrategy(EventStrategy strategy) async {
+    final row = await _client
+        .from('event_strategies')
+        .upsert({
+          'event_id': strategy.eventId,
+          'offense': strategy.offense.trim(),
+          'defense': strategy.defense.trim(),
+          'notes': strategy.notes.trim(),
+          'updated_by': _userId,
+        }, onConflict: 'event_id')
+        .select(
+          'event_id,offense,defense,notes,updated_at,profiles!event_strategies_updated_by_fkey(name,display_name)',
+        )
+        .single();
+    final profile = row['profiles'] as Map?;
+    return EventStrategy(
+      eventId: row['event_id'] as String,
+      offense: row['offense'] as String? ?? '',
+      defense: row['defense'] as String? ?? '',
+      notes: row['notes'] as String? ?? '',
+      updatedBy:
+          profile?['display_name'] as String? ??
+          profile?['name'] as String? ??
+          '',
+      updatedAt: DateTime.parse(row['updated_at'] as String).toLocal(),
+    );
   }
 
   Future<void> setVideoLike(String videoId, {required bool liked}) async {
