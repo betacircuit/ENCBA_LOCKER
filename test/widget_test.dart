@@ -118,6 +118,33 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('세션 복원이 로그아웃으로 끝나면 로그인 화면으로 넘어간다', (tester) async {
+    // 실제 라우터 정의를 그대로 쓴다. 복원이 끝나도 로그인 여부가 false
+    // 그대로면 refreshListenable이 깨어나지 않아 홈에서 로딩만 돌던 적이 있다.
+    final auth = _DelayedRestoreAuthController();
+    final container = ProviderContainer(
+      overrides: [authControllerProvider.overrideWith((ref) => auth)],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          theme: AppTheme.lightTheme,
+          routerConfig: container.read(routerProvider),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Welcome to ENCBA'), findsNothing);
+
+    auth.finishRestore();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Welcome to ENCBA'), findsOneWidget);
+  });
+
   testWidgets('첫 실행의 회원가입은 학교 Google 인증부터 시작한다', (tester) async {
     await tester.pumpWidget(_signedOutApp(const AuthScreen()));
     await tester.pumpAndSettle();
@@ -1198,3 +1225,13 @@ Widget _signedInApp(
     ),
   ),
 );
+
+/// 세션 복원이 늦게 끝나는 상황을 흉내 낸다. 생성 시점에는 아직 준비 전이고,
+/// [finishRestore]를 부르면 "로그아웃 상태로 준비 완료"가 된다.
+class _DelayedRestoreAuthController extends AuthController {
+  _DelayedRestoreAuthController() : super.seeded(null) {
+    state = const AuthState();
+  }
+
+  void finishRestore() => state = const AuthState(isReady: true);
+}

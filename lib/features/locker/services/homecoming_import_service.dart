@@ -51,12 +51,20 @@ class HomecomingImportService {
     final rows = <Map<String, dynamic>>[];
     final nameCounts = <String, int>{};
     var missingPhoneCount = 0;
+    // 연락 담당은 여러 줄을 합쳐 한 번만 적는다. 엑셀은 합친 칸의 첫 줄에만
+    // 값을 두므로, 아래 줄들이 담당자 없는 사람으로 보이지 않게 이어 붙인다.
+    var carriedAssignee = '';
     for (
       var rowIndex = layout.headerRow + 1;
       rowIndex < layout.sheet.rows.length;
       rowIndex++
     ) {
       final row = layout.sheet.rows[rowIndex];
+      final rawAssignee = _valueAt(
+        row,
+        layout.columns[_HomecomingColumn.assignedTo],
+      ).trim();
+      if (rawAssignee.isNotEmpty) carriedAssignee = rawAssignee;
       final name = _valueAt(row, layout.columns[_HomecomingColumn.name]).trim();
       if (name.isEmpty) continue;
       if (name.length > 80) {
@@ -86,10 +94,7 @@ class HomecomingImportService {
         layout.columns[_HomecomingColumn.generation],
       ).replaceAll(RegExp(r'[^0-9]'), '');
       final generation = int.tryParse(generationText);
-      final assignedTo = _valueAt(
-        row,
-        layout.columns[_HomecomingColumn.assignedTo],
-      );
+      final assignedTo = carriedAssignee;
 
       nameCounts.update(name, (count) => count + 1, ifAbsent: () => 1);
       rows.add({
@@ -187,7 +192,11 @@ class HomecomingImportService {
 
   bool? _parkingRequired(String attendance, String parking) {
     final combined = '$attendance $parking'.replaceAll(' ', '').toLowerCase();
+    // 원본은 "참석(주차권 0)"처럼 적는데 숫자 0과 알파벳 O가 섞여 들어온다.
+    // 둘 다 "주차권 없음"으로 읽는다.
     if (combined.contains('주차권0') ||
+        combined.contains('주차권o') ||
+        combined.contains('주차권x') ||
         parking.trim() == '0' ||
         parking.trim().toLowerCase() == 'x' ||
         parking.contains('불필요')) {

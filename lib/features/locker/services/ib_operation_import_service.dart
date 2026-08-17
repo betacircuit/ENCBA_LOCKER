@@ -70,7 +70,10 @@ class IbOperationImportService {
     ) {
       final row = sheet.rows[rowIndex];
       final first = _valueAt(row, 0);
-      if (first.replaceAll(' ', '').contains('운영제외')) break;
+      // 배정표 아래에는 운영 횟수를 세는 통계 표가 붙는다. 그 표는 A열이
+      // 아니라 가운데 열들에서 시작하기도 해서, 행 전체를 보고 끊어야
+      // 통계 표의 이름과 머리글이 배정으로 딸려 들어오지 않는다.
+      if (_isSummaryRow(row)) break;
       if (_isAssignmentTitle(first)) currentTitle = _normalizeTitle(first);
       final title = currentTitle;
       if (title == null) continue;
@@ -321,6 +324,25 @@ class IbOperationImportService {
   bool _isAssignmentTitle(String value) =>
       RegExp(r'^[123]경기\s+(운영\s+[AB]|심판)\s*$').hasMatch(value.trim());
 
+  /// 배정표가 끝나고 집계 표가 시작되는 행인지 본다.
+  static const _summaryMarkers = [
+    '운영제외',
+    '인원제외',
+    '총인원수',
+    '인당운영',
+    '총운영수',
+    '칸담당',
+  ];
+
+  bool _isSummaryRow(List<Data?> row) {
+    for (var column = 0; column < row.length; column++) {
+      final normalized = _valueAt(row, column).replaceAll(' ', '');
+      if (normalized.isEmpty) continue;
+      if (_summaryMarkers.any(normalized.contains)) return true;
+    }
+    return false;
+  }
+
   bool _isIgnoredCell(String value) {
     final normalized = value.replaceAll(' ', '').toLowerCase();
     return normalized.isEmpty ||
@@ -332,8 +354,15 @@ class IbOperationImportService {
         normalized.startsWith('sum(');
   }
 
-  bool _looksLikeName(String value) =>
-      RegExp(r'^[가-힣A-Za-z][가-힣A-Za-z .-]{1,29}$').hasMatch(value);
+  /// 한글 이름은 붙여 쓰는 2–5자다. 공백까지 허용하면 "총 인원수" 같은
+  /// 집계 표 머리글이 사람 이름으로 딸려 들어온다.
+  bool _looksLikeName(String value) {
+    final trimmed = value.trim();
+    if (RegExp(r'^[가-힣]{2,5}$').hasMatch(trimmed)) return true;
+    return RegExp(r'^[A-Za-z][A-Za-z.-]*( [A-Za-z.-]+)*$').hasMatch(trimmed) &&
+        trimmed.length >= 2 &&
+        trimmed.length <= 30;
+  }
 
   String _valueAt(List<Data?> row, int column) {
     if (column >= row.length) return '';

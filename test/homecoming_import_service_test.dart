@@ -87,5 +87,59 @@ void main() {
       result.rows.where((row) => row['senior_name'] == '고영찬').single['phone'],
       '',
     );
+    // 연락 담당은 합친 칸이라 첫 줄에만 적혀 있다. 137명 모두에게 붙어야 한다.
+    expect(
+      result.rows.where((row) => row['assigned_to_name'] == null),
+      isEmpty,
+    );
+    final byAssignee = <String, int>{};
+    for (final row in result.rows) {
+      byAssignee.update(
+        row['assigned_to_name'] as String,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
+    expect(byAssignee['톡방 조사'], 52);
+    expect(byAssignee['윤석'], 11);
+    expect(byAssignee['이민섭'], 11);
+  });
+
+  test('합쳐진 연락 담당 칸을 아래 행까지 이어 붙인다', () {
+    final workbook = Excel.createExcel();
+    final sheet = workbook[workbook.getDefaultSheet()!];
+    void put(int column, int row, String value) =>
+        sheet
+                .cell(
+                  CellIndex.indexByColumnRow(
+                    columnIndex: column,
+                    rowIndex: row,
+                  ),
+                )
+                .value =
+            TextCellValue(value);
+
+    put(0, 0, '연락담당');
+    put(1, 0, '이름');
+    put(2, 0, '휴대폰');
+    put(0, 1, '윤석');
+    put(1, 1, '이동수');
+    put(2, 1, '010-1111-2222');
+    // 합친 칸의 둘째 줄은 담당이 비어 있다.
+    put(1, 2, '김달수');
+    put(2, 2, '010-3333-4444');
+    put(0, 3, '우진');
+    put(1, 3, '조정현');
+    put(2, 3, '010-5555-6666');
+
+    final result = HomecomingImportService().parseBytes(
+      fileName: '홈커밍.xlsx',
+      bytes: workbook.encode()!,
+    );
+
+    expect(
+      result.rows.map((row) => row['assigned_to_name']),
+      ['윤석', '윤석', '우진'],
+    );
   });
 }

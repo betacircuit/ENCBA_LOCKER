@@ -45,7 +45,26 @@ void main() {
     );
     // 실제 운영표의 셀 위치·보조 시간 칸을 회귀 기준으로 고정한다.
     expect(result.dateCount, 13);
-    expect(result.rows.length, greaterThan(50));
+    // 시트 아래쪽 집계 표의 "3칸 담당 / 4칸 담당" 숫자와 정확히 맞아야 한다.
+    expect(result.rows.length, 83);
+    final counts = <String, int>{};
+    for (final row in result.rows) {
+      counts.update(
+        row['assignee_name'] as String,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
+    expect(counts, hasLength(22));
+    expect(counts['나윤석'], 6);
+    expect(counts['하승윤'], 5);
+    expect(counts['민영웅'], 5);
+    expect(counts['이민섭'], 5);
+    expect(counts['정민혁'], 2);
+    expect(counts['김민건'], 2);
+    // 집계 표의 이름·머리글이 배정으로 딸려 들어오면 안 된다.
+    expect(counts.keys, isNot(contains('시유상')));
+    expect(counts.keys, isNot(contains('유준열')));
     expect(result.warnings, contains(contains('6월 22일은 실제 월요일')));
     final june22ThirdGameA = result.rows.where(
       (row) =>

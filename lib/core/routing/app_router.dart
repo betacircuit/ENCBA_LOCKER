@@ -12,20 +12,25 @@ import 'package:go_router/go_router.dart';
 /// 앱 전체 라우터. 로그인 여부에 따라 진입 경로를 정리하고,
 /// 하단 탭과 상세 화면을 모두 주소로 표현해 새로고침·공유가 가능하게 한다.
 final routerProvider = Provider<GoRouter>((ref) {
-  // GoRouter는 Listenable로만 갱신을 받으므로 로그인 여부를 얇게 중계한다.
-  final signedIn = ValueNotifier<bool>(false);
+  // GoRouter는 Listenable로만 갱신을 받으므로 로그인 상태 변화를 중계한다.
+  //
+  // 로그인 여부만 실어 보내면 안 된다. 세션 복원이 "아직 모름"에서 "로그아웃"
+  // 으로 끝날 때 값이 false 그대로라 ValueNotifier가 아무도 깨우지 않고,
+  // 복원 중이라 판단을 미뤘던 redirect가 다시 돌지 않아 홈 화면 로딩만
+  // 계속 돈다. 그래서 값이 같아도 매번 바뀌는 카운터를 쓴다.
+  final authRevision = ValueNotifier<int>(0);
   ref.listen<({bool isReady, bool signedIn})>(
     authControllerProvider.select(
       (state) => (isReady: state.isReady, signedIn: state.user != null),
     ),
-    (_, next) => signedIn.value = next.isReady && next.signedIn,
+    (_, _) => authRevision.value++,
     fireImmediately: true,
   );
-  ref.onDispose(signedIn.dispose);
+  ref.onDispose(authRevision.dispose);
 
   return GoRouter(
     initialLocation: LockerTab.home.path,
-    refreshListenable: signedIn,
+    refreshListenable: authRevision,
     redirect: (context, state) {
       final auth = ref.read(authControllerProvider);
       // 세션 복원 중에는 어디로도 보내지 않고 스플래시를 유지한다.
