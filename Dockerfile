@@ -23,6 +23,7 @@ ENV PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:${PATH}" \
 WORKDIR /app
 ARG SUPABASE_URL
 ARG SUPABASE_PUBLISHABLE_KEY
+ARG YOUTUBE_API_KEY
 
 COPY pubspec.yaml pubspec.lock ./
 RUN flutter --version && flutter pub get --enforce-lockfile
@@ -30,9 +31,11 @@ RUN flutter --version && flutter pub get --enforce-lockfile
 COPY . .
 RUN test -n "$SUPABASE_URL" && \
     test -n "$SUPABASE_PUBLISHABLE_KEY" && \
-    flutter build web --release --no-pub \
+    test -n "$YOUTUBE_API_KEY" && \
+    flutter build web --release --wasm --no-pub \
       --dart-define="SUPABASE_URL=$SUPABASE_URL" \
-      --dart-define="SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY"
+      --dart-define="SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY" \
+      --dart-define="YOUTUBE_API_KEY=$YOUTUBE_API_KEY"
 
 FROM nginx:1.29.1-alpine@sha256:42a516af16b852e33b7682d5ef8acbd5d13fe08fecadc7ed98605ba5e3b26ab8
 

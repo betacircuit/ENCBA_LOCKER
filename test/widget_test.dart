@@ -1,4 +1,5 @@
 import 'package:encba_locker/core/theme/app_theme.dart';
+import 'package:encba_locker/core/routing/locker_tab.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/domain/user_profile.dart';
 import 'package:encba_locker/features/auth/presentation/auth_screen.dart';
@@ -8,7 +9,9 @@ import 'package:encba_locker/features/locker/presentation/event_screens.dart';
 import 'package:encba_locker/features/locker/presentation/locker_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:encba_locker/core/routing/app_router.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 const testUser = UserProfile(
   email: 'member@encba.local',
@@ -52,19 +55,168 @@ void main() {
     );
   });
 
-  testWidgets('첫 실행에는 로그인과 회원가입 진입점을 표시한다', (tester) async {
+  testWidgets('재생 위치 버튼은 실시간 시각을 반영하고 눌렀을 때 고정된다', (tester) async {
+    final position = ValueNotifier<double>(0);
+    addTearDown(position.dispose);
+    var pinned = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => ValueListenableBuilder<double>(
+              valueListenable: position,
+              builder: (context, seconds, _) => PlaybackPositionButton(
+                seconds: seconds,
+                pinned: pinned,
+                onToggle: () => setState(() => pinned = !pinned),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    position.value = 65.2;
+    await tester.pump();
+    expect(find.text('현재 재생 위치  01:05'), findsOneWidget);
+
+    await tester.tap(find.byType(PlaybackPositionButton));
+    await tester.pump();
+    expect(find.text('이 시각에 코멘트  01:05'), findsOneWidget);
+  });
+
+  testWidgets('일정 카드와 하단 탭은 스크린 리더용 동작 이름을 제공한다', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final event = LockerEvent(
+      id: 'semantic-event',
+      title: '접근성 훈련',
+      start: DateTime(2026, 8, 20, 19),
+      end: DateTime(2026, 8, 20, 21),
+      place: '71동 종합체육관',
+      kind: EventKind.training,
+      memo: '',
+      responseEnabled: false,
+    );
+
+    await tester.pumpWidget(
+      _signedInApp(
+        EventTicket(event: event, heroTag: 'semantic-event', onTap: () {}),
+      ),
+    );
+    expect(
+      find.bySemanticsLabel('접근성 훈련, 8월 20일, 19:00부터 21:00까지, 71동 종합체육관'),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+    for (final label in ['영상', '경기', '홈', '일정', '개인']) {
+      expect(find.bySemanticsLabel(label), findsOneWidget);
+    }
+    semantics.dispose();
+  });
+
+  testWidgets('첫 실행의 회원가입은 학교 Google 인증부터 시작한다', (tester) async {
     await tester.pumpWidget(_signedOutApp(const AuthScreen()));
     await tester.pumpAndSettle();
 
     expect(find.text('Welcome to ENCBA'), findsOneWidget);
     expect(find.text('로그인'), findsOneWidget);
-    expect(find.text('처음이라면 회원가입'), findsOneWidget);
+    // 실명 로그인 화면에서도 학교 계정으로 바로 들어올 수 있어야 한다.
+    expect(find.text('Google 계정으로 로그인'), findsOneWidget);
+    expect(find.text('또는'), findsOneWidget);
+    expect(find.text('처음이라면 Google 회원가입'), findsOneWidget);
 
-    await tester.tap(find.text('처음이라면 회원가입'));
+    await tester.tap(find.text('처음이라면 Google 회원가입'));
     await tester.pumpAndSettle();
-    expect(find.text('라커에 자리 만들기'), findsOneWidget);
+    expect(find.text('Google로 가입하기'), findsOneWidget);
+    expect(find.text('Google 계정으로 계속'), findsOneWidget);
+    expect(find.textContaining('snu.ac.kr 계열 학교 계정'), findsOneWidget);
+    expect(find.text('실명'), findsNothing);
+    expect(find.text('비밀번호'), findsNothing);
+  });
+
+  testWidgets('회원정보 입력 단계에서는 Google 로그인 버튼을 감춘다', (tester) async {
+    const registration = PendingGoogleRegistration(
+      email: 'member@snu.ac.kr',
+      suggestedName: '김멤버',
+    );
+    await tester.pumpWidget(
+      _signedOutApp(const AuthScreen(), pendingRegistration: registration),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('정보 저장하고 가입 완료'), findsOneWidget);
+    expect(find.text('Google 계정으로 로그인'), findsNothing);
+    expect(find.text('또는'), findsNothing);
+  });
+
+  testWidgets('Google 인증 뒤에는 학교 이메일과 회원정보 입력을 표시한다', (tester) async {
+    const registration = PendingGoogleRegistration(
+      email: 'member@snu.ac.kr',
+      suggestedName: '김멤버',
+    );
+    await tester.pumpWidget(
+      _signedOutApp(const AuthScreen(), pendingRegistration: registration),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('회원 정보 입력'), findsOneWidget);
+    expect(find.text('학교 계정 확인 완료'), findsOneWidget);
+    expect(find.text('member@snu.ac.kr'), findsOneWidget);
     expect(find.text('실명'), findsOneWidget);
-    expect(find.text('가입하고 시작'), findsOneWidget);
+    expect(find.text('학번'), findsOneWidget);
+    expect(find.text('엔크바 가입 년도'), findsOneWidget);
+    expect(find.text('전화번호'), findsOneWidget);
+    expect(find.text('정보 저장하고 가입 완료'), findsOneWidget);
+    // 학교 이메일이 아이디가 되고, 여기서 비밀번호까지 함께 만든다.
+    expect(find.textContaining('로그인 아이디가 됩니다'), findsOneWidget);
+    expect(find.text('비밀번호'), findsOneWidget);
+    expect(find.text('비밀번호 확인'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('정보 저장하고 가입 완료'));
+    await tester.tap(find.text('정보 저장하고 가입 완료'));
+    await tester.pump();
+    expect(find.text('입력해 주세요.'), findsNWidgets(2));
+    expect(find.text('00–99로 입력해 주세요.'), findsOneWidget);
+    expect(find.text('올바른 가입 년도를 입력해 주세요.'), findsOneWidget);
+    expect(find.text('0–99로 입력해 주세요.'), findsOneWidget);
+    expect(find.text('8자 이상 입력해 주세요.'), findsOneWidget);
+  });
+
+  testWidgets('가입 단계의 비밀번호 확인은 서로 다를 때 막는다', (tester) async {
+    const registration = PendingGoogleRegistration(
+      email: 'member@snu.ac.kr',
+      suggestedName: '김멤버',
+    );
+    await tester.pumpWidget(
+      _signedOutApp(const AuthScreen(), pendingRegistration: registration),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, '비밀번호'),
+      'encba12345',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, '비밀번호 확인'),
+      'encba54321',
+    );
+    await tester.ensureVisible(find.text('정보 저장하고 가입 완료'));
+    await tester.tap(find.text('정보 저장하고 가입 완료'));
+    await tester.pump();
+
+    expect(find.text('비밀번호가 서로 다릅니다.'), findsOneWidget);
+    expect(find.text('8자 이상 입력해 주세요.'), findsNothing);
+  });
+
+  test('서울대학교 본 도메인과 하위 도메인만 학교 계정으로 인정한다', () {
+    expect(isSnuSchoolEmail('member@snu.ac.kr'), isTrue);
+    expect(isSnuSchoolEmail('member@alumni.snu.ac.kr'), isTrue);
+    expect(isSnuSchoolEmail('member@gmail.com'), isFalse);
+    expect(isSnuSchoolEmail('member@snu.ac.kr.evil.example'), isFalse);
   });
 
   testWidgets('일정 카드에서 바로 참석을 고르고 상세 화면을 연다', (tester) async {
@@ -73,7 +225,7 @@ void main() {
 
     await tester.ensureVisible(find.text('참석').first);
     await tester.tap(find.text('참석').first);
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 260));
     expect(find.textContaining('저장했습니다'), findsOneWidget);
 
     await tester.tap(find.text('일정').last);
@@ -81,9 +233,248 @@ void main() {
     await tester.tap(find.byType(EventTicket).first);
     await tester.pumpAndSettle();
     expect(find.text('일정 상세'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('네이버 지도'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('네이버 지도'), findsOneWidget);
     expect(find.text('캘린더에 추가'), findsOneWidget);
     expect(find.text('참석 여부'), findsNothing);
+  });
+
+  testWidgets('일정 출결은 응답 전에는 어떤 항목도 선택되지 않는다', (tester) async {
+    final event = LockerEvent(
+      id: 'no-default-attendance',
+      title: '정기 훈련',
+      start: DateTime(2026, 8, 20, 19),
+      end: DateTime(2026, 8, 20, 21),
+      place: '71동 종합체육관',
+      kind: EventKind.training,
+      memo: '',
+    );
+    await tester.pumpWidget(
+      _signedInApp(
+        Scaffold(body: AttendanceSelector(event: event)),
+        lockerState: LockerState(isReady: true, events: [event]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final choices = tester
+        .widgetList<Semantics>(
+          find.descendant(
+            of: find.byType(AttendanceSelector),
+            matching: find.byType(Semantics),
+          ),
+        )
+        .where((node) => node.properties.selected != null)
+        .toList(growable: false);
+    expect(choices, hasLength(3));
+    expect(choices.every((node) => node.properties.selected == false), isTrue);
+  });
+
+  testWidgets('일정 상세는 선택별 응답자와 공개 불참 사유를 함께 보여준다', (tester) async {
+    final event = LockerEvent(
+      id: 'attendance-detail',
+      title: '정기 훈련',
+      start: DateTime(2026, 8, 20, 19),
+      end: DateTime(2026, 8, 20, 21),
+      place: '71동 종합체육관',
+      court: 'A 코트',
+      kind: EventKind.training,
+      memo: '',
+      opponents: const ['스티즈'],
+      uniformColors: const ['검정', '흰색'],
+    );
+    const members = [
+      MemberProfile(
+        id: 'member-1',
+        name: '김참석',
+        studentId: '23',
+        generation: 1,
+        status: 'YB',
+        position: 'PG',
+        teams: ['ENCBA'],
+        note: '',
+      ),
+      MemberProfile(
+        id: 'member-2',
+        name: '박불참',
+        studentId: '24',
+        generation: 1,
+        status: 'YB',
+        position: 'SG',
+        teams: ['ENCBA'],
+        note: '',
+      ),
+      MemberProfile(
+        id: 'member-3',
+        name: '이미응답',
+        studentId: '25',
+        generation: 1,
+        status: 'YB',
+        position: 'SF',
+        teams: ['ENCBA'],
+        note: '',
+      ),
+    ];
+    final state = LockerState(
+      isReady: true,
+      events: [event],
+      members: members,
+      eventAttendance: {
+        event.id: [
+          AttendanceResponse(
+            profileId: 'member-1',
+            name: '김참석',
+            choice: '참석',
+            respondedAt: DateTime(2026, 8, 14),
+          ),
+          AttendanceResponse(
+            profileId: 'member-2',
+            name: '박불참',
+            choice: '불참',
+            absenceReason: '수업 일정',
+            respondedAt: DateTime(2026, 8, 14),
+          ),
+        ],
+      },
+    );
+
+    await tester.pumpWidget(
+      _signedInApp(EventDetailScreen(eventId: event.id), lockerState: state),
+    );
+    await tester.pumpAndSettle();
+    final hasBlackDetailCard = tester
+        .widgetList<Container>(find.byType(Container))
+        .any(
+          (container) =>
+              container.decoration is BoxDecoration &&
+              (container.decoration! as BoxDecoration).color ==
+                  EncbaColors.navy,
+        );
+    expect(hasBlackDetailCard, isTrue);
+    expect(find.text('8월 20일 (목) · 19:00–21:00'), findsOneWidget);
+    final facts = find.byKey(const ValueKey('event-detail-facts'));
+    expect(facts, findsOneWidget);
+    expect(
+      find.descendant(of: facts, matching: find.text('상대')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: facts, matching: find.text('스티즈')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: facts, matching: find.text('유니폼')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: facts, matching: find.text('검정 · 흰색')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: facts, matching: find.text('일시')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: facts,
+        matching: find.text('2026년 8월 20일 (목) 19:00–21:00'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: facts, matching: find.text('장소')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: facts, matching: find.text('71동 종합체육관 · A 코트')),
+      findsOneWidget,
+    );
+    await tester.scrollUntilVisible(
+      find.text('참석 현황'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('2명 응답'), findsOneWidget);
+    expect(find.text('김참석'), findsOneWidget);
+    expect(find.text('박불참'), findsWidgets);
+    expect(find.text('박불참 · 수업 일정'), findsOneWidget);
+    expect(find.text('미응답 1명'), findsOneWidget);
+  });
+
+  testWidgets('일정 상세와 수정 화면은 ID 주소에서 직접 열린다', (tester) async {
+    final event = LockerEvent(
+      id: 'route-event',
+      title: '주소로 여는 정기 훈련',
+      start: DateTime(2026, 8, 20, 19),
+      end: DateTime(2026, 8, 20, 21),
+      place: '71동 종합체육관',
+      kind: EventKind.training,
+      memo: '',
+    );
+    final lockerState = LockerState(isReady: true, events: [event]);
+
+    await tester.pumpWidget(
+      _signedInApp(
+        const SizedBox.shrink(),
+        lockerState: lockerState,
+        initialLocation: '/schedule/${event.id}',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('일정 상세'), findsOneWidget);
+    expect(find.text(event.title), findsWidgets);
+
+    await tester.pumpWidget(
+      _signedInApp(
+        const SizedBox.shrink(),
+        lockerState: lockerState,
+        initialLocation: '/schedule/${event.id}/edit',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('일정 수정'), findsOneWidget);
+  });
+
+  testWidgets('멤버 상세 화면은 ID 주소에서 직접 열린다', (tester) async {
+    const member = MemberProfile(
+      id: 'route-member',
+      name: '주소 멤버',
+      studentId: '25학번',
+      generation: 44,
+      status: 'YB',
+      position: 'PG',
+      teams: ['ENCBA'],
+      note: '',
+    );
+
+    await tester.pumpWidget(
+      _signedInApp(
+        const SizedBox.shrink(),
+        lockerState: LockerState(isReady: true, members: [member]),
+        initialLocation: '/members/${member.id}',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('멤버 정보'), findsOneWidget);
+    expect(find.text(member.name), findsOneWidget);
+  });
+
+  testWidgets('영상 상세 화면은 ID 주소를 해석한다', (tester) async {
+    await tester.pumpWidget(
+      _signedInApp(
+        const SizedBox.shrink(),
+        lockerState: LockerState(isReady: true),
+        initialLocation: '/videos/route-video',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('영상 정보를 찾지 못했습니다.'), findsOneWidget);
   });
 
   testWidgets('일정 등록 화면은 필수 운영 필드를 제공한다', (tester) async {
@@ -194,7 +585,7 @@ void main() {
     await tester.tap(find.text('일정').last);
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.schedule_rounded), findsWidgets);
+    expect(find.byIcon(Icons.calendar_today_outlined), findsWidgets);
     expect(find.byIcon(Icons.location_on_outlined), findsWidgets);
     expect(tester.takeException(), isNull);
   });
@@ -210,8 +601,22 @@ void main() {
 
     await tester.enterText(find.byType(TextField).last, '학과 필수 수업과 시간이 겹칩니다.');
     await tester.tap(find.text('저장'));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 260));
     expect(find.textContaining('불참으로 저장했습니다'), findsOneWidget);
+  });
+
+  testWidgets('출석 응답을 빠르게 바꾸면 마지막 응답 알림만 표시한다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('참석').first);
+    await tester.tap(find.text('참석').first);
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.tap(find.text('미정').first);
+    await tester.pump(const Duration(milliseconds: 260));
+
+    expect(find.text('미정으로 저장했습니다.'), findsOneWidget);
+    expect(find.text('참석으로 저장했습니다.'), findsNothing);
   });
 
   test('픽업게임과 복수 유니폼·가변 투표가 캐시에 보존된다', () {
@@ -234,6 +639,75 @@ void main() {
     expect(restored.opponents, ['스티즈']);
   });
 
+  test('OB 참여 인원은 캐시에 보존된다', () {
+    final event = LockerEvent(
+      id: 'ob-event',
+      title: 'OB 참여 경기',
+      start: DateTime(2026, 9, 4, 18),
+      end: DateTime(2026, 9, 4, 20),
+      place: '71동 종합체육관',
+      kind: EventKind.training,
+      memo: '',
+      obParticipantCount: 7,
+    );
+    final restored = LockerEvent.fromJson(event.toJson());
+    expect(restored.obParticipantCount, 7);
+  });
+
+  testWidgets('복수 유니폼 일정도 목록 카드 배경은 흰색이다', (tester) async {
+    final event = LockerEvent(
+      id: 'split-uniform',
+      title: 'IB 경기',
+      start: DateTime(2026, 8, 20, 18),
+      end: DateTime(2026, 8, 20, 20),
+      place: '71동 종합체육관',
+      kind: EventKind.ibDivision1,
+      memo: '',
+      uniformColors: const ['검정', '흰색'],
+      responseEnabled: false,
+    );
+    await tester.pumpWidget(
+      _signedInApp(
+        Scaffold(
+          body: EventTicket(event: event, heroTag: 'test', onTap: () {}),
+        ),
+      ),
+    );
+
+    final ink = tester.widget<Ink>(find.byType(Ink).first);
+    final decoration = ink.decoration! as BoxDecoration;
+    expect(decoration.color, Colors.white);
+    expect(decoration.gradient, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('검정 유니폼 일정도 목록 카드 배경은 흰색이다', (tester) async {
+    final event = LockerEvent(
+      id: 'black-uniform',
+      title: 'IB 1부',
+      start: DateTime(2026, 8, 16, 18),
+      end: DateTime(2026, 8, 16, 20),
+      place: '71동 종합체육관',
+      kind: EventKind.ibDivision1,
+      memo: '',
+      uniformColors: const ['검정'],
+      responseEnabled: false,
+    );
+    await tester.pumpWidget(
+      _signedInApp(
+        Scaffold(
+          body: EventTicket(event: event, heroTag: 'black', onTap: () {}),
+        ),
+      ),
+    );
+
+    final ink = tester.widget<Ink>(find.byType(Ink).first);
+    final decoration = ink.decoration! as BoxDecoration;
+    expect(decoration.color, Colors.white);
+    expect(decoration.gradient, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
   test('주장은 관리자 권한을 가지며 복수 팀 소속은 하나의 라벨로 표시된다', () {
     final captain = testUser.copyWith(
       isAdmin: false,
@@ -246,7 +720,7 @@ void main() {
     expect(captain.teamLabel, 'ENCBA & BEN');
   });
 
-  test('복기 영상의 네 쿼터 링크와 출처가 캐시에 보존된다', () {
+  test('복기 영상의 쿼터·미정 링크와 경기 날짜가 캐시에 보존된다', () {
     final video = VideoItem(
       id: 'review-1',
       title: '정기전 복기',
@@ -255,21 +729,97 @@ void main() {
       url: 'https://youtu.be/quarter-1',
       youtubeId: 'quarter-1',
       uploadedAt: DateTime(2026, 8, 13),
+      recordedOn: DateTime(2026, 8, 10),
       uploader: '김민수',
       accent: 0xFF00539B,
       sourceType: 'youtube',
-      quarterUrls: const [
-        'https://youtu.be/quarter-1',
-        null,
-        'https://youtu.be/quarter-3',
-        null,
+      links: const [
+        VideoLink(url: 'https://youtu.be/quarter-1', quarterNumber: 1, id: 11),
+        VideoLink(url: 'https://youtu.be/quarter-3', quarterNumber: 3, id: 13),
+        VideoLink(url: 'https://youtu.be/overtime'),
+      ],
+      reviewPlayers: const [
+        VideoTaggedMember(
+          directoryId: 'allowlist:1',
+          name: '김민수',
+          studentYear: 22,
+          jerseyNumber: 7,
+        ),
+        VideoTaggedMember(directoryId: 'allowlist:2', name: '박지훈'),
       ],
     );
 
     final restored = VideoItem.fromJson(video.toJson());
     expect(restored.sourceType, 'youtube');
-    expect(restored.quarterUrls, video.quarterUrls);
+    expect(restored.recordedOn, DateTime(2026, 8, 10));
+    expect(restored.links.map((link) => link.url), [
+      'https://youtu.be/quarter-1',
+      'https://youtu.be/quarter-3',
+      'https://youtu.be/overtime',
+    ]);
+    // 앞 네 쿼터는 예전 컬럼과 맞물리도록 계속 뽑아낼 수 있어야 한다.
+    expect(restored.quarterUrls, [
+      'https://youtu.be/quarter-1',
+      null,
+      'https://youtu.be/quarter-3',
+      null,
+    ]);
+    expect(restored.reviewPlayers.first.label, '김민수 (7)');
+    expect(restored.reviewPlayers.map((member) => member.directoryId), [
+      'allowlist:1',
+      'allowlist:2',
+    ]);
     expect(restored.uploader, '김민수');
+  });
+
+  test('링크 테이블 이전에 저장된 캐시의 쿼터 배열도 링크로 읽힌다', () {
+    final legacy = {
+      'id': 'review-legacy',
+      'title': '예전 복기',
+      'durationLabel': '',
+      'category': '복기',
+      'url': 'https://youtu.be/quarter-1',
+      'youtubeId': 'quarter-1',
+      'uploadedAt': DateTime(2026, 8, 13).toIso8601String(),
+      'uploader': '김민수',
+      'accent': 0xFF00539B,
+      'quarterUrls': ['https://youtu.be/quarter-1', null, null, null],
+    };
+
+    final restored = VideoItem.fromJson(legacy);
+    expect(restored.links, hasLength(1));
+    expect(restored.links.single.quarterNumber, 1);
+    expect(restored.recordedOn, isNull);
+  });
+
+  test('쿼터 미정 링크는 쿼터 링크 뒤에 등록 순서대로 선다', () {
+    final sorted = sortedVideoLinks(const [
+      VideoLink(url: 'https://youtu.be/undecided-1'),
+      VideoLink(url: 'https://youtu.be/q2', quarterNumber: 2),
+      VideoLink(url: 'https://youtu.be/undecided-2'),
+      VideoLink(url: 'https://youtu.be/q1', quarterNumber: 1),
+    ]);
+
+    expect(sorted.map((link) => link.url), [
+      'https://youtu.be/q1',
+      'https://youtu.be/q2',
+      'https://youtu.be/undecided-1',
+      'https://youtu.be/undecided-2',
+    ]);
+  });
+
+  test('선수 목록은 학번이 높은 순으로 선다', () {
+    final members = [
+      const VideoTaggedMember(
+        directoryId: 'a',
+        name: '박지훈',
+        studentYear: 20,
+      ),
+      const VideoTaggedMember(directoryId: 'b', name: '김민수', studentYear: 25),
+      const VideoTaggedMember(directoryId: 'c', name: '이서준'),
+    ]..sort(compareTaggedMembers);
+
+    expect(members.map((member) => member.name), ['김민수', '박지훈', '이서준']);
   });
 
   test('영상 공유 대상과 외부 장소 지도 주소가 캐시에 보존된다', () {
@@ -391,6 +941,77 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('복기 출전 선수는 학번 높은 순이며 등번호를 달고 선택창을 닫을 수 있다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const members = [
+      MemberProfile(
+        id: 'member-ha',
+        name: '하승윤',
+        studentId: '22',
+        generation: 2022,
+        status: 'YB',
+        position: 'C',
+        teams: ['ENCBA'],
+        note: '',
+      ),
+      MemberProfile(
+        id: 'member-kim',
+        name: '김창용',
+        studentId: '23',
+        generation: 2023,
+        status: 'YB',
+        position: 'F',
+        teams: ['ENCBA'],
+        note: '',
+      ),
+      MemberProfile(
+        id: 'member-kang',
+        name: '강준성',
+        studentId: '24',
+        generation: 2024,
+        status: 'YB',
+        position: 'G',
+        teams: ['ENCBA'],
+        note: '',
+        jerseyNumber: 11,
+      ),
+    ];
+    await tester.pumpWidget(
+      _signedInApp(
+        const LockerShell(),
+        lockerState: LockerState(isReady: true, members: members),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('영상').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('복기').first);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('영상 링크 추가'));
+    await tester.tap(find.text('영상 링크 추가'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('출전 선수 선택'));
+    await tester.pumpAndSettle();
+
+    // 24학번 → 23학번 → 22학번 순으로 서고, 등번호가 있으면 이름 옆에 붙는다.
+    expect(
+      tester.getTopLeft(find.text('강준성 (11)')).dy,
+      lessThan(tester.getTopLeft(find.text('김창용')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('김창용')).dy,
+      lessThan(tester.getTopLeft(find.text('하승윤')).dy),
+    );
+    expect(find.text('선택 완료'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('닫기'));
+    await tester.pumpAndSettle();
+    expect(find.text('선택 완료'), findsNothing);
+    expect(find.text('복기 추가'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('인원 제한 슬라이더의 숫자는 60명에서도 영역을 벗어나지 않는다', (tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -410,38 +1031,170 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('오늘의 준비 상태는 직접 체크할 수 있는 체크리스트다', (tester) async {
+  testWidgets('홈에서 오늘의 준비 상태를 표시하지 않는다', (tester) async {
     await tester.pumpWidget(_signedInApp(const LockerShell()));
     await tester.pumpAndSettle();
 
-    expect(find.text('오늘의 준비 상태'), findsOneWidget);
-    expect(find.byType(Checkbox), findsNWidgets(3));
+    expect(find.text('오늘의 준비 상태'), findsNothing);
+    expect(find.text('물통과 개인 준비물 챙김'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
-    await tester.ensureVisible(find.text('물통과 개인 준비물 챙김'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byType(Checkbox).last);
+  testWidgets('관리자는 멤버 디렉토리에서 출결 정리 시트를 연다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const MemberDirectoryScreen()));
     await tester.pumpAndSettle();
 
-    final checks = tester.widgetList<Checkbox>(find.byType(Checkbox)).toList();
-    expect(checks.last.value, isTrue);
+    await tester.tap(find.byTooltip('출결 정리 시트'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('출결 정리 시트'), findsOneWidget);
+    expect(find.text('전체'), findsOneWidget);
+    expect(find.text('신입생'), findsOneWidget);
+    expect(find.text('정리할 출결 정보가 없습니다.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('영상 정렬 메뉴는 좋아요순을 제공한다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('영상').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('영상 정렬'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('좋아요순'), findsOneWidget);
+  });
+
+  testWidgets('농구장 예약은 시설별 타이머와 통합 예약 버튼을 표시한다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const CourtReservationScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('71 · 71-1 RESERVATION'), findsOneWidget);
+    expect(find.text('900 RESERVATION'), findsOneWidget);
+    expect(find.textContaining('남음'), findsNWidgets(2));
+    expect(find.text('71동 · 71-1동 예약하기'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('900동 예약하기'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('900동 예약하기'), findsOneWidget);
+  });
+
+  testWidgets('예약 화면은 시설마다 남은 시간 바로 아래 예약 버튼을 둔다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_signedInApp(const CourtReservationScreen()));
+    await tester.pumpAndSettle();
+
+    final athletics = tester.getTopLeft(find.text('71동 · 71-1동 예약하기')).dy;
+    final dormCountdown = tester.getTopLeft(find.text('900 RESERVATION')).dy;
+    final dorm = tester.getTopLeft(find.text('900동 예약하기')).dy;
+    expect(athletics, lessThan(dormCountdown));
+    expect(dormCountdown, lessThan(dorm));
+  });
+
+  testWidgets('멤버 상세는 전화번호와 등번호를 보여준다', (tester) async {
+    const member = MemberProfile(
+      id: 'member-kim',
+      name: '김창용',
+      studentId: '23학번',
+      generation: 2023,
+      status: 'YB',
+      position: 'SG',
+      teams: ['ENCBA'],
+      note: '',
+      phone: '010-1234-5678',
+      jerseyNumber: 23,
+    );
+    await tester.pumpWidget(
+      _signedInApp(
+        const MemberDetailScreen(memberId: 'member-kim'),
+        lockerState: LockerState(isReady: true, members: const [member]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('SG · #23'), findsOneWidget);
+    expect(find.text('010-1234-5678'), findsOneWidget);
+  });
+
+  testWidgets('복기 추가는 쿼터를 늘리거나 쿼터 미정 링크를 붙일 수 있다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _signedInApp(
+        const LockerShell(),
+        lockerState: LockerState(isReady: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('영상').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('복기').first);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('영상 링크 추가'));
+    await tester.tap(find.text('영상 링크 추가'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('4쿼터'), findsOneWidget);
+    await tester.ensureVisible(find.text('쿼터 추가'));
+    await tester.tap(find.text('쿼터 추가'));
+    await tester.pumpAndSettle();
+    expect(find.text('5쿼터'), findsOneWidget);
+
+    expect(find.text('미정'), findsNothing);
+    await tester.ensureVisible(find.text('쿼터 미정'));
+    await tester.tap(find.text('쿼터 미정'));
+    await tester.pumpAndSettle();
+    expect(find.text('미정'), findsOneWidget);
+    expect(find.text('경기 날짜'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
 
-Widget _signedOutApp(Widget child) => ProviderScope(
+Widget _signedOutApp(
+  Widget child, {
+  PendingGoogleRegistration? pendingRegistration,
+}) => ProviderScope(
   overrides: [
-    authControllerProvider.overrideWith((ref) => AuthController.seeded(null)),
+    authControllerProvider.overrideWith(
+      (ref) =>
+          AuthController.seeded(null, pendingRegistration: pendingRegistration),
+    ),
   ],
   child: MaterialApp(theme: AppTheme.lightTheme, home: child),
 );
 
+/// 로그인 이후 화면은 실제 앱과 같은 GoRouter 정의 안에 마운트한다.
 Widget _signedInApp(
   Widget child, {
   UserProfile user = testUser,
+  LockerState? lockerState,
+  String initialLocation = '/',
 }) => ProviderScope(
   overrides: [
     authControllerProvider.overrideWith((ref) => AuthController.seeded(user)),
-    lockerControllerProvider.overrideWith((ref) => LockerController.seeded()),
+    lockerControllerProvider.overrideWith(
+      (ref) => LockerController.seeded(initialState: lockerState),
+    ),
   ],
-  child: MaterialApp(theme: AppTheme.lightTheme, home: child),
+  child: MaterialApp.router(
+    theme: AppTheme.lightTheme,
+    routerConfig: GoRouter(
+      initialLocation: initialLocation,
+      routes: [
+        GoRoute(path: '/', builder: (context, state) => child),
+        GoRoute(
+          path: '/:tab(${LockerTab.pathPattern})',
+          pageBuilder: (context, state) => NoTransitionPage(
+            key: const ValueKey('locker-shell'),
+            child: child,
+          ),
+        ),
+        ...lockerRoutes,
+      ],
+    ),
+  ),
 );

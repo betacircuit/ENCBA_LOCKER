@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "encba-locker-web",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "cd /d C:\\Users\\Jaewon\\Desktop\\ENCBA_LOCKER && C:\\flutter\\bin\\flutter.bat run -d web-server --web-hostname 127.0.0.1 --web-port 8765 --dart-define-from-file=.env"
+      ],
+      "port": 8765
+    }
+  ]
+}

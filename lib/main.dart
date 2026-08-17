@@ -48,61 +48,69 @@ class EncbaLockerApp extends StatelessWidget {
   const EncbaLockerApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return ProviderScope(
-      child: MaterialApp.router(
-        title: 'ENCBA LOCKER',
-        theme: AppTheme.lightTheme,
-        routerConfig: appRouter,
-        debugShowCheckedModeBanner: false,
-        locale: const Locale('ko', 'KR'),
-        supportedLocales: const [Locale('ko', 'KR')],
-        localizationsDelegates: GlobalMaterialLocalizations.delegates,
-        builder: (context, child) {
-          if (child == null) return const SizedBox.shrink();
-          final fontSafeChild = DefaultTextStyle.merge(
-            style: const TextStyle(fontFamilyFallback: encbaFontFallback),
-            child: child,
-          );
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              if (constraints.maxWidth < 600) return fontSafeChild;
+  Widget build(BuildContext context) =>
+      const ProviderScope(child: _RoutedApp());
+}
 
-              final frameHeight = constraints.maxHeight > 900
-                  ? 900.0
-                  : constraints.maxHeight;
-              return ColoredBox(
-                color: const Color(0xFFE9EEF5),
-                child: Center(
-                  child: Container(
-                    width: 430,
-                    height: frameHeight,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: const Color(0xFFD4DAE5)),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x26002856),
-                          blurRadius: 44,
-                          offset: Offset(0, 18),
-                        ),
-                      ],
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: MediaQuery(
-                      data: MediaQuery.of(
-                        context,
-                      ).copyWith(size: Size(430, frameHeight)),
-                      child: fontSafeChild,
-                    ),
+class _RoutedApp extends ConsumerWidget {
+  const _RoutedApp();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // routerProvider는 내부에서 watch하지 않으므로 한 번만 만들어진다.
+    final router = ref.watch(routerProvider);
+    return MaterialApp.router(
+      title: 'ENCBA LOCKER',
+      theme: AppTheme.lightTheme,
+      routerConfig: router,
+      debugShowCheckedModeBanner: false,
+      locale: const Locale('ko', 'KR'),
+      supportedLocales: const [Locale('ko', 'KR')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      builder: (context, child) {
+        if (child == null) return const SizedBox.shrink();
+        final fontSafeChild = DefaultTextStyle.merge(
+          style: const TextStyle(fontFamilyFallback: encbaFontFallback),
+          child: child,
+        );
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 600) return fontSafeChild;
+
+            final frameHeight = constraints.maxHeight > 900
+                ? 900.0
+                : constraints.maxHeight;
+            return ColoredBox(
+              color: const Color(0xFFE9EEF5),
+              child: Center(
+                child: Container(
+                  width: 430,
+                  height: frameHeight,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(color: const Color(0xFFD4DAE5)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x26002856),
+                        blurRadius: 44,
+                        offset: Offset(0, 18),
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: MediaQuery(
+                    data: MediaQuery.of(
+                      context,
+                    ).copyWith(size: Size(430, frameHeight)),
+                    child: fontSafeChild,
                   ),
                 ),
-              );
-            },
-          );
-        },
-      ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

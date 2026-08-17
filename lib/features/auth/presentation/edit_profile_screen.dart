@@ -168,9 +168,13 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   child: TextFormField(
                     controller: _studentId,
                     keyboardType: TextInputType.number,
-                    readOnly: true,
                     decoration: const InputDecoration(labelText: '학번 *'),
-                    validator: _required,
+                    validator: (value) {
+                      final parsed = int.tryParse(value ?? '');
+                      return parsed == null || parsed < 0 || parsed > 99
+                          ? '00–99로 입력하세요.'
+                          : null;
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -178,10 +182,13 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   child: TextFormField(
                     controller: _joinedYear,
                     keyboardType: TextInputType.number,
-                    readOnly: true,
                     decoration: const InputDecoration(labelText: '엔크바 가입 년도 *'),
-                    validator: (value) =>
-                        int.tryParse(value ?? '') == null ? '숫자를 입력하세요.' : null,
+                    validator: (value) {
+                      final parsed = int.tryParse(value ?? '');
+                      return parsed == null || parsed < 1977 || parsed > 2100
+                          ? '연도를 확인하세요.'
+                          : null;
+                    },
                   ),
                 ),
               ],
@@ -236,6 +243,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         .updateProfile(
           user.copyWith(
             displayName: _displayName.text.trim(),
+            studentId:
+                '${int.parse(_studentId.text.trim()).toString().padLeft(2, '0')}학번',
+            joinedYear: int.parse(_joinedYear.text.trim()),
             phone: _phone.text.trim(),
             position: _position,
             jerseyNumber: int.parse(_jerseyNumber.text),

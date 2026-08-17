@@ -1,15 +1,18 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 class LocalStore {
-  final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
+  SharedPreferencesAsync? _preferences;
 
-  Future<String?> getString(String key) => _preferences.getString(key);
+  SharedPreferencesAsync get _store =>
+      _preferences ??= SharedPreferencesAsync();
+
+  Future<String?> getString(String key) => _store.getString(key);
 
   Future<void> setString(String key, String value) async {
-    await _preferences.setString(key, value);
+    await _store.setString(key, value);
   }
 
   Future<void> remove(String key) async {
-    await _preferences.remove(key);
+    await _store.remove(key);
   }
 }

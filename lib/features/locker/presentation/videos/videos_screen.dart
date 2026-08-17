@@ -1,0 +1,2003 @@
+part of '../locker_shell.dart';
+
+class VideosScreen extends ConsumerStatefulWidget {
+  const VideosScreen({super.key});
+
+  @override
+  ConsumerState<VideosScreen> createState() => _VideosScreenState();
+}
+
+class _VideosScreenState extends ConsumerState<VideosScreen> {
+  _VideoSort _sort = _VideoSort.newest;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = ref.watch(
+      lockerControllerProvider.select((state) => state.videoSegment),
+    );
+    final videos = ref.watch(
+      lockerControllerProvider.select((state) => state.videos),
+    );
+    final likedVideoIds = ref.watch(
+      lockerControllerProvider.select((state) => state.likedVideoIds),
+    );
+    final user = ref.watch(authControllerProvider).user!;
+    const categories = ['하이라이트', '복기', '공유'];
+    final visible =
+        videos.where((item) => item.category == categories[selected]).toList()
+          ..sort(
+            (a, b) => switch (_sort) {
+              _VideoSort.newest => b.uploadedAt.compareTo(a.uploadedAt),
+              _VideoSort.oldest => a.uploadedAt.compareTo(b.uploadedAt),
+              _VideoSort.mostLiked =>
+                b.likeCount.compareTo(a.likeCount) != 0
+                    ? b.likeCount.compareTo(a.likeCount)
+                    : b.uploadedAt.compareTo(a.uploadedAt),
+            },
+          );
+    return _Page(
+      header: _Header(
+        eyebrow: 'PLAYBACK',
+        title: 'VIDEOS',
+        action: PopupMenuButton<_VideoSort>(
+          tooltip: '영상 정렬',
+          initialValue: _sort,
+          onSelected: (value) => setState(() => _sort = value),
+          itemBuilder: (context) => const [
+            PopupMenuItem(value: _VideoSort.newest, child: Text('최신 업로드순')),
+            PopupMenuItem(value: _VideoSort.oldest, child: Text('오래된 업로드순')),
+            PopupMenuItem(value: _VideoSort.mostLiked, child: Text('좋아요순')),
+          ],
+          icon: const Icon(Icons.swap_vert_rounded),
+        ),
+      ),
+      children: [
+        _SlidingTabBar(
+          labels: const ['하이라이트', '복기', '공유'],
+          icons: const [
+            Icons.flash_on_rounded,
+            Icons.forum_outlined,
+            Icons.ios_share_rounded,
+          ],
+          selectedIndex: selected,
+          onSelected: ref
+              .read(lockerControllerProvider.notifier)
+              .selectVideoSegment,
+        ),
+        const SizedBox(height: 18),
+        ...visible.map(
+          (video) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _VideoTile(
+              video: video,
+              liked: likedVideoIds.contains(video.id),
+            ),
+          ),
+        ),
+        if (_canCreateVideoCategory(user, categories[selected]))
+          OutlinedButton.icon(
+            onPressed: () =>
+                _showVideoEditor(context, ref, categories[selected]),
+            icon: const Icon(Icons.add_link_rounded),
+            label: Text(selected == 2 ? '유튜브 영상 공유' : '영상 링크 추가'),
+          ),
+      ],
+    );
+  }
+}
+
+enum _VideoSort { newest, oldest, mostLiked }
+
+class _VideoTile extends ConsumerWidget {
+  const _VideoTile({required this.video, required this.liked});
+  final VideoItem video;
+  final bool liked;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    void open() => context.push('/videos/${Uri.encodeComponent(video.id)}');
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: open,
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _VideoThumbnail(video: video),
+                  const ColoredBox(color: Color(0x18000000)),
+                  const Center(
+                    child: CircleAvatar(
+                      radius: 25,
+                      backgroundColor: Color(0xEFFFFFFF),
+                      child: Icon(
+                        Icons.play_arrow_rounded,
+                        size: 34,
+                        color: EncbaColors.navy,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 12,
+                    top: 12,
+                    child: _VideoBadge(label: video.category),
+                  ),
+                  if (video.durationLabel.isNotEmpty)
+                    Positioned(
+                      right: 10,
+                      bottom: 9,
+                      child: _VideoBadge(label: video.durationLabel),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(15, 13, 8, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: open,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          video.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${video.uploader} · ${_relativeTime(video.uploadedAt)}',
+                          style: const TextStyle(
+                            color: EncbaColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: liked ? '좋아요 취소' : '좋아요',
+                  onPressed: () => ref
+                      .read(lockerControllerProvider.notifier)
+                      .toggleVideoLike(video.id),
+                  icon: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    transitionBuilder: (child, animation) =>
+                        ScaleTransition(scale: animation, child: child),
+                    child: Icon(
+                      liked ? Icons.favorite_rounded : Icons.favorite_border,
+                      key: ValueKey(liked),
+                      color: liked ? EncbaColors.absent : EncbaColors.muted,
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 25,
+                  child: Text(
+                    '${video.likeCount}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VideoThumbnail extends StatelessWidget {
+  const _VideoThumbnail({required this.video});
+  final VideoItem video;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget fallback() => DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [EncbaColors.navy, EncbaColors.snuBlue],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Center(
+        child: Icon(
+          video.sourceType == 'instagram'
+              ? Icons.play_circle_fill_rounded
+              : Icons.sports_basketball_rounded,
+          size: 58,
+          color: Colors.white,
+        ),
+      ),
+    );
+    final thumbnail = _videoThumbnailUrl(
+      youtubeId: video.youtubeId,
+      sourceUrl: video.url,
+    );
+    final asset = _instagramThumbnailAsset(video.url);
+    if (asset != null) {
+      return Image.asset(
+        asset,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.medium,
+      );
+    }
+    if (thumbnail == null) return fallback();
+    return _YoutubeThumbnailImage(
+      youtubeId: video.youtubeId,
+      sourceUrl: video.url,
+      fallbackBuilder: fallback,
+    );
+  }
+}
+
+class _YoutubeThumbnailImage extends StatelessWidget {
+  const _YoutubeThumbnailImage({
+    required this.youtubeId,
+    required this.sourceUrl,
+    required this.fallbackBuilder,
+  });
+
+  final String youtubeId;
+  final String sourceUrl;
+  final Widget Function() fallbackBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedId =
+        _validatedYoutubeId(youtubeId) ?? _youtubeIdFrom(sourceUrl);
+    if (resolvedId == null) return fallbackBuilder();
+    return FutureBuilder<String?>(
+      future: YoutubeThumbnailService.instance.load(resolvedId),
+      initialData: _videoThumbnailUrl(
+        youtubeId: resolvedId,
+        sourceUrl: sourceUrl,
+      ),
+      builder: (context, snapshot) {
+        final thumbnail =
+            snapshot.data ??
+            _videoThumbnailUrl(youtubeId: resolvedId, sourceUrl: sourceUrl)!;
+        return Image.network(
+          thumbnail,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.medium,
+          gaplessPlayback: true,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded || frame != null) return child;
+            return const _VideoLoadingState();
+          },
+          loadingBuilder: (context, child, progress) => progress == null
+              ? child
+              : Stack(
+                  fit: StackFit.expand,
+                  children: [child, const _VideoLoadingState()],
+                ),
+          errorBuilder: (_, _, _) => fallbackBuilder(),
+        );
+      },
+    );
+  }
+}
+
+class _VideoLoadingState extends StatelessWidget {
+  const _VideoLoadingState();
+
+  @override
+  Widget build(BuildContext context) => const ColoredBox(
+    color: EncbaColors.navy,
+    child: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox.square(
+            dimension: 28,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: Colors.white,
+            ),
+          ),
+          SizedBox(height: 9),
+          Text('영상 불러오는 중', style: TextStyle(color: Colors.white)),
+        ],
+      ),
+    ),
+  );
+}
+
+class _VideoBadge extends StatelessWidget {
+  const _VideoBadge({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(color: Color(0xD90B2347)),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Text(
+        label,
+        style: const TextStyle(color: Colors.white, fontSize: 11),
+      ),
+    ),
+  );
+}
+
+class VideoDetailScreen extends ConsumerStatefulWidget {
+  const VideoDetailScreen({super.key, required this.videoId});
+
+  final String videoId;
+
+  @override
+  ConsumerState<VideoDetailScreen> createState() =>
+      _VideoDetailScreenRouteState();
+}
+
+class _VideoDetailScreenRouteState extends ConsumerState<VideoDetailScreen> {
+  bool _loading = true;
+  bool _notFound = false;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_load);
+  }
+
+  Future<void> _load() async {
+    try {
+      final found = await ref
+          .read(lockerControllerProvider.notifier)
+          .ensureVideo(widget.videoId);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _notFound = !found;
+        _error = null;
+      });
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _notFound = false;
+        _error = error;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final video = ref
+        .watch(
+          lockerControllerProvider.select((state) => state.videosState.videos),
+        )
+        .where((item) => item.id == widget.videoId)
+        .firstOrNull;
+    if (video != null) return _VideoDetailScreen(video: video);
+    return _DetailLoadScaffold(
+      title: '영상',
+      loading: _loading,
+      notFound: _notFound,
+      error: _error,
+      onRetry: _retry,
+    );
+  }
+
+  void _retry() {
+    setState(() {
+      _loading = true;
+      _notFound = false;
+      _error = null;
+    });
+    _load();
+  }
+}
+
+class _VideoDetailScreen extends ConsumerStatefulWidget {
+  const _VideoDetailScreen({required this.video});
+  final VideoItem video;
+
+  @override
+  ConsumerState<_VideoDetailScreen> createState() => _VideoDetailScreenState();
+}
+
+class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
+  YoutubePlayerController? _player;
+  RealtimeChannel? _videoChannel;
+
+  /// 지금 재생 중인 링크. 쿼터 미정 링크도 있으므로 쿼터 번호가 아니라
+  /// 링크 자체를 들고 있어야 한다.
+  VideoLink? _selectedLink;
+  final _comment = TextEditingController();
+  final Set<String> _commentTargetIds = <String>{};
+
+  /// 플레이어에서 주기적으로 읽어오는 실시간 재생 위치(초).
+  /// 상세 화면 전체를 초당 한 번씩 다시 그리지 않도록 버튼만 이 값을 구독한다.
+  final ValueNotifier<double> _playbackSeconds = ValueNotifier(0);
+
+  /// 사용자가 위치를 고정하면 그 값을 담는다. null이면 실시간 위치를 따라간다.
+  double? _pinnedSeconds;
+  Timer? _positionTimer;
+
+  static const _positionPollInterval = Duration(milliseconds: 500);
+
+  VideoItem get video => widget.video;
+
+  /// 코멘트에 기록될 시각. 고정 중이면 고정값, 아니면 현재 재생 위치.
+  double get _commentSeconds => _pinnedSeconds ?? _playbackSeconds.value;
+
+  @override
+  void initState() {
+    super.initState();
+    final playableLinks = _playableLinks(video);
+    if (video.category == '복기' && playableLinks.isNotEmpty) {
+      _selectedLink = playableLinks.first;
+    }
+    final selected = _selectedLink;
+    final initialId = selected == null
+        ? (_validatedYoutubeId(video.youtubeId) ?? _youtubeIdFrom(video.url))
+        : _youtubeIdFrom(selected.url);
+    if (initialId != null) {
+      _player = _createPlayer(initialId);
+    }
+    _videoChannel = Supabase.instance.client
+        .channel('encba-video-${video.id}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'videos',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: video.id,
+          ),
+          callback: (_) => unawaited(
+            ref.read(lockerControllerProvider.notifier).refreshVideo(video.id),
+          ),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.delete,
+          schema: 'public',
+          table: 'videos',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: video.id,
+          ),
+          callback: (_) {
+            ref
+                .read(lockerControllerProvider.notifier)
+                .removeVideoFromRealtime(video.id);
+            if (mounted) Navigator.maybePop(context);
+          },
+        )
+        .subscribe();
+    if (video.category == '복기') {
+      Future.microtask(
+        () => ref
+            .read(lockerControllerProvider.notifier)
+            .loadVideoComments(video.id),
+      );
+    }
+    _positionTimer = Timer.periodic(
+      _positionPollInterval,
+      (_) => unawaited(_syncPlaybackPosition()),
+    );
+  }
+
+  @override
+  void dispose() {
+    _positionTimer?.cancel();
+    _playbackSeconds.dispose();
+    _comment.dispose();
+    _player?.close();
+    final channel = _videoChannel;
+    if (channel != null) {
+      unawaited(Supabase.instance.client.removeChannel(channel));
+    }
+    super.dispose();
+  }
+
+  /// 재생 중이든 일시정지 상태에서 스크럽을 했든 동일하게 현재 위치를 따라간다.
+  /// 표시 단위가 초이므로 초 값이 바뀔 때만 구독자에게 알린다.
+  Future<void> _syncPlaybackPosition() async {
+    final player = _player;
+    if (player == null) return;
+    final double seconds;
+    try {
+      seconds = await player.currentTime;
+    } on Object {
+      return; // 플레이어가 아직 준비되지 않았거나 교체 중이면 다음 주기에 다시 시도한다.
+    }
+    if (!mounted || seconds.isNaN || seconds.isNegative) return;
+    if (seconds.floor() == _playbackSeconds.value.floor()) return;
+    _playbackSeconds.value = seconds;
+  }
+
+  /// 코멘트에 적힌 시각으로 재생을 옮긴다.
+  ///
+  /// youtube_player_iframe 6.0.2의 [YoutubePlayerController.seekTo]는
+  /// `player.seekTo(초, true)`처럼 인자를 두 개 보낸다. 웹에서는 이 문자열이
+  /// player.html의 `_safeCall`로 들어가 `JSON.parse('105.0, true')`에서 예외가
+  /// 나고, 그 예외를 바깥 `catch`가 삼켜 아무 일도 일어나지 않는다. 그래서
+  /// 웹에서만 인자 하나짜리 호출을 직접 보낸다. 네이티브는 JS가 페이지에서
+  /// 그대로 실행되므로 패키지 API를 쓴다.
+  Future<void> _seekToComment(int timestampSeconds) async {
+    final player = _player;
+    if (player == null) return;
+    final seconds = timestampSeconds.toDouble();
+    try {
+      if (kIsWeb) {
+        await player.webViewController.runJavaScript(
+          'player.seekTo(${seconds.toStringAsFixed(3)});',
+        );
+      } else {
+        await player.seekTo(seconds: seconds, allowSeekAhead: true);
+      }
+      await player.playVideo();
+    } on Object catch (error) {
+      debugPrint('ENCBA seek failed: $error');
+      return;
+    }
+    if (!mounted) return;
+    _playbackSeconds.value = seconds;
+  }
+
+  /// 코멘트를 쓰는 동안 위치가 흘러가지 않도록 고정하거나 다시 실시간으로 돌린다.
+  void _togglePinnedTimestamp() {
+    setState(
+      () => _pinnedSeconds = _pinnedSeconds == null
+          ? _playbackSeconds.value
+          : null,
+    );
+  }
+
+  /// 재생할 수 있는 링크만, 쿼터 순서대로 골라 준다.
+  static List<VideoLink> _playableLinks(VideoItem video) => sortedVideoLinks(
+    video.links.where((link) => _youtubeIdFrom(link.url) != null),
+  );
+
+  Future<void> _selectLink(VideoLink link) async {
+    final id = _youtubeIdFrom(link.url);
+    if (id == null || _isSelected(link)) return;
+    final previous = _player;
+    final next = _createPlayer(id);
+    if (!mounted) return;
+    _playbackSeconds.value = 0;
+    setState(() {
+      _player = next;
+      _selectedLink = link;
+      _pinnedSeconds = null;
+    });
+    await previous?.close();
+  }
+
+  /// 링크는 저장 전후로 id가 달라질 수 있어 주소와 쿼터로도 견준다.
+  bool _isSelected(VideoLink link) {
+    final selected = _selectedLink;
+    if (selected == null) return false;
+    if (selected.id != null && link.id != null) return selected.id == link.id;
+    return selected.url == link.url &&
+        selected.quarterNumber == link.quarterNumber;
+  }
+
+  YoutubePlayerController _createPlayer(String id) =>
+      YoutubePlayerController.fromVideoId(
+        videoId: id,
+        autoPlay: false,
+        params: const YoutubePlayerParams(
+          showControls: true,
+          showFullscreenButton: true,
+          interfaceLanguage: 'ko',
+          // 위치는 Dart 쪽에서 직접 폴링하므로 JS 브리지 알림은 성기게 받는다.
+          videoStateUpdateInterval: 500,
+        ),
+        credentialless: true,
+      );
+
+  Future<void> _addComment() async {
+    final value = _comment.text.trim();
+    if (value.isEmpty) return;
+    final current = ref
+        .read(lockerControllerProvider)
+        .videos
+        .where((item) => item.id == video.id)
+        .firstOrNull;
+    final targets = (current ?? video).reviewPlayers
+        .where((member) => _commentTargetIds.contains(member.directoryId))
+        .toList(growable: false);
+    final selected = _selectedLink;
+    final saved = await ref
+        .read(lockerControllerProvider.notifier)
+        .addVideoComment(
+          videoId: video.id,
+          quarterNumber: selected?.quarterNumber,
+          linkId: selected?.id,
+          timestampSeconds: _commentSeconds.round(),
+          body: value,
+          targetPlayers: targets,
+        );
+    if (mounted && saved) {
+      _comment.clear();
+      setState(() {
+        _commentTargetIds.clear();
+        _pinnedSeconds = null;
+      });
+    }
+  }
+
+  String _activeVideoUrl(VideoItem item) => _selectedLink?.url ?? item.url;
+
+  /// 링크를 고르기 전이거나 코멘트가 어느 링크에도 묶이지 않았으면 모두 보여준다.
+  /// 예전 코멘트는 link_id가 없으므로 쿼터 번호로 견준다.
+  bool _commentBelongsToSelection(VideoCommentItem comment, VideoLink? link) {
+    if (link == null) return true;
+    if (comment.linkId != null && link.id != null) {
+      return comment.linkId == link.id;
+    }
+    if (comment.quarterNumber == null) return true;
+    return comment.quarterNumber == link.quarterNumber;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final videosState = ref.watch(
+      lockerControllerProvider.select((state) => state.videosState),
+    );
+    final liked = videosState.likedVideoIds.contains(video.id);
+    final current = videosState.videos
+        .where((item) => item.id == video.id)
+        .firstOrNull;
+    final comments = videosState.videoComments[video.id] ?? const [];
+    final selectedLink = _selectedLink;
+    final visibleComments = comments
+        .where((comment) => _commentBelongsToSelection(comment, selectedLink))
+        .toList(growable: false);
+    final user = ref.watch(authControllerProvider).user;
+    final canManage = _canManageVideo(user, current ?? video);
+    final displayed = current ?? video;
+    final links = _playableLinks(displayed);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(displayed.category),
+        actions: [
+          IconButton(
+            tooltip: '링크 공유',
+            onPressed: () => _shareVideo(context, displayed, selectedLink),
+            icon: const Icon(Icons.ios_share_rounded),
+          ),
+          ...?canManage
+            ? [
+                IconButton(
+                  tooltip: '영상 수정',
+                  onPressed: () => _showVideoEditor(
+                    context,
+                    ref,
+                    displayed.category,
+                    existing: displayed,
+                  ),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+                IconButton(
+                  tooltip: '영상 삭제',
+                  onPressed: () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('영상을 삭제할까요?'),
+                        content: const Text('댓글과 시청 기록도 함께 삭제됩니다.'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('취소'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('삭제'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true) return;
+                    final deleted = await ref
+                        .read(lockerControllerProvider.notifier)
+                        .deleteVideo(video.id);
+                    if (context.mounted && deleted) Navigator.pop(context);
+                  },
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+              ]
+            : null,
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 30),
+        children: [
+          if (_player case final player?)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: ColoredBox(
+                color: EncbaColors.navy,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    YoutubePlayer(
+                      key: ValueKey(
+                        'video-${video.id}-${selectedLink?.id ?? selectedLink?.url ?? ''}',
+                      ),
+                      controller: player,
+                      aspectRatio: 16 / 9,
+                      backgroundColor: EncbaColors.navy,
+                    ),
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: YoutubeValueBuilder(
+                          controller: player,
+                          buildWhen: (previous, current) =>
+                              previous.playerState != current.playerState,
+                          builder: (context, value) {
+                            final loading =
+                                value.playerState == PlayerState.unknown ||
+                                value.playerState == PlayerState.buffering;
+                            return AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 180),
+                              child: loading
+                                  ? const _VideoLoadingState()
+                                  : const SizedBox.shrink(),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            InkWell(
+              onTap: () => _launch(displayed.url),
+              borderRadius: BorderRadius.circular(16),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Ink(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF833AB4), Color(0xFFF77737)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.play_circle_fill_rounded,
+                          color: Colors.white,
+                          size: 52,
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Instagram에서 릴스 보기',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (displayed.category == '복기' && links.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _VideoLinkPicker(
+              links: links,
+              isSelected: _isSelected,
+              onSelected: _selectLink,
+            ),
+          ],
+          const SizedBox(height: 18),
+          Text(
+            displayed.title,
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  [
+                    displayed.uploader,
+                    if (displayed.recordedOn case final date?)
+                      '${DateFormat('yyyy.M.d').format(date)} 경기',
+                    _relativeTime(displayed.uploadedAt),
+                  ].join(' · '),
+                  style: const TextStyle(color: EncbaColors.muted),
+                ),
+              ),
+              IconButton(
+                tooltip: liked ? '좋아요 취소' : '좋아요',
+                onPressed: () => ref
+                    .read(lockerControllerProvider.notifier)
+                    .toggleVideoLike(video.id),
+                icon: Icon(
+                  liked ? Icons.favorite_rounded : Icons.favorite_border,
+                  color: liked ? EncbaColors.absent : EncbaColors.muted,
+                ),
+              ),
+              Text('${displayed.likeCount}'),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (displayed.category == '복기') ...[
+            if (displayed.reviewPlayers.isNotEmpty) ...[
+              Text('출전 선수', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children:
+                    (displayed.reviewPlayers.toList()
+                          ..sort(compareTaggedMembers))
+                        .map((member) => Chip(label: Text(member.label)))
+                        .toList(growable: false),
+              ),
+              const SizedBox(height: 14),
+            ],
+            ...visibleComments.map(
+              (item) => _Comment(
+                timestamp: _formatTimestamp(item.timestampSeconds.toDouble()),
+                text: item.body,
+                author: item.author,
+                quarterNumber: item.quarterNumber,
+                targetPlayers: item.targetPlayers,
+                onTimestampTap: () =>
+                    unawaited(_seekToComment(item.timestampSeconds)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<double>(
+              valueListenable: _playbackSeconds,
+              builder: (context, seconds, _) => PlaybackPositionButton(
+                seconds: _pinnedSeconds ?? seconds,
+                pinned: _pinnedSeconds != null,
+                onToggle: _player == null ? null : _togglePinnedTimestamp,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (displayed.reviewPlayers.isNotEmpty) ...[
+              _MemberChecklistButton(
+                label: '피드백 선수',
+                members: displayed.reviewPlayers,
+                selectedIds: _commentTargetIds,
+                onChanged: (value) => setState(() {
+                  _commentTargetIds
+                    ..clear()
+                    ..addAll(value);
+                }),
+              ),
+              if (_commentTargetIds.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children:
+                      (displayed.reviewPlayers
+                              .where(
+                                (member) => _commentTargetIds.contains(
+                                  member.directoryId,
+                                ),
+                              )
+                              .toList()
+                            ..sort(compareTaggedMembers))
+                          .map(
+                            (member) => InputChip(
+                              label: Text(member.label),
+                              onDeleted: () => setState(
+                                () =>
+                                    _commentTargetIds.remove(member.directoryId),
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                ),
+              ],
+              const SizedBox(height: 8),
+            ],
+            TextField(
+              controller: _comment,
+              onSubmitted: (_) => _addComment(),
+              decoration: InputDecoration(
+                hintText: '이 장면에 대한 코멘트',
+                suffixIcon: IconButton(
+                  tooltip: '코멘트 등록',
+                  onPressed: _addComment,
+                  icon: const Icon(Icons.send_rounded),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () => _launch(_activeVideoUrl(displayed)),
+            icon: const Icon(Icons.open_in_new_rounded),
+            label: const Text('원본 영상 열기'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 복기 영상의 링크 목록. 쿼터가 정해진 링크가 앞에 오고, 쿼터 미정 링크는
+/// 뒤에 번호를 붙여 늘어놓는다.
+class _VideoLinkPicker extends StatelessWidget {
+  const _VideoLinkPicker({
+    required this.links,
+    required this.isSelected,
+    required this.onSelected,
+  });
+
+  final List<VideoLink> links;
+  final bool Function(VideoLink link) isSelected;
+  final ValueChanged<VideoLink> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    var undecided = 0;
+    final labels = <String>[
+      for (final link in links)
+        if (link.quarterNumber case final quarter?)
+          '$quarter쿼터'
+        else
+          '미정 ${++undecided}',
+    ];
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final (index, link) in links.indexed)
+          ChoiceChip(
+            label: Text(labels[index]),
+            selected: isSelected(link),
+            onSelected: (_) => onSelected(link),
+          ),
+      ],
+    );
+  }
+}
+
+/// 영상 주소를 클립보드에 담는다. 앱 안의 상세 주소를 우선 쓰고, 지금 보고 있는
+/// 쿼터가 있으면 그 원본 주소도 함께 알려 준다.
+Future<void> _shareVideo(
+  BuildContext context,
+  VideoItem video,
+  VideoLink? selected,
+) async {
+  final appLink = kIsWeb
+      ? '${Uri.base.origin}/videos/${Uri.encodeComponent(video.id)}'
+      : null;
+  final target = appLink ?? selected?.url ?? video.url;
+  await Clipboard.setData(ClipboardData(text: target));
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context)
+    ..clearSnackBars()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(
+          appLink == null ? '영상 링크를 복사했습니다.' : '${video.title} 링크를 복사했습니다.',
+        ),
+        action: SnackBarAction(
+          label: '원본 열기',
+          onPressed: () => _launch(selected?.url ?? video.url),
+        ),
+      ),
+    );
+}
+
+/// 코멘트에 붙을 시각을 보여준다. 평소에는 재생 위치를 실시간으로 따라가고,
+/// 누르면 그 시각에 고정되어 코멘트를 쓰는 동안 흘러가지 않는다.
+class PlaybackPositionButton extends StatelessWidget {
+  const PlaybackPositionButton({
+    super.key,
+    required this.seconds,
+    required this.pinned,
+    required this.onToggle,
+  });
+
+  final double seconds;
+  final bool pinned;
+  final VoidCallback? onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final time = _formatTimestamp(seconds);
+    return Semantics(
+      button: true,
+      label: pinned ? '코멘트 시각 $time 고정됨. 누르면 해제' : '현재 재생 위치 $time. 누르면 고정',
+      excludeSemantics: true,
+      child: OutlinedButton.icon(
+        onPressed: onToggle,
+        icon: Icon(
+          pinned ? Icons.push_pin_rounded : Icons.timer_outlined,
+          size: 18,
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: pinned ? EncbaColors.snuBlue : EncbaColors.ink,
+          backgroundColor: pinned ? EncbaColors.highlight : null,
+          side: BorderSide(
+            color: pinned ? EncbaColors.snuBlue : EncbaColors.line,
+          ),
+        ),
+        label: Text(
+          pinned ? '이 시각에 코멘트  $time' : '현재 재생 위치  $time',
+          style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+        ),
+      ),
+    );
+  }
+}
+
+class _Comment extends StatelessWidget {
+  const _Comment({
+    required this.timestamp,
+    required this.text,
+    required this.author,
+    required this.onTimestampTap,
+    this.quarterNumber,
+    this.targetPlayers = const [],
+  });
+  final String timestamp;
+  final String text;
+  final String author;
+  final VoidCallback onTimestampTap;
+  final int? quarterNumber;
+  final List<VideoTaggedMember> targetPlayers;
+  @override
+  Widget build(BuildContext context) => Card(
+    child: ListTile(
+      leading: TextButton(
+        onPressed: onTimestampTap,
+        child: Text(
+          timestamp,
+          style: const TextStyle(
+            color: EncbaColors.snuBlue,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      title: Text(text),
+      subtitle: Text(
+        [
+          quarterNumber == null ? author : '$author · $quarterNumber쿼터',
+          if (targetPlayers.isNotEmpty)
+            '피드백: ${(targetPlayers.toList()..sort(compareTaggedMembers)).map((member) => member.label).join(', ')}',
+        ].join('\n'),
+      ),
+    ),
+  );
+}
+
+class _MemberChecklistButton extends StatelessWidget {
+  const _MemberChecklistButton({
+    required this.label,
+    required this.members,
+    required this.selectedIds,
+    required this.onChanged,
+  });
+
+  final String label;
+  final List<VideoTaggedMember> members;
+  final Set<String> selectedIds;
+  final ValueChanged<Set<String>> onChanged;
+
+  @override
+  Widget build(BuildContext context) => OutlinedButton.icon(
+    onPressed: () async {
+      final selected = await _showMemberChecklist(
+        context,
+        title: label,
+        members: members,
+        initialSelection: selectedIds,
+      );
+      if (selected != null) onChanged(selected);
+    },
+    icon: const Icon(Icons.group_outlined),
+    label: Text(
+      selectedIds.isEmpty ? '$label 선택' : '$label ${selectedIds.length}명',
+    ),
+  );
+}
+
+Future<Set<String>?> _showMemberChecklist(
+  BuildContext context, {
+  required String title,
+  required List<VideoTaggedMember> members,
+  required Set<String> initialSelection,
+}) => showModalBottomSheet<Set<String>>(
+  context: context,
+  isScrollControlled: true,
+  useSafeArea: true,
+  showDragHandle: true,
+  builder: (context) => _MemberChecklistSheet(
+    title: title,
+    members: members,
+    initialSelection: initialSelection,
+  ),
+);
+
+class _MemberChecklistSheet extends StatefulWidget {
+  const _MemberChecklistSheet({
+    required this.title,
+    required this.members,
+    required this.initialSelection,
+  });
+
+  final String title;
+  final List<VideoTaggedMember> members;
+  final Set<String> initialSelection;
+
+  @override
+  State<_MemberChecklistSheet> createState() => _MemberChecklistSheetState();
+}
+
+class _MemberChecklistSheetState extends State<_MemberChecklistSheet> {
+  late final Set<String> _selected = {...widget.initialSelection};
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _query.trim();
+    final filtered =
+        widget.members
+            .where(
+              (member) =>
+                  member.name.contains(query) ||
+                  (member.jerseyNumber?.toString() ?? '') == query ||
+                  (member.studentYear?.toString() ?? '') == query,
+            )
+            .toList(growable: false)
+          ..sort(compareTaggedMembers);
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * .72,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 12, 10),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: '닫기',
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    widget.title,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, _selected),
+                  child: const Text('완료'),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: TextField(
+              autofocus: false,
+              onChanged: (value) => setState(() => _query = value),
+              decoration: const InputDecoration(
+                hintText: '이름 · 등번호 · 학번 검색',
+                prefixIcon: Icon(Icons.search_rounded),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: ListView.builder(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              itemCount: filtered.length,
+              itemBuilder: (context, index) {
+                final member = filtered[index];
+                final checked = _selected.contains(member.directoryId);
+                return CheckboxListTile(
+                  value: checked,
+                  title: Text(member.label),
+                  subtitle: member.studentYear == null
+                      ? null
+                      : Text(
+                          '${member.studentYear.toString().padLeft(2, '0')}학번',
+                        ),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  onChanged: (value) => setState(() {
+                    value == true
+                        ? _selected.add(member.directoryId)
+                        : _selected.remove(member.directoryId);
+                  }),
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                  Navigator.pop(context, _selected);
+                },
+                child: const Text('선택 완료'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+void _showVideoEditor(
+  BuildContext context,
+  WidgetRef ref,
+  String category, {
+  VideoItem? existing,
+}) => showModalBottomSheet<void>(
+  context: context,
+  isScrollControlled: true,
+  showDragHandle: true,
+  builder: (_) => _VideoEditorSheet(category: category, existing: existing),
+);
+
+class _VideoEditorSheet extends ConsumerStatefulWidget {
+  const _VideoEditorSheet({required this.category, this.existing});
+  final String category;
+  final VideoItem? existing;
+
+  @override
+  ConsumerState<_VideoEditorSheet> createState() => _VideoEditorSheetState();
+}
+
+/// 편집 중인 링크 한 줄. [quarterNumber]가 null이면 쿼터 미정이다.
+class _VideoLinkField {
+  _VideoLinkField({required this.quarterNumber, required this.controller});
+
+  int? quarterNumber;
+  final TextEditingController controller;
+}
+
+class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _url = TextEditingController();
+  final _title = TextEditingController();
+  final _duration = TextEditingController();
+  late final List<_VideoLinkField> _links;
+  DateTime? _recordedOn;
+  late String _audienceType;
+  late Set<String> _audienceValues;
+  late Set<String> _reviewPlayerIds;
+  bool _saving = false;
+  String? _saveError;
+
+  static const _maxQuarter = 12;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existing;
+    _url.text = existing?.url ?? '';
+    _title.text = existing?.title ?? '';
+    _duration.text = existing?.durationLabel ?? '';
+    final saved = sortedVideoLinks(existing?.links ?? const []);
+    _links = saved.isEmpty
+        ? [
+            for (var quarter = 1; quarter <= 4; quarter++)
+              _VideoLinkField(
+                quarterNumber: quarter,
+                controller: TextEditingController(),
+              ),
+          ]
+        : [
+            for (final link in saved)
+              _VideoLinkField(
+                quarterNumber: link.quarterNumber,
+                controller: TextEditingController(text: link.url),
+              ),
+          ];
+    _recordedOn = existing?.recordedOn;
+    _audienceType = existing?.audienceType ?? 'all';
+    _audienceValues = existing?.audienceValues.toSet() ?? <String>{};
+    _reviewPlayerIds =
+        existing?.reviewPlayers.map((member) => member.directoryId).toSet() ??
+        <String>{};
+  }
+
+  @override
+  void dispose() {
+    _url.dispose();
+    _title.dispose();
+    _duration.dispose();
+    for (final field in _links) {
+      field.controller.dispose();
+    }
+    super.dispose();
+  }
+
+  /// 아직 쓰지 않은 가장 작은 쿼터 번호를 붙여 한 줄 늘린다.
+  void _addQuarterField() {
+    final used = _links
+        .map((field) => field.quarterNumber)
+        .whereType<int>()
+        .toSet();
+    final next = [
+      for (var quarter = 1; quarter <= _maxQuarter; quarter++)
+        if (!used.contains(quarter)) quarter,
+    ].firstOrNull;
+    if (next == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('쿼터는 $_maxQuarter개까지 추가할 수 있습니다.')),
+      );
+      return;
+    }
+    setState(
+      () => _links.add(
+        _VideoLinkField(
+          quarterNumber: next,
+          controller: TextEditingController(),
+        ),
+      ),
+    );
+  }
+
+  void _addUndecidedField() => setState(
+    () => _links.add(
+      _VideoLinkField(quarterNumber: null, controller: TextEditingController()),
+    ),
+  );
+
+  void _removeField(int index) {
+    final removed = _links.removeAt(index);
+    setState(() {});
+    removed.controller.dispose();
+  }
+
+  List<VideoLink> _collectedLinks() => [
+    for (final field in _links)
+      if (field.controller.text.trim().isNotEmpty)
+        VideoLink(
+          url: field.controller.text.trim(),
+          quarterNumber: field.quarterNumber,
+        ),
+  ];
+
+  Future<void> _pickRecordedOn() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _recordedOn ?? now,
+      firstDate: DateTime(1977),
+      lastDate: DateTime(now.year + 1, 12, 31),
+      helpText: '경기 날짜 선택',
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _recordedOn = picked);
+  }
+
+  Future<void> _save() async {
+    if (_saving || !_formKey.currentState!.validate()) return;
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
+    final isReview = widget.category == '복기';
+    final isHighlight = widget.category == '하이라이트';
+    final links = _collectedLinks();
+    final sourceUrl = isReview
+        ? (sortedVideoLinks(links).firstOrNull?.url ?? '')
+        : _url.text.trim();
+    final youtubeId = _youtubeIdFrom(sourceUrl);
+    final isInstagram = isHighlight && _isInstagramReel(sourceUrl);
+    if (youtubeId == null && !isInstagram) {
+      setState(() => _saving = false);
+      return;
+    }
+    if (widget.category == '공유' &&
+        (_audienceType == 'position' || _audienceType == 'student_year') &&
+        _audienceValues.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('추천 대상을 하나 이상 선택해 주세요.')));
+      setState(() => _saving = false);
+      return;
+    }
+    if (isReview) {
+      final filled = links
+          .map((link) => link.quarterNumber)
+          .whereType<int>()
+          .toSet();
+      // 1쿼터부터 채워 온 자리 가운데 빠진 곳만 짚어 준다. 5쿼터 이후나
+      // 쿼터 미정 링크는 원래 비어 있는 게 정상이라 묻지 않는다.
+      final blankQuarters = <int>[
+        for (var quarter = 1; quarter <= 4; quarter++)
+          if (!filled.contains(quarter)) quarter,
+      ];
+      if (blankQuarters.isNotEmpty) {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('빈 쿼터를 확인해 주세요'),
+            content: Text(
+              '${blankQuarters.map((quarter) => '$quarter쿼터').join(', ')} 영상이 비어 있습니다. 이대로 올릴까요?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('돌아가기'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('비운 채 올리기'),
+              ),
+            ],
+          ),
+        );
+        if (confirmed != true) {
+          if (mounted) setState(() => _saving = false);
+          return;
+        }
+      }
+    }
+    final user = ref.read(authControllerProvider).user;
+    final members = ref.read(lockerControllerProvider).members;
+    final reviewPlayerById = <String, VideoTaggedMember>{
+      for (final member in widget.existing?.reviewPlayers ?? const [])
+        member.directoryId: member,
+      for (final member in members)
+        if (member.id != null) member.id!: _taggedMember(member),
+    };
+    final reviewPlayers =
+        _reviewPlayerIds
+            .map((id) => reviewPlayerById[id])
+            .whereType<VideoTaggedMember>()
+            .toList(growable: false)
+          ..sort(compareTaggedMembers);
+    final now = DateTime.now();
+    final video = VideoItem(
+      id: widget.existing?.id ?? 'video-${now.microsecondsSinceEpoch}',
+      title: _title.text.trim(),
+      durationLabel: isReview ? '' : _duration.text.trim(),
+      category: widget.category,
+      url: sourceUrl,
+      youtubeId: youtubeId ?? '',
+      sourceType: isInstagram ? 'instagram' : 'youtube',
+      links: isReview ? sortedVideoLinks(links) : const [],
+      recordedOn: _recordedOn,
+      uploadedAt: widget.existing?.uploadedAt ?? now,
+      uploader: widget.existing?.uploader ?? user?.name ?? 'ENCBA',
+      accent: EncbaColors.snuBlue.toARGB32(),
+      likeCount: widget.existing?.likeCount ?? 0,
+      audienceType: widget.category == '공유' ? _audienceType : 'all',
+      audienceValues: widget.category == '공유'
+          ? _audienceValues.toList()
+          : const [],
+      reviewPlayers: isReview ? reviewPlayers : const [],
+    );
+    final notifier = ref.read(lockerControllerProvider.notifier);
+    final saved = widget.existing == null
+        ? await notifier.addVideo(video)
+        : await notifier.updateVideo(video);
+    if (!mounted) return;
+    if (saved) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.existing == null ? '영상을 등록했습니다.' : '영상을 수정했습니다.',
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _saving = false;
+      _saveError = '저장하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isReview = widget.category == '복기';
+    final sourceUrl = isReview
+        ? (sortedVideoLinks(_collectedLinks()).firstOrNull?.url ?? '')
+        : _url.text.trim();
+    final previewYoutubeId = _youtubeIdFrom(sourceUrl);
+    final previewInstagram =
+        widget.category == '하이라이트' && _isInstagramReel(sourceUrl);
+    final availableReviewPlayerById = <String, VideoTaggedMember>{
+      for (final member in widget.existing?.reviewPlayers ?? const [])
+        member.directoryId: member,
+      for (final member in ref.watch(
+        lockerControllerProvider.select((state) => state.membersState.members),
+      ))
+        if (member.id != null && member.isActive)
+          member.id!: _taggedMember(member),
+    };
+    final availableReviewPlayers =
+        availableReviewPlayerById.values.toList()..sort(compareTaggedMembers);
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  widget.category == '공유'
+                      ? '농구 영상 공유'
+                      : '${widget.category} 추가',
+                  style: const TextStyle(
+                    fontFamily: 'Jua',
+                    fontSize: 24,
+                    color: EncbaColors.navy,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                if (isReview) ...[
+                  const Text('쿼터별 YouTube 링크'),
+                  const SizedBox(height: 4),
+                  const Text(
+                    '쿼터를 모르는 영상은 "쿼터 미정"으로 올려도 됩니다.',
+                    style: TextStyle(color: EncbaColors.muted, fontSize: 12),
+                  ),
+                  const SizedBox(height: 10),
+                  for (final (index, field) in _links.indexed) ...[
+                    _VideoLinkRow(
+                      field: field,
+                      maxQuarter: _maxQuarter,
+                      takenQuarters: {
+                        for (final other in _links)
+                          if (!identical(other, field) &&
+                              other.quarterNumber != null)
+                            other.quarterNumber!,
+                      },
+                      onQuarterChanged: (quarter) =>
+                          setState(() => field.quarterNumber = quarter),
+                      onChanged: () => setState(() {}),
+                      onRemove: _links.length == 1
+                          ? null
+                          : () => _removeField(index),
+                      validator: (value) {
+                        final text = value?.trim() ?? '';
+                        if (text.isEmpty) {
+                          return _collectedLinks().isEmpty
+                              ? '최소 한 개의 링크가 필요합니다.'
+                              : null;
+                        }
+                        return _youtubeIdFrom(text) == null
+                            ? '올바른 YouTube 링크를 입력해 주세요.'
+                            : null;
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _addQuarterField,
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          label: const Text('쿼터 추가'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _addUndecidedField,
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          label: const Text('쿼터 미정'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ] else ...[
+                  TextFormField(
+                    controller: _url,
+                    keyboardType: TextInputType.url,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      labelText: widget.category == '하이라이트'
+                          ? 'YouTube 또는 Instagram Reel 링크'
+                          : 'YouTube 링크',
+                    ),
+                    validator: (value) {
+                      final text = value?.trim() ?? '';
+                      final validYoutube = _youtubeIdFrom(text) != null;
+                      final validInstagram =
+                          widget.category == '하이라이트' && _isInstagramReel(text);
+                      return validYoutube || validInstagram
+                          ? null
+                          : '올바른 영상 링크를 입력해 주세요.';
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                if (previewYoutubeId != null || previewInstagram) ...[
+                  _VideoLinkPreview(
+                    youtubeId: previewYoutubeId,
+                    sourceUrl: sourceUrl,
+                    sourceType: previewInstagram ? 'instagram' : 'youtube',
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                _RecordedDateField(
+                  value: _recordedOn,
+                  onPick: _pickRecordedOn,
+                  onClear: _recordedOn == null
+                      ? null
+                      : () => setState(() => _recordedOn = null),
+                ),
+                const SizedBox(height: 12),
+                if (isReview) ...[
+                  _MemberChecklistButton(
+                    label: '출전 선수',
+                    members: availableReviewPlayers,
+                    selectedIds: _reviewPlayerIds,
+                    onChanged: (value) => setState(() {
+                      _reviewPlayerIds = value;
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                TextFormField(
+                  controller: _title,
+                  decoration: const InputDecoration(labelText: '제목'),
+                  validator: (value) =>
+                      (value?.trim().isEmpty ?? true) ? '제목을 입력해 주세요.' : null,
+                ),
+                if (widget.category == '공유') ...[
+                  const SizedBox(height: 16),
+                  _VideoAudienceSelector(
+                    type: _audienceType,
+                    values: _audienceValues,
+                    onChanged: (type, values) => setState(() {
+                      _audienceType = type;
+                      _audienceValues = values;
+                    }),
+                  ),
+                ],
+                if (!isReview) ...[
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: _duration,
+                    keyboardType: TextInputType.datetime,
+                    decoration: const InputDecoration(
+                      labelText: '재생 시간',
+                      hintText: '예: 08:24',
+                    ),
+                  ),
+                ],
+                if (_saveError case final error?) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    error,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: EncbaColors.absent),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: _saving ? null : _save,
+                  child: _saving
+                      ? const SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(widget.existing == null ? '등록' : '저장'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 링크 한 줄. 왼쪽에서 쿼터를 고르고 오른쪽에 주소를 넣는다.
+class _VideoLinkRow extends StatelessWidget {
+  const _VideoLinkRow({
+    required this.field,
+    required this.maxQuarter,
+    required this.takenQuarters,
+    required this.onQuarterChanged,
+    required this.onChanged,
+    required this.onRemove,
+    required this.validator,
+  });
+
+  final _VideoLinkField field;
+  final int maxQuarter;
+  final Set<int> takenQuarters;
+  final ValueChanged<int?> onQuarterChanged;
+  final VoidCallback onChanged;
+  final VoidCallback? onRemove;
+  final FormFieldValidator<String> validator;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      SizedBox(
+        width: 108,
+        child: DropdownButtonFormField<int?>(
+          initialValue: field.quarterNumber,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: '쿼터'),
+          items: [
+            const DropdownMenuItem<int?>(value: null, child: Text('미정')),
+            for (var quarter = 1; quarter <= maxQuarter; quarter++)
+              if (quarter == field.quarterNumber ||
+                  !takenQuarters.contains(quarter))
+                DropdownMenuItem<int?>(
+                  value: quarter,
+                  child: Text('$quarter쿼터'),
+                ),
+          ],
+          onChanged: onQuarterChanged,
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: TextFormField(
+          controller: field.controller,
+          keyboardType: TextInputType.url,
+          onChanged: (_) => onChanged(),
+          decoration: const InputDecoration(labelText: 'YouTube 링크'),
+          validator: validator,
+        ),
+      ),
+      IconButton(
+        tooltip: '이 링크 지우기',
+        onPressed: onRemove,
+        icon: const Icon(Icons.remove_circle_outline_rounded),
+      ),
+    ],
+  );
+}
+
+/// 경기가 열린 날. 비워 두면 업로드 날짜만 보인다.
+class _RecordedDateField extends StatelessWidget {
+  const _RecordedDateField({
+    required this.value,
+    required this.onPick,
+    required this.onClear,
+  });
+
+  final DateTime? value;
+  final VoidCallback onPick;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) => InputDecorator(
+    decoration: InputDecoration(
+      labelText: '경기 날짜',
+      suffixIcon: onClear == null
+          ? const Icon(Icons.event_outlined)
+          : IconButton(
+              tooltip: '날짜 지우기',
+              onPressed: onClear,
+              icon: const Icon(Icons.close_rounded),
+            ),
+    ),
+    child: InkWell(
+      onTap: onPick,
+      child: Text(
+        value == null
+            ? '날짜 선택 (선택 사항)'
+            : '${DateFormat('yyyy년 M월 d일').format(value!)} ${weekday(value!)}',
+        style: TextStyle(
+          color: value == null ? EncbaColors.muted : EncbaColors.ink,
+        ),
+      ),
+    ),
+  );
+}
+
+VideoTaggedMember _taggedMember(MemberProfile member) => VideoTaggedMember(
+  directoryId: member.id!,
+  name: member.name,
+  studentYear: int.tryParse(
+    member.studentId.replaceAll(RegExp(r'[^0-9]'), ''),
+  ),
+  jerseyNumber: member.jerseyNumber,
+);
+
+class _VideoAudienceSelector extends StatelessWidget {
+  const _VideoAudienceSelector({
+    required this.type,
+    required this.values,
+    required this.onChanged,
+  });
+
+  final String type;
+  final Set<String> values;
+  final void Function(String type, Set<String> values) onChanged;
+
+  static const _types = <(String, String)>[
+    ('all', '전체'),
+    ('position', '포지션'),
+    ('freshman', '신입생'),
+    ('student_year', '학번'),
+  ];
+  static const _positions = ['PG', 'SG', 'SF', 'PF', 'C', '미정'];
+
+  @override
+  Widget build(BuildContext context) {
+    final currentYear = DateTime.now().year % 100;
+    final studentYears = [
+      for (var year = currentYear - 8; year <= currentYear; year++)
+        year.toString().padLeft(2, '0'),
+    ].reversed.toList();
+    final choices = type == 'position'
+        ? _positions
+        : type == 'student_year'
+        ? studentYears
+        : const <String>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('추천 대상', style: TextStyle(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 4),
+        const Text(
+          '선택한 부원에게만 이 공유 영상이 보입니다.',
+          style: TextStyle(color: EncbaColors.muted, fontSize: 12),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 7,
+          runSpacing: 7,
+          children: _types
+              .map(
+                (item) => ChoiceChip(
+                  label: Text(item.$2),
+                  selected: type == item.$1,
+                  onSelected: (_) => onChanged(item.$1, <String>{}),
+                ),
+              )
+              .toList(),
+        ),
+        if (choices.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: choices
+                .map(
+                  (value) => FilterChip(
+                    label: Text(type == 'student_year' ? '$value학번' : value),
+                    selected: values.contains(value),
+                    onSelected: (selected) {
+                      final next = {...values};
+                      selected ? next.add(value) : next.remove(value);
+                      onChanged(type, next);
+                    },
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _VideoLinkPreview extends StatelessWidget {
+  const _VideoLinkPreview({
+    required this.youtubeId,
+    required this.sourceUrl,
+    required this.sourceType,
+  });
+
+  final String? youtubeId;
+  final String sourceUrl;
+  final String sourceType;
+
+  @override
+  Widget build(BuildContext context) {
+    final thumbnail = _videoThumbnailUrl(
+      youtubeId: youtubeId ?? '',
+      sourceUrl: sourceUrl,
+    );
+    final asset = _instagramThumbnailAsset(sourceUrl);
+    if (thumbnail == null && asset == null) return const SizedBox.shrink();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: AspectRatio(
+        aspectRatio: 16 / 9,
+        child: asset != null
+            ? Image.asset(
+                asset,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.medium,
+              )
+            : _YoutubeThumbnailImage(
+                youtubeId: youtubeId ?? '',
+                sourceUrl: sourceUrl,
+                fallbackBuilder: () => const ColoredBox(
+                  color: EncbaColors.line,
+                  child: Center(
+                    child: Icon(
+                      Icons.image_not_supported_outlined,
+                      color: EncbaColors.muted,
+                    ),
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+const _bundledReelShortcodes = {
+  'Db2nVhDz4Fq',
+  'DajgzpRTc4e',
+  'DZDMprWogCr',
+  'DXPE0fsEwcm',
+  'DTnGCB7E50t',
+};
+
+String? _instagramShortcode(String input) {
+  final uri = Uri.tryParse(input);
+  if (uri == null) return null;
+  final host = uri.host.toLowerCase();
+  if (host != 'instagram.com' && host != 'www.instagram.com') return null;
+  if (uri.pathSegments.length < 2 ||
+      !const {'reel', 'p'}.contains(uri.pathSegments.first)) {
+    return null;
+  }
+  final shortcode = uri.pathSegments[1];
+  return RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(shortcode) ? shortcode : null;
+}
+
+bool _isInstagramReel(String input) {
+  final uri = Uri.tryParse(input);
+  return uri != null &&
+      uri.pathSegments.isNotEmpty &&
+      uri.pathSegments.first == 'reel' &&
+      _instagramShortcode(input) != null;
+}
+
+bool _canCreateVideoCategory(UserProfile user, String category) {
+  if (category == '하이라이트') return user.canManageHighlights;
+  return category == '복기' || category == '공유';
+}
+
+bool _canManageVideo(UserProfile? user, VideoItem video) {
+  if (user == null) return false;
+  if (video.category == '하이라이트') {
+    return user.canManageHighlights || user.canAdminister;
+  }
+  return video.category == '복기' || video.category == '공유';
+}

@@ -12,6 +12,7 @@ class AuthState {
     this.isBusy = false,
     this.sessionRevision = 0,
     this.user,
+    this.pendingRegistration,
     this.error,
   });
 
@@ -19,6 +20,7 @@ class AuthState {
   final bool isBusy;
   final int sessionRevision;
   final UserProfile? user;
+  final PendingGoogleRegistration? pendingRegistration;
   final String? error;
 
   AuthState copyWith({
@@ -27,6 +29,8 @@ class AuthState {
     int? sessionRevision,
     UserProfile? user,
     bool clearUser = false,
+    PendingGoogleRegistration? pendingRegistration,
+    bool clearPendingRegistration = false,
     String? error,
     bool clearError = false,
   }) => AuthState(
@@ -34,6 +38,9 @@ class AuthState {
     isBusy: isBusy ?? this.isBusy,
     sessionRevision: sessionRevision ?? this.sessionRevision,
     user: clearUser ? null : user ?? this.user,
+    pendingRegistration: clearPendingRegistration
+        ? null
+        : pendingRegistration ?? this.pendingRegistration,
     error: clearError ? null : error ?? this.error,
   );
 }
@@ -44,9 +51,17 @@ class AuthController extends StateNotifier<AuthState> {
     _subscription = _repository?.authChanges.listen(_handleAuthChange);
   }
 
-  AuthController.seeded(UserProfile? user)
-    : _repository = null,
-      super(AuthState(isReady: true, user: user));
+  AuthController.seeded(
+    UserProfile? user, {
+    PendingGoogleRegistration? pendingRegistration,
+  }) : _repository = null,
+       super(
+         AuthState(
+           isReady: true,
+           user: user,
+           pendingRegistration: pendingRegistration,
+         ),
+       );
 
   final SupabaseAuthRepository? _repository;
   StreamSubscription<supabase.AuthState>? _subscription;
@@ -54,13 +69,36 @@ class AuthController extends StateNotifier<AuthState> {
       _repository ?? (throw StateError('Seeded auth cannot persist changes.'));
 
   Future<void> _restore() async {
+    final oauthError = _repo.pendingOAuthError();
     try {
-      final user = await _repo.restoreSession();
-      state = state.copyWith(isReady: true, user: user, clearError: true);
+      final session = await _repo.restoreSession();
+      state = state.copyWith(
+        isReady: true,
+        user: session.profile,
+        clearUser: session.profile == null,
+        pendingRegistration: session.pendingRegistration,
+        clearPendingRegistration: session.pendingRegistration == null,
+        // 인증이 실패한 채 돌아왔다면 그 사유를 화면에 남긴다.
+        error: session.profile == null && session.pendingRegistration == null
+            ? oauthError
+            : null,
+        clearError:
+            oauthError == null ||
+            session.profile != null ||
+            session.pendingRegistration != null,
+      );
+    } on EncbaAuthException catch (error) {
+      state = state.copyWith(
+        isReady: true,
+        clearUser: true,
+        clearPendingRegistration: true,
+        error: error.message,
+      );
     } on Object {
       state = state.copyWith(
         isReady: true,
         clearUser: true,
+        clearPendingRegistration: true,
         error: '저장된 로그인 정보를 복원하지 못했습니다.',
       );
     }
@@ -70,7 +108,12 @@ class AuthController extends StateNotifier<AuthState> {
     state = state.copyWith(isBusy: true, clearError: true);
     try {
       final user = await _repo.signIn(email, password);
-      state = state.copyWith(isReady: true, isBusy: false, user: user);
+      state = state.copyWith(
+        isReady: true,
+        isBusy: false,
+        user: user,
+        clearPendingRegistration: true,
+      );
       return true;
     } on EncbaAuthException catch (error) {
       state = state.copyWith(isBusy: false, error: error.message);
@@ -88,7 +131,12 @@ class AuthController extends StateNotifier<AuthState> {
     state = state.copyWith(isBusy: true, clearError: true);
     try {
       final user = await _repo.signUp(profile: profile, password: password);
-      state = state.copyWith(isReady: true, isBusy: false, user: user);
+      state = state.copyWith(
+        isReady: true,
+        isBusy: false,
+        user: user,
+        clearPendingRegistration: true,
+      );
       return true;
     } on EncbaAuthException catch (error) {
       state = state.copyWith(isBusy: false, error: error.message);
@@ -100,6 +148,62 @@ class AuthController extends StateNotifier<AuthState> {
       );
       return false;
     }
+  }
+
+  Future<bool> startGoogleSignIn({bool forSignUp = false}) async {
+    state = state.copyWith(isBusy: true, clearError: true);
+    try {
+      await _repo.startGoogleSignIn(forSignUp: forSignUp);
+      state = state.copyWith(isBusy: false);
+      return true;
+    } on EncbaAuthException catch (error) {
+      state = state.copyWith(isBusy: false, error: error.message);
+      return false;
+    } on Object {
+      state = state.copyWith(
+        isBusy: false,
+        error: 'Google 로그인을 시작하지 못했습니다. 다시 시도해 주세요.',
+      );
+      return false;
+    }
+  }
+
+  Future<bool> completeGoogleRegistration(
+    UserProfile profile, {
+    required String password,
+  }) async {
+    state = state.copyWith(isBusy: true, clearError: true);
+    try {
+      final user = await _repo.completeGoogleRegistration(
+        profile,
+        password: password,
+      );
+      state = state.copyWith(
+        isReady: true,
+        isBusy: false,
+        user: user,
+        clearPendingRegistration: true,
+      );
+      return true;
+    } on EncbaAuthException catch (error) {
+      state = state.copyWith(isBusy: false, error: error.message);
+      return false;
+    } on Object {
+      state = state.copyWith(
+        isBusy: false,
+        error: '회원정보를 저장하지 못했습니다. 다시 시도해 주세요.',
+      );
+      return false;
+    }
+  }
+
+  Future<void> cancelGoogleRegistration() async {
+    await _repo.signOut();
+    state = state.copyWith(
+      clearUser: true,
+      clearPendingRegistration: true,
+      clearError: true,
+    );
   }
 
   Future<bool> updateProfile(UserProfile profile) async {
@@ -122,7 +226,11 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<void> signOut() async {
     await _repo.signOut();
-    state = state.copyWith(clearUser: true, clearError: true);
+    state = state.copyWith(
+      clearUser: true,
+      clearPendingRegistration: true,
+      clearError: true,
+    );
   }
 
   Future<void> _handleAuthChange(supabase.AuthState event) async {
@@ -131,6 +239,7 @@ class AuthController extends StateNotifier<AuthState> {
         isReady: true,
         sessionRevision: state.sessionRevision + 1,
         clearUser: true,
+        clearPendingRegistration: true,
         clearError: true,
       );
       return;
@@ -138,11 +247,14 @@ class AuthController extends StateNotifier<AuthState> {
     if (event.session?.user != null &&
         state.user?.id != event.session!.user.id) {
       try {
-        final profile = await _repo.refreshProfile();
+        final session = await _repo.refreshSessionState();
         state = state.copyWith(
           isReady: true,
           sessionRevision: state.sessionRevision + 1,
-          user: profile,
+          user: session.profile,
+          clearUser: session.profile == null,
+          pendingRegistration: session.pendingRegistration,
+          clearPendingRegistration: session.pendingRegistration == null,
           clearError: true,
         );
       } on EncbaAuthException catch (error) {

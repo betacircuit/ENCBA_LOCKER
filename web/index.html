@@ -31,8 +31,22 @@
 
   <title>ENCBA LOCKER</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #e9eef5; }
+    #encba-boot {
+      position: fixed; inset: 0; display: grid; place-items: center;
+      color: #0b2347; font: 700 14px/1.4 system-ui, sans-serif;
+    }
+    #encba-boot::before {
+      content: ""; width: 28px; height: 28px; margin-right: 10px;
+      border: 3px solid #c9d7e8; border-top-color: #00539b;
+      border-radius: 50%; animation: encba-spin .8s linear infinite;
+    }
+    @keyframes encba-spin { to { transform: rotate(360deg); } }
+  </style>
 </head>
 <body>
+  <div id="encba-boot" role="status" aria-live="polite">ENCBA LOCKER 불러오는 중</div>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
@@ -41,6 +55,11 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      document.getElementById('encba-boot')?.remove();
+    });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

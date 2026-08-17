@@ -1,34 +1,37 @@
-// ignore_for_file: deprecated_member_use, avoid_web_libraries_in_flutter
-
 import 'dart:async';
-import 'dart:html' as html;
+import 'dart:js_interop';
 
 import 'package:encba_locker/core/storage/local_store.dart';
+import 'package:web/web.dart' as web;
 
 class WebNotificationService {
   static const _enabledKey = 'encba.notifications.enabled.v1';
+  static const _icon = 'icons/Icon-192.png';
 
   Future<bool> enableAndTest() async {
-    final permission = await html.Notification.requestPermission();
+    final permission =
+        (await web.Notification.requestPermission().toDart).toDart;
     if (permission != 'granted') return false;
     await LocalStore().setString(_enabledKey, 'true');
-    html.Notification(
+    web.Notification(
       'ENCBA LOCKER',
-      body: '웹 알림이 켜졌습니다. 새 공지와 일정 변경을 알려드릴게요.',
-      icon: 'icons/Icon-192.png',
+      web.NotificationOptions(
+        body: '웹 알림이 켜졌습니다. 새 공지와 일정 변경을 알려드릴게요.',
+        icon: _icon,
+      ),
     );
     return true;
   }
 
   Future<bool> isEnabled() async =>
-      html.Notification.permission == 'granted' &&
+      web.Notification.permission == 'granted' &&
       await LocalStore().getString(_enabledKey) == 'true';
 
   Future<void> disable() => LocalStore().setString(_enabledKey, 'false');
 
   Future<bool> show(String title, String body) async {
     if (!await isEnabled()) return false;
-    html.Notification(title, body: body, icon: 'icons/Icon-192.png');
+    web.Notification(title, web.NotificationOptions(body: body, icon: _icon));
     return true;
   }
 

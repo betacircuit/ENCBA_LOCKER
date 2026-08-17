@@ -10,80 +10,217 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class LockerState {
-  const LockerState({
+class LockerUiState {
+  const LockerUiState({
     this.isReady = false,
-    this.tabIndex = 2,
     this.gameSegment = 1,
     this.gameSubSegment = 0,
     this.videoSegment = 0,
     this.memberSegment = 0,
     this.unreadNotifications = 0,
-    this.attendance = const {},
-    this.events = const [],
-    this.videos = const [],
-    this.likedVideoIds = const {},
-    this.videoComments = const {},
-    this.members = const [],
-    this.announcements = const [],
-    this.operations = const [],
-    this.homecomingContacts = const [],
-    this.homecomingCampaign,
-    this.videoWatchSummaries = const {},
-    this.eventRosters = const {},
-    this.eventAttendance = const {},
-    this.eventStrategies = const {},
-    this.operationExchangeBoard = const [],
-    this.operationSwapRequests = const [],
-    this.auditEntries = const [],
-    this.attendanceRates = const AttendanceRates(),
-    this.hasMoreEvents = false,
-    this.isLoadingMoreEvents = false,
     this.isOfflineCache = false,
     this.error,
   });
 
   final bool isReady;
-  final int tabIndex;
   final int gameSegment;
   final int gameSubSegment;
   final int videoSegment;
   final int memberSegment;
   final int unreadNotifications;
+  final bool isOfflineCache;
+  final String? error;
+}
+
+class LockerEventsState {
+  const LockerEventsState({
+    this.attendance = const {},
+    this.events = const [],
+    this.eventRosters = const {},
+    this.eventAttendance = const {},
+    this.eventStrategies = const {},
+    this.attendanceRates = const AttendanceRates(),
+    this.hasMoreEvents = false,
+    this.isLoadingMoreEvents = false,
+  });
+
   final Map<String, String> attendance;
   final List<LockerEvent> events;
+  final Map<String, List<EventRosterMember>> eventRosters;
+  final Map<String, List<AttendanceResponse>> eventAttendance;
+  final Map<String, EventStrategy> eventStrategies;
+  final AttendanceRates attendanceRates;
+  final bool hasMoreEvents;
+  final bool isLoadingMoreEvents;
+
+  List<LockerEvent> plannerEventsWith(LockerOperationsState operationsState) {
+    final merged = <LockerEvent>[
+      ...events,
+      ...operationsState.operations.map(
+        (assignment) => assignment.toPlannerEvent(),
+      ),
+    ]..sort((a, b) => a.start.compareTo(b.start));
+    return merged;
+  }
+}
+
+class LockerVideosState {
+  const LockerVideosState({
+    this.videos = const [],
+    this.likedVideoIds = const {},
+    this.videoComments = const {},
+  });
+
   final List<VideoItem> videos;
   final Set<String> likedVideoIds;
   final Map<String, List<VideoCommentItem>> videoComments;
+}
+
+class LockerMembersState {
+  const LockerMembersState({this.members = const []});
+
   final List<MemberProfile> members;
+}
+
+class LockerOperationsState {
+  const LockerOperationsState({
+    this.announcements = const [],
+    this.operations = const [],
+    this.homecomingContacts = const [],
+    this.homecomingCampaign,
+    this.operationExchangeBoard = const [],
+    this.operationSwapRequests = const [],
+    this.auditEntries = const [],
+  });
+
   final List<AnnouncementItem> announcements;
   final List<OperationAssignment> operations;
   final List<HomecomingContact> homecomingContacts;
   final HomecomingCampaign? homecomingCampaign;
-  final Map<String, List<VideoWatchSummary>> videoWatchSummaries;
-  final Map<String, List<EventRosterMember>> eventRosters;
-  final Map<String, List<AttendanceResponse>> eventAttendance;
-  final Map<String, EventStrategy> eventStrategies;
   final List<OperationAssignment> operationExchangeBoard;
   final List<OperationSwapRequest> operationSwapRequests;
   final List<AuditEntry> auditEntries;
-  final AttendanceRates attendanceRates;
-  final bool hasMoreEvents;
-  final bool isLoadingMoreEvents;
-  final bool isOfflineCache;
-  final String? error;
+}
 
-  List<LockerEvent> get plannerEvents {
-    final merged = <LockerEvent>[
-      ...events,
-      ...operations.map((assignment) => assignment.toPlannerEvent()),
-    ]..sort((a, b) => a.start.compareTo(b.start));
-    return merged;
-  }
+class LockerState {
+  LockerState({
+    bool isReady = false,
+    int gameSegment = 1,
+    int gameSubSegment = 0,
+    int videoSegment = 0,
+    int memberSegment = 0,
+    int unreadNotifications = 0,
+    Map<String, String> attendance = const {},
+    List<LockerEvent> events = const [],
+    List<VideoItem> videos = const [],
+    Set<String> likedVideoIds = const {},
+    Map<String, List<VideoCommentItem>> videoComments = const {},
+    List<MemberProfile> members = const [],
+    List<AnnouncementItem> announcements = const [],
+    List<OperationAssignment> operations = const [],
+    List<HomecomingContact> homecomingContacts = const [],
+    HomecomingCampaign? homecomingCampaign,
+    Map<String, List<EventRosterMember>> eventRosters = const {},
+    Map<String, List<AttendanceResponse>> eventAttendance = const {},
+    Map<String, EventStrategy> eventStrategies = const {},
+    List<OperationAssignment> operationExchangeBoard = const [],
+    List<OperationSwapRequest> operationSwapRequests = const [],
+    List<AuditEntry> auditEntries = const [],
+    AttendanceRates attendanceRates = const AttendanceRates(),
+    bool hasMoreEvents = false,
+    bool isLoadingMoreEvents = false,
+    bool isOfflineCache = false,
+    String? error,
+  }) : ui = LockerUiState(
+         isReady: isReady,
+         gameSegment: gameSegment,
+         gameSubSegment: gameSubSegment,
+         videoSegment: videoSegment,
+         memberSegment: memberSegment,
+         unreadNotifications: unreadNotifications,
+         isOfflineCache: isOfflineCache,
+         error: error,
+       ),
+       eventsState = LockerEventsState(
+         attendance: attendance,
+         events: events,
+         eventRosters: eventRosters,
+         eventAttendance: eventAttendance,
+         eventStrategies: eventStrategies,
+         attendanceRates: attendanceRates,
+         hasMoreEvents: hasMoreEvents,
+         isLoadingMoreEvents: isLoadingMoreEvents,
+       ),
+       videosState = LockerVideosState(
+         videos: videos,
+         likedVideoIds: likedVideoIds,
+         videoComments: videoComments,
+       ),
+       membersState = LockerMembersState(members: members),
+       operationsState = LockerOperationsState(
+         announcements: announcements,
+         operations: operations,
+         homecomingContacts: homecomingContacts,
+         homecomingCampaign: homecomingCampaign,
+         operationExchangeBoard: operationExchangeBoard,
+         operationSwapRequests: operationSwapRequests,
+         auditEntries: auditEntries,
+       );
+
+  LockerState._({
+    required this.ui,
+    required this.eventsState,
+    required this.videosState,
+    required this.membersState,
+    required this.operationsState,
+  });
+
+  final LockerUiState ui;
+  final LockerEventsState eventsState;
+  final LockerVideosState videosState;
+  final LockerMembersState membersState;
+  final LockerOperationsState operationsState;
+
+  bool get isReady => ui.isReady;
+  int get gameSegment => ui.gameSegment;
+  int get gameSubSegment => ui.gameSubSegment;
+  int get videoSegment => ui.videoSegment;
+  int get memberSegment => ui.memberSegment;
+  int get unreadNotifications => ui.unreadNotifications;
+  bool get isOfflineCache => ui.isOfflineCache;
+  String? get error => ui.error;
+  Map<String, String> get attendance => eventsState.attendance;
+  List<LockerEvent> get events => eventsState.events;
+  Map<String, List<EventRosterMember>> get eventRosters =>
+      eventsState.eventRosters;
+  Map<String, List<AttendanceResponse>> get eventAttendance =>
+      eventsState.eventAttendance;
+  Map<String, EventStrategy> get eventStrategies => eventsState.eventStrategies;
+  AttendanceRates get attendanceRates => eventsState.attendanceRates;
+  bool get hasMoreEvents => eventsState.hasMoreEvents;
+  bool get isLoadingMoreEvents => eventsState.isLoadingMoreEvents;
+  List<VideoItem> get videos => videosState.videos;
+  Set<String> get likedVideoIds => videosState.likedVideoIds;
+  Map<String, List<VideoCommentItem>> get videoComments =>
+      videosState.videoComments;
+  List<MemberProfile> get members => membersState.members;
+  List<AnnouncementItem> get announcements => operationsState.announcements;
+  List<OperationAssignment> get operations => operationsState.operations;
+  List<HomecomingContact> get homecomingContacts =>
+      operationsState.homecomingContacts;
+  HomecomingCampaign? get homecomingCampaign =>
+      operationsState.homecomingCampaign;
+  List<OperationAssignment> get operationExchangeBoard =>
+      operationsState.operationExchangeBoard;
+  List<OperationSwapRequest> get operationSwapRequests =>
+      operationsState.operationSwapRequests;
+  List<AuditEntry> get auditEntries => operationsState.auditEntries;
+
+  List<LockerEvent> get plannerEvents =>
+      eventsState.plannerEventsWith(operationsState);
 
   LockerState copyWith({
     bool? isReady,
-    int? tabIndex,
     int? gameSegment,
     int? gameSubSegment,
     int? videoSegment,
@@ -100,7 +237,6 @@ class LockerState {
     List<HomecomingContact>? homecomingContacts,
     HomecomingCampaign? homecomingCampaign,
     bool clearHomecomingCampaign = false,
-    Map<String, List<VideoWatchSummary>>? videoWatchSummaries,
     Map<String, List<EventRosterMember>>? eventRosters,
     Map<String, List<AttendanceResponse>>? eventAttendance,
     Map<String, EventStrategy>? eventStrategies,
@@ -113,78 +249,143 @@ class LockerState {
     bool? isOfflineCache,
     String? error,
     bool clearError = false,
-  }) => LockerState(
-    isReady: isReady ?? this.isReady,
-    tabIndex: tabIndex ?? this.tabIndex,
-    gameSegment: gameSegment ?? this.gameSegment,
-    gameSubSegment: gameSubSegment ?? this.gameSubSegment,
-    videoSegment: videoSegment ?? this.videoSegment,
-    memberSegment: memberSegment ?? this.memberSegment,
-    unreadNotifications: unreadNotifications ?? this.unreadNotifications,
-    attendance: attendance ?? this.attendance,
-    events: events ?? this.events,
-    videos: videos ?? this.videos,
-    likedVideoIds: likedVideoIds ?? this.likedVideoIds,
-    videoComments: videoComments ?? this.videoComments,
-    members: members ?? this.members,
-    announcements: announcements ?? this.announcements,
-    operations: operations ?? this.operations,
-    homecomingContacts: homecomingContacts ?? this.homecomingContacts,
-    homecomingCampaign: clearHomecomingCampaign
-        ? null
-        : homecomingCampaign ?? this.homecomingCampaign,
-    videoWatchSummaries: videoWatchSummaries ?? this.videoWatchSummaries,
-    eventRosters: eventRosters ?? this.eventRosters,
-    eventAttendance: eventAttendance ?? this.eventAttendance,
-    eventStrategies: eventStrategies ?? this.eventStrategies,
-    operationExchangeBoard:
-        operationExchangeBoard ?? this.operationExchangeBoard,
-    operationSwapRequests: operationSwapRequests ?? this.operationSwapRequests,
-    auditEntries: auditEntries ?? this.auditEntries,
-    attendanceRates: attendanceRates ?? this.attendanceRates,
-    hasMoreEvents: hasMoreEvents ?? this.hasMoreEvents,
-    isLoadingMoreEvents: isLoadingMoreEvents ?? this.isLoadingMoreEvents,
-    isOfflineCache: isOfflineCache ?? this.isOfflineCache,
-    error: clearError ? null : error ?? this.error,
-  );
+  }) {
+    final uiChanged =
+        isReady != null ||
+        gameSegment != null ||
+        gameSubSegment != null ||
+        videoSegment != null ||
+        memberSegment != null ||
+        unreadNotifications != null ||
+        isOfflineCache != null ||
+        error != null ||
+        clearError;
+    final eventsChanged =
+        attendance != null ||
+        events != null ||
+        eventRosters != null ||
+        eventAttendance != null ||
+        eventStrategies != null ||
+        attendanceRates != null ||
+        hasMoreEvents != null ||
+        isLoadingMoreEvents != null;
+    final videosChanged =
+        videos != null || likedVideoIds != null || videoComments != null;
+    final membersChanged = members != null;
+    final operationsChanged =
+        announcements != null ||
+        operations != null ||
+        homecomingContacts != null ||
+        homecomingCampaign != null ||
+        clearHomecomingCampaign ||
+        operationExchangeBoard != null ||
+        operationSwapRequests != null ||
+        auditEntries != null;
+
+    return LockerState._(
+      ui: uiChanged
+          ? LockerUiState(
+              isReady: isReady ?? this.isReady,
+              gameSegment: gameSegment ?? this.gameSegment,
+              gameSubSegment: gameSubSegment ?? this.gameSubSegment,
+              videoSegment: videoSegment ?? this.videoSegment,
+              memberSegment: memberSegment ?? this.memberSegment,
+              unreadNotifications:
+                  unreadNotifications ?? this.unreadNotifications,
+              isOfflineCache: isOfflineCache ?? this.isOfflineCache,
+              error: clearError ? null : error ?? this.error,
+            )
+          : ui,
+      eventsState: eventsChanged
+          ? LockerEventsState(
+              attendance: attendance ?? this.attendance,
+              events: events ?? this.events,
+              eventRosters: eventRosters ?? this.eventRosters,
+              eventAttendance: eventAttendance ?? this.eventAttendance,
+              eventStrategies: eventStrategies ?? this.eventStrategies,
+              attendanceRates: attendanceRates ?? this.attendanceRates,
+              hasMoreEvents: hasMoreEvents ?? this.hasMoreEvents,
+              isLoadingMoreEvents:
+                  isLoadingMoreEvents ?? this.isLoadingMoreEvents,
+            )
+          : eventsState,
+      videosState: videosChanged
+          ? LockerVideosState(
+              videos: videos ?? this.videos,
+              likedVideoIds: likedVideoIds ?? this.likedVideoIds,
+              videoComments: videoComments ?? this.videoComments,
+            )
+          : videosState,
+      membersState: membersChanged
+          ? LockerMembersState(members: members)
+          : membersState,
+      operationsState: operationsChanged
+          ? LockerOperationsState(
+              announcements: announcements ?? this.announcements,
+              operations: operations ?? this.operations,
+              homecomingContacts: homecomingContacts ?? this.homecomingContacts,
+              homecomingCampaign: clearHomecomingCampaign
+                  ? null
+                  : homecomingCampaign ?? this.homecomingCampaign,
+              operationExchangeBoard:
+                  operationExchangeBoard ?? this.operationExchangeBoard,
+              operationSwapRequests:
+                  operationSwapRequests ?? this.operationSwapRequests,
+              auditEntries: auditEntries ?? this.auditEntries,
+            )
+          : operationsState,
+    );
+  }
 }
 
 class LockerController extends StateNotifier<LockerState> {
-  LockerController(this._repository) : super(const LockerState()) {
+  LockerController(this._repository) : super(LockerState()) {
     _load();
   }
 
-  LockerController.seeded()
+  LockerController.seeded({LockerState? initialState})
     : _repository = null,
       super(
-        LockerState(
-          isReady: true,
-          events: _seedEvents(),
-          videos: _seedVideos(),
-          members: _seedMembers(),
-        ),
+        initialState ??
+            LockerState(
+              isReady: true,
+              events: _seedEvents(),
+              videos: _seedVideos(),
+              members: _seedMembers(),
+            ),
       );
 
   final SupabaseLockerRepository? _repository;
   RealtimeChannel? _announcementChannel;
   RealtimeChannel? _operationSwapChannel;
   Timer? _undecidedReminderTimer;
+  Future<void>? _loadInFlight;
+  final Map<String, int> _voteRevisions = {};
+  final Map<String, Future<void>> _voteWriteTails = {};
+
+  /// 멤버를 다시 읽을 때 화면에 걸려 있던 검색·필터를 그대로 다시 건다.
+  /// 조건을 잃으면 수정 직후 목록이 통째로 갈아엎여 저장이 안 된 것처럼 보인다.
+  String _memberQuery = '';
+  String _memberMembership = 'ALL';
   static const _reminderStoreKey = 'encba.undecided-reminders.v1';
 
-  Future<void> _load() async {
+  Future<void> _load() {
+    final inFlight = _loadInFlight;
+    if (inFlight != null) return inFlight;
+    final next = _performLoad();
+    _loadInFlight = next;
+    return next.whenComplete(() {
+      if (identical(_loadInFlight, next)) _loadInFlight = null;
+    });
+  }
+
+  Future<void> _performLoad() async {
     final repository = _repository!;
     try {
-      final snapshot = await repository.load();
-      state = state.copyWith(
-        isReady: true,
-        events: snapshot.events,
-        attendance: snapshot.attendance,
-        videos: snapshot.videos,
-        likedVideoIds: snapshot.likedVideoIds,
-        hasMoreEvents: snapshot.hasMoreEvents,
-        isOfflineCache: snapshot.fromCache,
-        clearError: true,
-      );
+      final cached = await repository.loadCached();
+      if (cached != null) _applySnapshot(cached);
+      final snapshot = await repository.load(fallback: cached);
+      _applySnapshot(snapshot);
 
       final membersFuture = _orDefault(
         repository.loadMembers(),
@@ -271,13 +472,21 @@ class LockerController extends StateNotifier<LockerState> {
       });
     } on Object catch (error, stackTrace) {
       debugPrint('ENCBA data sync failed: $error\n$stackTrace');
-      state = state.copyWith(
-        isReady: true,
-        events: const [],
-        videos: const [],
-        error: '서버 데이터를 불러오지 못했습니다.',
-      );
+      state = state.copyWith(isReady: true, error: '서버 데이터를 불러오지 못했습니다.');
     }
+  }
+
+  void _applySnapshot(LockerSnapshot snapshot) {
+    state = state.copyWith(
+      isReady: true,
+      events: snapshot.events,
+      attendance: snapshot.attendance,
+      videos: snapshot.videos,
+      likedVideoIds: snapshot.likedVideoIds,
+      hasMoreEvents: snapshot.hasMoreEvents,
+      isOfflineCache: snapshot.fromCache,
+      clearError: true,
+    );
   }
 
   @override
@@ -301,7 +510,6 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
-  void selectTab(int index) => state = state.copyWith(tabIndex: index);
   void selectGameSegment(int index) =>
       state = state.copyWith(gameSegment: index, gameSubSegment: 0);
   void selectGameSubSegment(int index) =>
@@ -347,15 +555,37 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
+  /// 초기 페이지에 없는 일정도 공유 주소의 ID로 읽어 현재 상태에 합친다.
+  Future<bool> ensureEvent(String id) async {
+    if (state.plannerEvents.any((event) => event.id == id)) return true;
+    final repository = _repository;
+    if (repository == null) return false;
+    final event = await repository.loadEvent(id);
+    if (event == null) return false;
+    final byId = {
+      for (final item in state.events) item.id: item,
+      event.id: event,
+    };
+    final events = byId.values.toList()
+      ..sort((a, b) {
+        final byStart = a.start.compareTo(b.start);
+        return byStart != 0 ? byStart : a.id.compareTo(b.id);
+      });
+    state = state.copyWith(events: events, clearError: true);
+    return true;
+  }
+
   void readNotifications() => state = state.copyWith(unreadNotifications: 0);
   void refreshUndecidedReminders() => unawaited(_scheduleUndecidedReminder());
 
   Future<void> _selectMemberSegment(int index) async {
     state = state.copyWith(memberSegment: index);
     if (_repository == null) return;
+    _memberMembership = index == 0 ? 'ALL' : 'MILITARY';
     try {
       final members = await _repository.loadMembers(
-        membership: index == 0 ? 'ALL' : 'MILITARY',
+        membership: _memberMembership,
+        query: _memberQuery,
       );
       state = state.copyWith(members: members, clearError: true);
     } on Object {
@@ -365,12 +595,47 @@ class LockerController extends StateNotifier<LockerState> {
 
   Future<void> searchMembers(String query) async {
     if (_repository == null) return;
+    _memberQuery = query;
     try {
-      final members = await _repository.loadMembers(query: query);
+      final members = await _repository.loadMembers(
+        membership: _memberMembership,
+        query: query,
+      );
       state = state.copyWith(members: members, clearError: true);
     } on Object {
       state = state.copyWith(error: '멤버 검색에 실패했습니다.');
     }
+  }
+
+  /// 검색 결과에서 빠진 멤버도 상세 주소의 ID로 읽어 현재 상태에 합친다.
+  Future<bool> ensureMember(String id) async {
+    if (state.members.any((member) => member.id == id)) return true;
+    final repository = _repository;
+    if (repository == null) return false;
+    final member = await repository.loadMember(id);
+    if (member == null) return false;
+    state = state.copyWith(
+      members: [...state.members.where((item) => item.id != member.id), member],
+      clearError: true,
+    );
+    return true;
+  }
+
+  /// 공지 목록의 로드 범위와 무관하게 공유 주소의 공지를 상태에 합친다.
+  Future<bool> ensureAnnouncement(String id) async {
+    if (state.announcements.any((notice) => notice.id == id)) return true;
+    final repository = _repository;
+    if (repository == null) return false;
+    final notice = await repository.loadAnnouncement(id);
+    if (notice == null) return false;
+    state = state.copyWith(
+      announcements: [
+        notice,
+        ...state.announcements.where((item) => item.id != notice.id),
+      ],
+      clearError: true,
+    );
+    return true;
   }
 
   Future<bool> setMemberActive(MemberProfile member, bool isActive) async {
@@ -393,19 +658,62 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
-  Future<bool> updateMember(MemberProfile member) async {
-    if (_repository == null || member.id == null) return false;
+  /// 성공하면 null, 실패하면 화면에 그대로 띄울 사유를 돌려준다.
+  /// 예전에는 실패 사유를 삼키고 '수정하지 못했습니다'만 보여줘서
+  /// 어디가 막혔는지 알 수 없었다.
+  Future<String?> updateMember(MemberProfile member) async {
+    if (_repository == null || member.id == null) {
+      return '멤버 정보를 수정할 수 없는 상태입니다.';
+    }
     try {
       await _repository.updateMember(member);
-      final members = state.members
-          .map((item) => item.id == member.id ? member : item)
-          .toList();
-      state = state.copyWith(members: members, clearError: true);
-      return true;
-    } on Object {
-      state = state.copyWith(error: '멤버 정보를 수정하지 못했습니다.');
-      return false;
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA member update failed: $error\n$stackTrace');
+      final message = _memberUpdateMessage(error);
+      state = state.copyWith(error: message);
+      return message;
     }
+    // 서버가 이름 공백을 다듬거나 뱃지를 다시 계산하므로 저장된 값을 다시 읽는다.
+    // 재조회가 실패해도 방금 저장한 값은 화면에 남겨 둔다.
+    final members = await _orDefault(
+      _repository.loadMembers(
+        membership: _memberMembership,
+        query: _memberQuery,
+      ),
+      state.members
+          .map((item) => item.id == member.id ? member : item)
+          .toList(growable: false),
+    );
+    // 검색 조건 때문에 방금 고친 멤버가 목록에서 빠지면 상세 화면이 빈 채로
+    // 남는다. 조건과 무관하게 그 한 명은 붙여 둔다.
+    final refreshed = members.any((item) => item.id == member.id)
+        ? members
+        : [...members, member];
+    state = state.copyWith(members: refreshed, clearError: true);
+    return null;
+  }
+
+  String _memberUpdateMessage(Object error) {
+    final text = error is PostgrestException
+        ? '${error.code ?? ''} ${error.message}'
+        : error.toString();
+    if (text.contains('ENCBA_RESERVATION_ROLE_ADMIN_ONLY')) {
+      return '체육관 예약자 지정은 관리자만 바꿀 수 있습니다.';
+    }
+    if (text.contains('ENCBA_DEPARTMENT_ADMIN_ONLY')) {
+      return '학과는 관리자만 바꿀 수 있습니다.';
+    }
+    if (text.contains('ENCBA_ADMIN_OR_CAPTAIN_REQUIRED')) {
+      return '관리자나 주장만 멤버 정보를 수정할 수 있습니다.';
+    }
+    if (text.contains('ENCBA_INVALID_MEMBER_PROFILE')) {
+      return '학번·가입 연도·등번호·소속을 확인해 주세요.';
+    }
+    if (text.contains('PGRST202') ||
+        text.contains('Could not find the function')) {
+      return '서버에 최신 마이그레이션이 적용되지 않았습니다. supabase db push가 필요합니다.';
+    }
+    return '멤버 정보를 수정하지 못했습니다.';
   }
 
   Future<bool> updateHomecomingContact(HomecomingContact contact) async {
@@ -583,6 +891,8 @@ class LockerController extends StateNotifier<LockerState> {
     String value, {
     String? absenceReason,
   }) async {
+    final revision = (_voteRevisions[eventId] ?? 0) + 1;
+    _voteRevisions[eventId] = revision;
     final previous = state.attendance;
     final previousEvents = state.events;
     final previousValue = previous[eventId] ?? '미정';
@@ -598,11 +908,24 @@ class LockerController extends StateNotifier<LockerState> {
         )
         .toList();
     state = state.copyWith(attendance: next, events: nextEvents);
-    try {
+
+    await Future<void>.delayed(const Duration(milliseconds: 220));
+    if (_voteRevisions[eventId] != revision) return true;
+
+    final priorWrite = _voteWriteTails[eventId] ?? Future<void>.value();
+    final write = priorWrite.catchError((_) {}).then((_) async {
+      if (_voteRevisions[eventId] != revision) return;
       await _repository?.vote(eventId, value, absenceReason: absenceReason);
+    });
+    _voteWriteTails[eventId] = write;
+    try {
+      await write;
+      if (_voteRevisions[eventId] != revision) return true;
       unawaited(_scheduleUndecidedReminder());
       return true;
-    } on Object {
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA attendance save failed: $error\n$stackTrace');
+      if (_voteRevisions[eventId] != revision) return false;
       state = state.copyWith(
         attendance: previous,
         events: previousEvents,
@@ -626,9 +949,10 @@ class LockerController extends StateNotifier<LockerState> {
       }
     }
     final now = DateTime.now();
-    final undecided = state.events.where(
-      (event) => state.attendance[event.id] == '미정' && event.start.isAfter(now),
-    );
+    final undecided = state.events.where((event) {
+      final response = state.attendance[event.id];
+      return (response == null || response == '미정') && event.start.isAfter(now);
+    });
     final due = undecided.where(
       (event) =>
           !sent.contains(event.id) &&
@@ -660,36 +984,6 @@ class LockerController extends StateNotifier<LockerState> {
         futureTargets.first.difference(now),
         () => unawaited(_scheduleUndecidedReminder()),
       );
-    }
-  }
-
-  Future<void> recordVideoWatch({
-    required String videoId,
-    required int watchedSeconds,
-    required int lastPositionSeconds,
-    required bool completed,
-  }) async {
-    try {
-      await _repository?.recordVideoWatch(
-        videoId: videoId,
-        watchedSeconds: watchedSeconds,
-        lastPositionSeconds: lastPositionSeconds,
-        completed: completed,
-      );
-    } on Object {
-      // 시청 기록 실패가 재생을 방해하지 않도록 다음 주기에 다시 보낸다.
-    }
-  }
-
-  Future<void> loadVideoWatchSummary(String videoId) async {
-    if (_repository == null) return;
-    try {
-      final summary = await _repository.loadVideoWatchSummary(videoId);
-      state = state.copyWith(
-        videoWatchSummaries: {...state.videoWatchSummaries, videoId: summary},
-      );
-    } on Object {
-      state = state.copyWith(error: '시청 현황을 불러오지 못했습니다.');
     }
   }
 
@@ -777,10 +1071,29 @@ class LockerController extends StateNotifier<LockerState> {
         }
       }
       return true;
-    } on Object {
-      state = state.copyWith(error: '일정을 저장하지 못했습니다.');
+    } on LockerRepositoryException catch (error, stackTrace) {
+      debugPrint('ENCBA event save failed: $error\n$stackTrace');
+      state = state.copyWith(error: error.message);
+      return false;
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA event save failed: $error\n$stackTrace');
+      state = state.copyWith(error: '일정을 저장하지 못했습니다: $error');
       return false;
     }
+  }
+
+  Future<List<AttendanceReportRow>> loadAttendanceReport({
+    required DateTime from,
+    required DateTime to,
+    required bool freshmenOnly,
+  }) async {
+    final repository = _repository;
+    if (repository == null) return const [];
+    return repository.loadAttendanceReport(
+      from: from,
+      to: to,
+      freshmenOnly: freshmenOnly,
+    );
   }
 
   Future<void> loadEventStrategy(String eventId) async {
@@ -853,47 +1166,18 @@ class LockerController extends StateNotifier<LockerState> {
     );
   }
 
-  Future<int> createDemoEvents() async {
-    if (state.events.any((event) => event.memo.startsWith('테스트 일정 ·'))) {
-      return 0;
-    }
-    var savedCount = 0;
-    for (final source in _seedEvents()) {
-      final event = LockerEvent(
-        id: 'demo-${DateTime.now().microsecondsSinceEpoch}-$savedCount',
-        title: source.title,
-        start: source.start,
-        end: source.end,
-        place: source.place,
-        kind: source.kind,
-        memo: '테스트 일정 · ${source.memo}',
-        court: source.court,
-        uniformColors: source.uniformColors,
-        capacity: source.capacity,
-        targetTeam: source.targetTeam,
-        createdBy: source.createdBy,
-        isRecurring: false,
-        responseEnabled: source.responseEnabled,
-        responseDeadlineOverride: source.responseDeadline,
-        pollOptions: source.pollOptions,
-        visibility: source.visibility,
-        opponents: source.opponents,
-      );
-      if (await saveEvent(event)) savedCount++;
-    }
-    return savedCount;
-  }
-
   Future<bool> addAnnouncement({
     required String title,
     required String body,
     required bool pinned,
+    List<String> linkedEventIds = const [],
   }) async {
     try {
       final saved = await _repository?.addAnnouncement(
         title: title,
         body: body,
         pinned: pinned,
+        linkedEventIds: linkedEventIds,
       );
       if (saved != null) {
         state = state.copyWith(announcements: [saved, ...state.announcements]);
@@ -910,6 +1194,7 @@ class LockerController extends StateNotifier<LockerState> {
     required String title,
     required String body,
     required bool pinned,
+    List<String> linkedEventIds = const [],
   }) async {
     try {
       final saved = await _repository?.updateAnnouncement(
@@ -917,6 +1202,7 @@ class LockerController extends StateNotifier<LockerState> {
         title: title,
         body: body,
         pinned: pinned,
+        linkedEventIds: linkedEventIds,
       );
       if (saved == null) return false;
       state = state.copyWith(
@@ -989,6 +1275,56 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
+  void upsertVideoFromRealtime(VideoItem video) {
+    final next = [...state.videos];
+    final index = next.indexWhere((item) => item.id == video.id);
+    if (index == -1) {
+      next.add(video);
+    } else {
+      next[index] = video;
+    }
+    next.sort((a, b) {
+      final byTime = b.uploadedAt.compareTo(a.uploadedAt);
+      return byTime != 0 ? byTime : a.id.compareTo(b.id);
+    });
+    state = state.copyWith(videos: next, clearError: true);
+  }
+
+  void removeVideoFromRealtime(String id) {
+    if (!state.videos.any((video) => video.id == id)) return;
+    state = state.copyWith(
+      videos: state.videos.where((video) => video.id != id).toList(),
+      likedVideoIds: {...state.likedVideoIds}..remove(id),
+      clearError: true,
+    );
+  }
+
+  Future<void> refreshVideo(String id) async {
+    final repository = _repository;
+    if (repository == null) return;
+    try {
+      final video = await repository.loadVideo(id);
+      if (video == null) {
+        removeVideoFromRealtime(id);
+      } else {
+        upsertVideoFromRealtime(video);
+      }
+    } on Object catch (error) {
+      debugPrint('ENCBA video refresh failed: $error');
+    }
+  }
+
+  /// 초기 영상 페이지에 없는 항목도 공유 주소의 ID로 읽어 현재 상태에 합친다.
+  Future<bool> ensureVideo(String id) async {
+    if (state.videos.any((video) => video.id == id)) return true;
+    final repository = _repository;
+    if (repository == null) return false;
+    final video = await repository.loadVideo(id);
+    if (video == null) return false;
+    upsertVideoFromRealtime(video);
+    return true;
+  }
+
   Future<bool> addVideo(VideoItem video) async {
     try {
       final saved = await _repository?.addVideo(video) ?? video;
@@ -1046,15 +1382,21 @@ class LockerController extends StateNotifier<LockerState> {
 
   Future<bool> addVideoComment({
     required String videoId,
+    required int? quarterNumber,
+    required int? linkId,
     required int timestampSeconds,
     required String body,
+    List<VideoTaggedMember> targetPlayers = const [],
   }) async {
     if (_repository == null) return false;
     try {
       final saved = await _repository.addVideoComment(
         videoId: videoId,
+        quarterNumber: quarterNumber,
+        linkId: linkId,
         timestampSeconds: timestampSeconds,
         body: body,
+        targetPlayers: targetPlayers,
       );
       final comments = [
         ...state.videoComments[videoId] ?? const <VideoCommentItem>[],

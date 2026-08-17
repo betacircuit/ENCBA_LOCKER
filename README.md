@@ -4,14 +4,17 @@
 
 ## 주요 기능
 
-- 실명 기반 Supabase Auth와 가입 허용 명단
+- 학교 Google 계정 기반 신규 가입, 기존 실명 로그인과 가입 허용 명단
 - 공지, 일정, 참석·불참·미정 투표와 팀에 공개되는 불참 사유
 - IB 1·2부, 아농·자개·픽업게임, 연습 경기·삼파전·외부 경기 관리
 - IB·외부 경기 주전 지정과 일정 상세의 공동 전술·전략 노트
 - 서버시각 기반 71동·71-1동 예약 오픈 타이머와 900동 예약 안내
-- YouTube 복기·공유, Instagram 하이라이트, 좋아요·시청 기록
-- 정렬·상태 필터가 있는 멤버 디렉터리, IB 운영표 Excel 가져오기·운영 교환, 홈커밍 연락 보드
-- 오늘의 준비 상태, 한국어 날짜 선택기, 작성자 정보가 채워지는 오류 제보 메일
+- YouTube 복기·공유, Instagram 하이라이트, 좋아요와 링크 복사
+- 복기 영상은 쿼터 수를 늘리거나 쿼터 미정 링크를 덧붙일 수 있고, 경기 날짜를 따로 적습니다
+- 복기 코멘트는 재생 위치를 실시간으로 따라가며, 고정해 두고 작성할 수 있습니다
+- 신입생 특성과 관리자용 전체·신입생 출결표 Excel 내보내기를 갖춘 멤버 디렉터리
+- 복수 일정 연결 공지, IB 운영표 Excel 가져오기·운영 교환, 홈커밍 연락 보드
+- 한국어 날짜 선택기와 작성자 정보가 채워지는 오류 제보 메일
 - 로컬 캐시와 로그인 세션 유지
 - 20건 단위 일정 페이지 조회와 장애별 독립 로딩
 
@@ -24,15 +27,24 @@
 ```env
 SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
+YOUTUBE_API_KEY=YOUR_BROWSER_RESTRICTED_YOUTUBE_API_KEY
+```
+
+VS Code에서는 `ENCBA LOCKER (Chrome + .env)` 실행 구성을 선택합니다. 웹 릴리스 빌드는 아래 명령이 `.env`를 자동으로 전달합니다.
+
+```powershell
+.\tool\build_web.ps1
 ```
 
 ```powershell
 $env:SUPABASE_URL='https://YOUR_PROJECT.supabase.co'
 $env:SUPABASE_PUBLISHABLE_KEY='YOUR_PUBLISHABLE_KEY'
+$env:YOUTUBE_API_KEY='YOUR_BROWSER_RESTRICTED_YOUTUBE_API_KEY'
 C:\flutter\bin\flutter.bat pub get
 C:\flutter\bin\flutter.bat run -d chrome `
   --dart-define="SUPABASE_URL=$env:SUPABASE_URL" `
-  --dart-define="SUPABASE_PUBLISHABLE_KEY=$env:SUPABASE_PUBLISHABLE_KEY"
+  --dart-define="SUPABASE_PUBLISHABLE_KEY=$env:SUPABASE_PUBLISHABLE_KEY" `
+  --dart-define="YOUTUBE_API_KEY=$env:YOUTUBE_API_KEY"
 ```
 
 `service_role` 또는 secret key는 앱, Render, Git에 넣지 않습니다.
@@ -49,8 +61,8 @@ npx supabase migration list --linked
 npx supabase db lint --linked --level error
 ```
 
-초기 명단은 `supabase/seed.sql`에 있습니다. 실명 로그인용 가상 이메일은 앱 내부에서만 만들며 비밀번호는 Supabase Auth가 해시로 저장합니다.
-Supabase Auth의 Email Confirm은 끄고, Site URL에 Render 주소를 등록합니다.
+초기 명단은 `supabase/seed.sql`에 있습니다. 신규 가입은 `snu.ac.kr` 계열 Google 계정을 먼저 인증한 뒤 명단의 실명과 회원정보를 확인합니다. 기존 부원의 실명 로그인용 가상 이메일은 앱 내부에서만 만들며 비밀번호는 Supabase Auth가 해시로 저장합니다.
+Supabase Auth의 Google Provider에는 Google Cloud의 Web Client ID와 Client Secret을 등록하고, Site URL에 Render 주소를 등록합니다. Client Secret은 앱·환경 파일·Git에 넣지 않습니다.
 
 관리자는 `IB 운영 일정` 화면의 업로드 버튼으로 `26-1 IB리그 운영표.xlsx` 형식의 파일을 가져올 수 있습니다. 표의 날짜·운영 A/B·심판·담당자를 읽고, 아직 가입하지 않은 담당자 이름도 보존했다가 가입 후 자동 연결합니다. 마이그레이션 적용 전에는 이 기능이 동작하지 않습니다.
 
@@ -58,9 +70,9 @@ Supabase Auth의 Email Confirm은 끄고, Site URL에 Render 주소를 등록합
 
 `오류 제보`는 웹에서는 Gmail 작성창을, 앱에서는 기기의 기본 메일 앱을 열어 받는 사람, 제목, 작성자·학번·계정·실행 환경과 입력 내용을 자동으로 채웁니다. 마지막 전송은 사용자가 내용을 확인한 뒤 직접 누릅니다.
 
-기능 확인용 일정은 관리자 개인 화면의 `테스트 일정 만들기`에서 한 번에 추가합니다.
+## 알림
 
-## iOS 알림
+웹은 브라우저 Notification API를 사용합니다. 웹 구현은 `package:web`과 `dart.library.js_interop` 조건부 임포트로 작성해 `--wasm` 빌드에서도 그대로 살아 있습니다. `dart:html`은 wasm 타깃에서 사용할 수 없으므로 다시 도입하지 않습니다.
 
 iOS 빌드는 공지와 미정 일정 알림을 네이티브 알림 센터 형식으로 표시합니다. 체육관 예약자에게는 다음 화요일 09:30 오픈 5분 전 로컬 알림을 예약하며, 알림 수신 여부는 홈의 종 아이콘에서 설정합니다. 앱이 완전히 종료된 상태의 원격 푸시는 APNs 키와 서버 발송 함수가 준비된 뒤 연결합니다.
 
@@ -71,7 +83,8 @@ C:\flutter\bin\flutter.bat analyze
 C:\flutter\bin\flutter.bat test
 C:\flutter\bin\flutter.bat build web --release `
   --dart-define="SUPABASE_URL=$env:SUPABASE_URL" `
-  --dart-define="SUPABASE_PUBLISHABLE_KEY=$env:SUPABASE_PUBLISHABLE_KEY"
+  --dart-define="SUPABASE_PUBLISHABLE_KEY=$env:SUPABASE_PUBLISHABLE_KEY" `
+  --dart-define="YOUTUBE_API_KEY=$env:YOUTUBE_API_KEY"
 ```
 
-Render는 루트의 `render.yaml`과 `Dockerfile`을 사용합니다. 환경변수는 `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` 두 개입니다. 자동 배포는 꺼져 있어 Render Dashboard에서 수동 배포합니다.
+Render는 루트의 `render.yaml`과 `Dockerfile`을 사용합니다. 환경변수는 `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `YOUTUBE_API_KEY`입니다. YouTube 키는 HTTP 리퍼러와 YouTube Data API v3로 제한합니다. 자동 배포는 꺼져 있어 Render Dashboard에서 수동 배포합니다.

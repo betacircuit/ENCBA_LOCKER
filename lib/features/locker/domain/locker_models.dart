@@ -78,6 +78,7 @@ class LockerEvent {
     this.starterProfileIds = const [],
     this.starterNames = const [],
     this.mapReference,
+    this.obParticipantCount = 0,
   });
 
   final String id;
@@ -104,6 +105,7 @@ class LockerEvent {
   final List<String> starterProfileIds;
   final List<String> starterNames;
   final String? mapReference;
+  final int obParticipantCount;
 
   bool get isBattle => kind.isBattle;
 
@@ -122,6 +124,7 @@ class LockerEvent {
     List<String>? starterProfileIds,
     List<String>? starterNames,
     String? mapReference,
+    int? obParticipantCount,
   }) => LockerEvent(
     id: id,
     title: title,
@@ -147,6 +150,7 @@ class LockerEvent {
     starterProfileIds: starterProfileIds ?? this.starterProfileIds,
     starterNames: starterNames ?? this.starterNames,
     mapReference: mapReference ?? this.mapReference,
+    obParticipantCount: obParticipantCount ?? this.obParticipantCount,
   );
 
   Map<String, dynamic> toJson() => {
@@ -174,6 +178,7 @@ class LockerEvent {
     'starterProfileIds': starterProfileIds,
     'starterNames': starterNames,
     'mapReference': mapReference,
+    'obParticipantCount': obParticipantCount,
   };
 
   factory LockerEvent.fromJson(Map<String, dynamic> json) => LockerEvent(
@@ -210,6 +215,7 @@ class LockerEvent {
     ),
     starterNames: List<String>.from(json['starterNames'] as List? ?? const []),
     mapReference: json['mapReference'] as String?,
+    obParticipantCount: (json['obParticipantCount'] as num?)?.toInt() ?? 0,
   );
 }
 
@@ -252,6 +258,7 @@ class MemberProfile {
     this.leadershipRole = 'member',
     this.isReservationManager = false,
     this.department = '',
+    this.isFreshman = false,
   });
 
   final String? id;
@@ -270,6 +277,7 @@ class MemberProfile {
   final String leadershipRole;
   final bool isReservationManager;
   final String department;
+  final bool isFreshman;
 
   bool get canAdminister =>
       leadershipRole == 'admin' || leadershipRole == 'captain';
@@ -301,6 +309,7 @@ class MemberProfile {
     String? leadershipRole,
     bool? isReservationManager,
     String? department,
+    bool? isFreshman,
   }) => MemberProfile(
     id: id,
     name: name ?? this.name,
@@ -318,6 +327,7 @@ class MemberProfile {
     leadershipRole: leadershipRole ?? this.leadershipRole,
     isReservationManager: isReservationManager ?? this.isReservationManager,
     department: department ?? this.department,
+    isFreshman: isFreshman ?? this.isFreshman,
   );
 }
 
@@ -329,6 +339,7 @@ class AnnouncementItem {
     required this.author,
     required this.publishedAt,
     this.pinned = false,
+    this.linkedEventIds = const [],
   });
   final String id;
   final String title;
@@ -336,6 +347,33 @@ class AnnouncementItem {
   final String author;
   final DateTime publishedAt;
   final bool pinned;
+  final List<String> linkedEventIds;
+}
+
+class AttendanceReportRow {
+  const AttendanceReportRow({
+    required this.directoryId,
+    required this.memberName,
+    required this.studentYear,
+    required this.isFreshman,
+    required this.eventId,
+    required this.eventTitle,
+    required this.eventStart,
+    required this.eventKind,
+    required this.choice,
+    required this.absenceReason,
+  });
+
+  final String directoryId;
+  final String memberName;
+  final int? studentYear;
+  final bool isFreshman;
+  final String eventId;
+  final String eventTitle;
+  final DateTime eventStart;
+  final String eventKind;
+  final String? choice;
+  final String? absenceReason;
 }
 
 class AttendanceRates {
@@ -509,20 +547,6 @@ class HomecomingCampaign {
   final String? sourceFileName;
 }
 
-class VideoWatchSummary {
-  const VideoWatchSummary({
-    required this.name,
-    required this.watchedSeconds,
-    required this.lastPositionSeconds,
-    required this.completed,
-  });
-
-  final String name;
-  final int watchedSeconds;
-  final int lastPositionSeconds;
-  final bool completed;
-}
-
 class EventRosterMember {
   const EventRosterMember({
     required this.profileId,
@@ -554,6 +578,99 @@ class AuditEntry {
   final DateTime createdAt;
 }
 
+class VideoTaggedMember {
+  const VideoTaggedMember({
+    required this.directoryId,
+    required this.name,
+    this.studentYear,
+    this.jerseyNumber,
+  });
+
+  final String directoryId;
+  final String name;
+  final int? studentYear;
+  final int? jerseyNumber;
+
+  /// 선택 목록에 그대로 쓰는 표기.
+  /// 등번호는 미등록이면 0으로 들어오므로 그때는 이름만 남긴다.
+  String get label => jerseyNumber == null || jerseyNumber == 0
+      ? name
+      : '$name ($jerseyNumber)';
+
+  Map<String, dynamic> toJson() => {
+    'directoryId': directoryId,
+    'name': name,
+    'studentYear': studentYear,
+    'jerseyNumber': jerseyNumber,
+  };
+
+  factory VideoTaggedMember.fromJson(Map<String, dynamic> json) =>
+      VideoTaggedMember(
+        directoryId: json['directoryId'] as String,
+        name: json['name'] as String,
+        studentYear: (json['studentYear'] as num?)?.toInt(),
+        jerseyNumber: (json['jerseyNumber'] as num?)?.toInt(),
+      );
+}
+
+/// 학번이 높은(최근) 부원부터, 같은 학번이면 이름 순으로 세운다.
+int compareTaggedMembers(VideoTaggedMember a, VideoTaggedMember b) {
+  final left = a.studentYear ?? -1;
+  final right = b.studentYear ?? -1;
+  final byYear = right.compareTo(left);
+  return byYear != 0 ? byYear : a.name.compareTo(b.name);
+}
+
+/// 복기 영상에 붙는 링크 하나. [quarterNumber]가 null이면 쿼터 미정이다.
+class VideoLink {
+  const VideoLink({required this.url, this.quarterNumber, this.id});
+
+  final String url;
+  final int? quarterNumber;
+
+  /// 서버가 매긴 링크 id. 코멘트를 이 링크에 묶는 데 쓴다.
+  /// 아직 저장하지 않은 링크는 null이다.
+  final int? id;
+
+  String get label => quarterNumber == null ? '쿼터 미정' : '$quarterNumber쿼터';
+
+  VideoLink copyWith({int? id, int? quarterNumber, String? url}) => VideoLink(
+    url: url ?? this.url,
+    quarterNumber: quarterNumber ?? this.quarterNumber,
+    id: id ?? this.id,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'url': url,
+    'quarterNumber': quarterNumber,
+    'id': id,
+  };
+
+  factory VideoLink.fromJson(Map<String, dynamic> json) => VideoLink(
+    url: json['url'] as String,
+    quarterNumber: (json['quarterNumber'] as num?)?.toInt(),
+    id: (json['id'] as num?)?.toInt(),
+  );
+}
+
+/// 쿼터가 정해진 링크를 먼저 번호순으로, 쿼터 미정은 뒤에 등록 순으로 세운다.
+/// 같은 자리끼리는 들어온 순서를 지켜야 "미정 1, 미정 2" 번호가 흔들리지 않는다.
+List<VideoLink> sortedVideoLinks(Iterable<VideoLink> links) {
+  final indexed = links.indexed.toList()
+    ..sort((a, b) {
+      final left = a.$2.quarterNumber;
+      final right = b.$2.quarterNumber;
+      if (left != right) {
+        if (left == null) return 1;
+        if (right == null) return -1;
+        final byQuarter = left.compareTo(right);
+        if (byQuarter != 0) return byQuarter;
+      }
+      return a.$1.compareTo(b.$1);
+    });
+  return [for (final entry in indexed) entry.$2];
+}
+
 class VideoItem {
   const VideoItem({
     required this.id,
@@ -567,9 +684,11 @@ class VideoItem {
     required this.accent,
     this.likeCount = 0,
     this.sourceType = 'youtube',
-    this.quarterUrls = const [],
+    this.links = const [],
+    this.recordedOn,
     this.audienceType = 'all',
     this.audienceValues = const [],
+    this.reviewPlayers = const [],
   });
 
   final String id;
@@ -583,11 +702,27 @@ class VideoItem {
   final int accent;
   final int likeCount;
   final String sourceType;
-  final List<String?> quarterUrls;
+
+  /// 복기 영상의 쿼터별·쿼터 미정 링크. 다른 분류에서는 비어 있다.
+  final List<VideoLink> links;
+
+  /// 경기가 열린 날. 업로드 날짜와 다를 수 있어 따로 받는다.
+  final DateTime? recordedOn;
   final String audienceType;
   final List<String> audienceValues;
+  final List<VideoTaggedMember> reviewPlayers;
+
+  /// 예전 quarter_1..4 컬럼과 맞물리는 앞 네 쿼터의 링크.
+  List<String?> get quarterUrls => [
+    for (var quarter = 1; quarter <= 4; quarter++)
+      links
+          .where((link) => link.quarterNumber == quarter)
+          .map((link) => link.url)
+          .firstOrNull,
+  ];
 
   VideoItem copyWith({
+    String? id,
     String? title,
     String? durationLabel,
     String? category,
@@ -595,24 +730,31 @@ class VideoItem {
     String? youtubeId,
     int? likeCount,
     String? sourceType,
-    List<String?>? quarterUrls,
+    List<VideoLink>? links,
+    DateTime? recordedOn,
+    bool clearRecordedOn = false,
     String? audienceType,
     List<String>? audienceValues,
+    List<VideoTaggedMember>? reviewPlayers,
+    DateTime? uploadedAt,
+    String? uploader,
   }) => VideoItem(
-    id: id,
+    id: id ?? this.id,
     title: title ?? this.title,
     durationLabel: durationLabel ?? this.durationLabel,
     category: category ?? this.category,
     url: url ?? this.url,
     youtubeId: youtubeId ?? this.youtubeId,
-    uploadedAt: uploadedAt,
-    uploader: uploader,
+    uploadedAt: uploadedAt ?? this.uploadedAt,
+    uploader: uploader ?? this.uploader,
     accent: accent,
     likeCount: likeCount ?? this.likeCount,
     sourceType: sourceType ?? this.sourceType,
-    quarterUrls: quarterUrls ?? this.quarterUrls,
+    links: links ?? this.links,
+    recordedOn: clearRecordedOn ? null : recordedOn ?? this.recordedOn,
     audienceType: audienceType ?? this.audienceType,
     audienceValues: audienceValues ?? this.audienceValues,
+    reviewPlayers: reviewPlayers ?? this.reviewPlayers,
   );
 
   Map<String, dynamic> toJson() => {
@@ -627,9 +769,11 @@ class VideoItem {
     'accent': accent,
     'likeCount': likeCount,
     'sourceType': sourceType,
-    'quarterUrls': quarterUrls,
+    'links': links.map((link) => link.toJson()).toList(),
+    'recordedOn': recordedOn?.toIso8601String(),
     'audienceType': audienceType,
     'audienceValues': audienceValues,
+    'reviewPlayers': reviewPlayers.map((member) => member.toJson()).toList(),
   };
 
   factory VideoItem.fromJson(Map<String, dynamic> json) => VideoItem(
@@ -644,13 +788,34 @@ class VideoItem {
     accent: json['accent'] as int? ?? 0xFF00539B,
     likeCount: json['likeCount'] as int? ?? 0,
     sourceType: json['sourceType'] as String? ?? 'youtube',
-    quarterUrls: (json['quarterUrls'] as List? ?? const [])
-        .map((value) => value as String?)
-        .toList(),
+    links: json['links'] == null
+        // 링크 테이블이 생기기 전에 저장된 캐시는 쿼터 배열만 갖고 있다.
+        ? [
+            for (final (index, value)
+                in (json['quarterUrls'] as List? ?? const []).indexed)
+              if (value is String && value.isNotEmpty)
+                VideoLink(url: value, quarterNumber: index + 1),
+          ]
+        : (json['links'] as List)
+              .map(
+                (value) =>
+                    VideoLink.fromJson(Map<String, dynamic>.from(value as Map)),
+              )
+              .toList(),
+    recordedOn: json['recordedOn'] == null
+        ? null
+        : DateTime.parse(json['recordedOn'] as String),
     audienceType: json['audienceType'] as String? ?? 'all',
     audienceValues: List<String>.from(
       json['audienceValues'] as List? ?? const [],
     ),
+    reviewPlayers: (json['reviewPlayers'] as List? ?? const [])
+        .map(
+          (value) => VideoTaggedMember.fromJson(
+            Map<String, dynamic>.from(value as Map),
+          ),
+        )
+        .toList(),
   );
 }
 
@@ -662,6 +827,9 @@ class VideoCommentItem {
     required this.body,
     required this.author,
     required this.createdAt,
+    this.quarterNumber,
+    this.linkId,
+    this.targetPlayers = const [],
   });
 
   final int id;
@@ -670,4 +838,10 @@ class VideoCommentItem {
   final String body;
   final String author;
   final DateTime createdAt;
+  final int? quarterNumber;
+
+  /// 코멘트가 달린 링크. 쿼터 미정 링크가 여러 개일 수 있어 쿼터 번호만으로는
+  /// 어느 영상의 코멘트인지 가려지지 않는다.
+  final int? linkId;
+  final List<VideoTaggedMember> targetPlayers;
 }

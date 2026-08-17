@@ -1,9 +1,7 @@
-// ignore_for_file: avoid_web_libraries_in_flutter
-
-// ignore: deprecated_member_use
-import 'dart:html' as html;
+import 'dart:js_interop';
 
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
+import 'package:web/web.dart' as web;
 
 Future<bool> addEventToCalendar(LockerEvent event) async {
   String stamp(DateTime value) =>
@@ -27,11 +25,15 @@ LOCATION:${escape(event.fullPlace)}
 DESCRIPTION:${escape(event.memo)}
 END:VEVENT
 END:VCALENDAR''';
-  final blob = html.Blob([ics], 'text/calendar;charset=utf-8');
-  final url = html.Url.createObjectUrlFromBlob(blob);
-  html.AnchorElement(href: url)
+  final blob = web.Blob(
+    [ics.toJS].toJS,
+    web.BlobPropertyBag(type: 'text/calendar;charset=utf-8'),
+  );
+  final url = web.URL.createObjectURL(blob);
+  web.HTMLAnchorElement()
+    ..href = url
     ..download = 'encba-${event.id}.ics'
     ..click();
-  html.Url.revokeObjectUrl(url);
+  web.URL.revokeObjectURL(url);
   return true;
 }

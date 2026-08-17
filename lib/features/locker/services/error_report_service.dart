@@ -1,3 +1,12 @@
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+Future<void> sendErrorReport({
+  required SupabaseClient client,
+  required String body,
+}) async {
+  await client.functions.invoke('send-error-report', body: {'body': body});
+}
+
 Uri buildErrorReportUri({required String body, required bool isWeb}) {
   if (isWeb) {
     return Uri.https('mail.google.com', '/mail/', {

@@ -5,38 +5,165 @@ import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/services/calendar_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+final Map<String, int> _attendanceUiRevisions = {};
+
 Future<void> openEventDetail(
   BuildContext context,
-  LockerEvent event, {
+  String eventId, {
   String heroTagPrefix = 'event',
 }) {
-  return Navigator.of(context).push(
-    PageRouteBuilder<void>(
-      transitionDuration: const Duration(milliseconds: 420),
-      reverseTransitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (context, animation, secondaryAnimation) =>
-          EventDetailScreen(
-            eventId: event.id,
-            initialEvent: event,
-            heroTag: '$heroTagPrefix-${event.id}',
-          ),
-      transitionsBuilder: (context, animation, secondaryAnimation, child) {
-        final curve = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-        );
-        return FadeTransition(
-          opacity: curve,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: .94, end: 1).animate(curve),
-            alignment: Alignment.topCenter,
-            child: child,
-          ),
-        );
+  return context.push<void>(
+    '/schedule/${Uri.encodeComponent(eventId)}',
+    extra: '$heroTagPrefix-$eventId',
+  );
+}
+
+typedef _EventBuilder = Widget Function(LockerEvent event);
+
+/// 주소의 ID를 현재 상태에서 찾고, 초기 페이지에 없으면 서버에서 한 건만 읽는다.
+class _EventResolver extends ConsumerStatefulWidget {
+  const _EventResolver({required this.eventId, required this.builder});
+
+  final String eventId;
+  final _EventBuilder builder;
+
+  @override
+  ConsumerState<_EventResolver> createState() => _EventResolverState();
+}
+
+class _EventResolverState extends ConsumerState<_EventResolver> {
+  bool _loading = true;
+  bool _notFound = false;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_load);
+  }
+
+  @override
+  void didUpdateWidget(_EventResolver oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.eventId != widget.eventId) {
+      _loading = true;
+      _notFound = false;
+      _error = null;
+      Future.microtask(_load);
+    }
+  }
+
+  Future<void> _load() async {
+    try {
+      final found = await ref
+          .read(lockerControllerProvider.notifier)
+          .ensureEvent(widget.eventId);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _notFound = !found;
+        _error = null;
+      });
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _notFound = false;
+        _error = error;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final states = ref.watch(
+      lockerControllerProvider.select(
+        (state) => (state.eventsState, state.operationsState),
+      ),
+    );
+    final event = states.$1
+        .plannerEventsWith(states.$2)
+        .where((item) => item.id == widget.eventId)
+        .firstOrNull;
+    if (event != null) return widget.builder(event);
+    return _EntityLoadScaffold(
+      title: '일정',
+      loading: _loading,
+      notFound: _notFound,
+      error: _error,
+      onRetry: () {
+        setState(() {
+          _loading = true;
+          _notFound = false;
+          _error = null;
+        });
+        _load();
       },
+    );
+  }
+}
+
+class _EntityLoadScaffold extends StatelessWidget {
+  const _EntityLoadScaffold({
+    required this.title,
+    required this.loading,
+    required this.notFound,
+    required this.error,
+    required this.onRetry,
+  });
+
+  final String title;
+  final bool loading;
+  final bool notFound;
+  final Object? error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(title)),
+    body: Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: loading
+            ? const CircularProgressIndicator()
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    notFound
+                        ? Icons.search_off_rounded
+                        : Icons.cloud_off_outlined,
+                    size: 42,
+                    color: EncbaColors.muted,
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    notFound
+                        ? '$title 정보를 찾지 못했습니다.'
+                        : '$title 정보를 불러오지 못했습니다.',
+                    textAlign: TextAlign.center,
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: 6),
+                    const Text(
+                      '연결 상태를 확인한 뒤 다시 시도해 주세요.',
+                      style: TextStyle(color: EncbaColors.muted),
+                    ),
+                  ],
+                  if (!notFound) ...[
+                    const SizedBox(height: 16),
+                    OutlinedButton(
+                      onPressed: onRetry,
+                      child: const Text('다시 시도'),
+                    ),
+                  ],
+                ],
+              ),
+      ),
     ),
   );
 }
@@ -58,155 +185,170 @@ class EventTicket extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final accent = _kindColor(event.kind);
+    final uniformDecoration = _uniformCardDecoration(event);
     if (event.isLocked) {
-      return Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        child: InkWell(
+      return Semantics(
+        button: true,
+        label:
+            '${event.title}, ${event.start.month}월 ${event.start.day}일, 출전 명단 확정 후 공개',
+        excludeSemantics: true,
+        child: Material(
+          color: Colors.white,
           borderRadius: BorderRadius.circular(18),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.lock_outline_rounded,
-                  color: EncbaColors.muted,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        event.title,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${event.start.month}.${event.start.day} · 출전 명단 확정 후 공개',
-                      ),
-                    ],
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.lock_outline_rounded,
+                    color: EncbaColors.muted,
                   ),
-                ),
-                const Icon(Icons.chevron_right_rounded),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          event.title,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${event.start.month}.${event.start.day} · 출전 명단 확정 후 공개',
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded),
+                ],
+              ),
             ),
           ),
         ),
       );
     }
-    return Container(
+    return Material(
+      color: Colors.white,
       clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: Colors.white,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: EncbaColors.line),
+        side: const BorderSide(color: EncbaColors.line),
       ),
       child: Column(
         children: [
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              child: IntrinsicHeight(
-                child: Row(
-                  children: [
-                    Container(
-                      width: 7,
-                      decoration: BoxDecoration(
-                        color: accent,
-                        borderRadius: const BorderRadius.horizontal(
-                          left: Radius.circular(17),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.all(compact ? 15 : 19),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                EventKindLabel(kind: event.kind),
-                                const Spacer(),
-                                Text(
-                                  '${event.start.month}.${event.start.day} ${weekday(event.start)}',
-                                  style: const TextStyle(
-                                    color: EncbaColors.muted,
-                                    fontSize: 12,
+          Ink(
+            decoration: BoxDecoration(
+              color: uniformDecoration.color,
+              gradient: uniformDecoration.gradient,
+            ),
+            child: Semantics(
+              button: true,
+              label:
+                  '${event.title}, ${event.start.month}월 ${event.start.day}일, ${time(event.start)}부터 ${time(event.end)}까지, ${event.fullPlace}',
+              excludeSemantics: true,
+              child: InkWell(
+                onTap: onTap,
+                child: IntrinsicHeight(
+                  child: Row(
+                    children: [
+                      Container(width: 7, color: accent),
+                      Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.all(compact ? 15 : 19),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  EventKindLabel(
+                                    kind: event.kind,
+                                    inverted:
+                                        uniformDecoration.dark ||
+                                        uniformDecoration.split,
                                   ),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: compact ? 10 : 16),
-                            Text(
-                              event.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontFamily: encbaFontFor(
-                                  event.title,
-                                  display: true,
-                                ),
-                                fontSize: compact ? 18 : 23,
-                                height: 1.15,
-                                fontWeight: event.isBattle
-                                    ? FontWeight.normal
-                                    : FontWeight.w700,
-                                color: EncbaColors.ink,
+                                ],
                               ),
-                            ),
-                            if (event.opponents.isNotEmpty) ...[
-                              const SizedBox(height: 5),
-                              Text(
-                                'vs ${event.opponents.join(' · ')}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: EncbaColors.snuBlue,
-                                  fontSize: 13,
+                              SizedBox(height: compact ? 10 : 16),
+                              _UniformCardForeground(
+                                decoration: uniformDecoration,
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        event.title,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontFamily: encbaFontFor(
+                                            event.title,
+                                            display: true,
+                                          ),
+                                          fontSize: compact ? 18 : 23,
+                                          height: 1.15,
+                                          fontWeight: event.isBattle
+                                              ? FontWeight.normal
+                                              : FontWeight.w700,
+                                        ),
+                                      ),
+                                      if (event.opponents.isNotEmpty) ...[
+                                        const SizedBox(height: 5),
+                                        Text(
+                                          'vs ${event.opponents.join(' · ')}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(fontSize: 13),
+                                        ),
+                                      ],
+                                      const SizedBox(height: 10),
+                                      _MetaLine(
+                                        icon: Icons.calendar_today_outlined,
+                                        text:
+                                            '${event.start.month}월 ${event.start.day}일 (${weekday(event.start)}) · ${time(event.start)}–${time(event.end)}',
+                                        color: uniformDecoration.dark
+                                            ? Colors.white
+                                            : EncbaColors.ink,
+                                      ),
+                                      const SizedBox(height: 7),
+                                      _MetaLine(
+                                        icon: Icons.location_on_outlined,
+                                        text: event.fullPlace,
+                                        color: uniformDecoration.dark
+                                            ? Colors.white
+                                            : EncbaColors.ink,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ],
-                            const SizedBox(height: 10),
-                            _MetaLine(
-                              icon: Icons.schedule_rounded,
-                              text: '${time(event.start)}–${time(event.end)}',
-                              emphasized: true,
-                              markerColor: EncbaColors.timeMarker,
-                            ),
-                            const SizedBox(height: 7),
-                            _MetaLine(
-                              icon: Icons.location_on_outlined,
-                              text: event.fullPlace,
-                              emphasized: true,
-                              markerColor: EncbaColors.placeMarker,
-                            ),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.only(right: 14),
-                      child: Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        size: 15,
-                        color: EncbaColors.muted,
+                      Padding(
+                        padding: const EdgeInsets.only(right: 14),
+                        child: Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          size: 15,
+                          color: uniformDecoration.dark
+                              ? Colors.white70
+                              : EncbaColors.muted,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
           if (event.responseEnabled) ...[
             const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-              child: AttendanceSelector(event: event, compact: true),
-            ),
+            AttendanceSelector(event: event, compact: true, flush: true),
           ],
         ],
       ),
@@ -214,23 +356,28 @@ class EventTicket extends ConsumerWidget {
   }
 }
 
-class EventDetailScreen extends ConsumerStatefulWidget {
-  const EventDetailScreen({
-    super.key,
-    required this.eventId,
-    required this.initialEvent,
-    required this.heroTag,
-  });
+class EventDetailScreen extends StatelessWidget {
+  const EventDetailScreen({super.key, required this.eventId});
 
   final String eventId;
-  final LockerEvent initialEvent;
-  final String heroTag;
 
   @override
-  ConsumerState<EventDetailScreen> createState() => _EventDetailScreenState();
+  Widget build(BuildContext context) => _EventResolver(
+    eventId: eventId,
+    builder: (event) => _EventDetailView(initialEvent: event),
+  );
 }
 
-class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
+class _EventDetailView extends ConsumerStatefulWidget {
+  const _EventDetailView({required this.initialEvent});
+
+  final LockerEvent initialEvent;
+
+  @override
+  ConsumerState<_EventDetailView> createState() => _EventDetailViewState();
+}
+
+class _EventDetailViewState extends ConsumerState<_EventDetailView> {
   @override
   void initState() {
     super.initState();
@@ -238,8 +385,8 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
       Future.microtask(() async {
         final controller = ref.read(lockerControllerProvider.notifier);
         await Future.wait([
-          controller.loadEventAttendance(widget.eventId),
-          controller.loadEventStrategy(widget.eventId),
+          controller.loadEventAttendance(widget.initialEvent.id),
+          controller.loadEventStrategy(widget.initialEvent.id),
         ]);
       });
     }
@@ -247,18 +394,18 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final locker = ref.watch(lockerControllerProvider);
-    final events = locker.events;
+    final eventsState = ref.watch(
+      lockerControllerProvider.select((state) => state.eventsState),
+    );
+    final events = eventsState.events;
+    final members = ref.watch(
+      lockerControllerProvider.select((state) => state.membersState.members),
+    );
     final event =
-        events.where((item) => item.id == widget.eventId).firstOrNull ??
+        events.where((item) => item.id == widget.initialEvent.id).firstOrNull ??
         widget.initialEvent;
-    final absences = (locker.eventAttendance[event.id] ?? const [])
-        .where(
-          (response) =>
-              response.choice == '불참' &&
-              (response.absenceReason?.trim().isNotEmpty ?? false),
-        )
-        .toList(growable: false);
+    final responses =
+        eventsState.eventAttendance[event.id] ?? const <AttendanceResponse>[];
     final isAdmin =
         ref.watch(authControllerProvider).user?.canAdminister ?? false;
     if (event.isLocked) {
@@ -309,10 +456,8 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
           if (isAdmin && event.kind != EventKind.operations)
             IconButton(
               tooltip: '일정 수정',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => EventEditorScreen(existing: event),
-                ),
+              onPressed: () => context.push(
+                '/schedule/${Uri.encodeComponent(event.id)}/edit',
               ),
               icon: const Icon(Icons.edit_outlined),
             ),
@@ -325,52 +470,13 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
             color: Colors.transparent,
             child: _ExpandedTicket(event: event),
           ),
+          const SizedBox(height: 18),
+          _EventDetailFacts(event: event),
           if (event.memo.trim().isNotEmpty) ...[
             const SizedBox(height: 22),
             Text('안내', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 9),
             Text(event.memo, style: const TextStyle(height: 1.7)),
-          ],
-          if (event.responseEnabled) ...[
-            const SizedBox(height: 22),
-            Text('불참 사유', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 9),
-            if (absences.isEmpty)
-              const Text(
-                '공유된 불참 사유가 없습니다.',
-                style: TextStyle(color: EncbaColors.muted),
-              )
-            else
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: EncbaColors.line),
-                ),
-                child: Column(
-                  children: absences.indexed
-                      .map((entry) {
-                        final response = entry.$2;
-                        return Column(
-                          children: [
-                            if (entry.$1 > 0) const Divider(height: 1),
-                            ListTile(
-                              leading: const CircleAvatar(
-                                backgroundColor: Color(0xFFFFECEA),
-                                child: Icon(
-                                  Icons.close_rounded,
-                                  color: EncbaColors.absent,
-                                ),
-                              ),
-                              title: Text(response.name),
-                              subtitle: Text(response.absenceReason!.trim()),
-                            ),
-                          ],
-                        );
-                      })
-                      .toList(growable: false),
-                ),
-              ),
           ],
           if (event.starterNames.isNotEmpty) ...[
             const SizedBox(height: 22),
@@ -394,7 +500,7 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
             _StrategyCard(
               event: event,
               strategy:
-                  locker.eventStrategies[event.id] ??
+                  eventsState.eventStrategies[event.id] ??
                   EventStrategy(eventId: event.id),
             ),
           ],
@@ -421,13 +527,19 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
           if (isAdmin && event.kind == EventKind.external) ...[
             const SizedBox(height: 10),
             OutlinedButton.icon(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => EventRosterScreen(event: event),
-                ),
+              onPressed: () => context.push(
+                '/schedule/${Uri.encodeComponent(event.id)}/roster',
               ),
               icon: const Icon(Icons.how_to_reg_outlined),
               label: const Text('출전 명단 확정'),
+            ),
+          ],
+          if (event.responseEnabled) ...[
+            const SizedBox(height: 22),
+            _AttendanceResponseCard(
+              event: event,
+              responses: responses,
+              members: members,
             ),
           ],
           const SizedBox(height: 24),
@@ -458,6 +570,247 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _AttendanceResponseCard extends StatelessWidget {
+  const _AttendanceResponseCard({
+    required this.event,
+    required this.responses,
+    required this.members,
+  });
+
+  final LockerEvent event;
+  final List<AttendanceResponse> responses;
+  final List<MemberProfile> members;
+
+  @override
+  Widget build(BuildContext context) {
+    final options = <String>[
+      ...event.pollOptions,
+      ...responses
+          .map((response) => response.choice)
+          .where((choice) => !event.pollOptions.contains(choice)),
+    ];
+    final uniqueOptions = options.toSet().toList(growable: false);
+    final responseNames = responses
+        .map((response) => response.name.trim())
+        .where((name) => name.isNotEmpty)
+        .toSet();
+    final unansweredNames =
+        members
+            .where((member) => member.isActive)
+            .map((member) => member.name.trim())
+            .where((name) => name.isNotEmpty && !responseNames.contains(name))
+            .toSet()
+            .toList(growable: false)
+          ..sort();
+
+    return Material(
+      color: Colors.white,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: EncbaColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 17, 18, 13),
+            child: Row(
+              children: [
+                Text('참석 현황', style: Theme.of(context).textTheme.titleLarge),
+                const Spacer(),
+                Text(
+                  '${responses.length}명 응답',
+                  style: const TextStyle(
+                    color: EncbaColors.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          if (responses.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(18),
+              child: Text(
+                '아직 응답이 없습니다.',
+                style: TextStyle(color: EncbaColors.muted),
+              ),
+            )
+          else
+            ...uniqueOptions.indexed.map((entry) {
+              final option = entry.$2;
+              final optionResponses =
+                  responses
+                      .where((response) => response.choice == option)
+                      .toList(growable: false)
+                    ..sort((a, b) => a.name.compareTo(b.name));
+              return _AttendanceOptionRow(
+                index: entry.$1 + 1,
+                option: option,
+                responses: optionResponses,
+                totalResponses: responses.length,
+                showDivider: entry.$1 > 0,
+              );
+            }),
+          if (unansweredNames.isNotEmpty) ...[
+            const Divider(height: 1),
+            Theme(
+              data: Theme.of(
+                context,
+              ).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(horizontal: 18),
+                childrenPadding: const EdgeInsets.fromLTRB(18, 0, 18, 17),
+                title: Text(
+                  '미응답 ${unansweredNames.length}명',
+                  style: const TextStyle(
+                    color: EncbaColors.muted,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      unansweredNames.join(', '),
+                      style: const TextStyle(
+                        color: EncbaColors.muted,
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AttendanceOptionRow extends StatelessWidget {
+  const _AttendanceOptionRow({
+    required this.index,
+    required this.option,
+    required this.responses,
+    required this.totalResponses,
+    required this.showDivider,
+  });
+
+  final int index;
+  final String option;
+  final List<AttendanceResponse> responses;
+  final int totalResponses;
+  final bool showDivider;
+
+  Color get _color => switch (option) {
+    '참석' => EncbaColors.attending,
+    '불참' => EncbaColors.absent,
+    '지각' => EncbaColors.late,
+    '미정' => EncbaColors.undecided,
+    _ => EncbaColors.deepBlue,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final names = responses.map((response) => response.name).join(', ');
+    final reasons = responses
+        .where((response) => response.absenceReason?.trim().isNotEmpty ?? false)
+        .toList(growable: false);
+    final ratio = totalResponses == 0 ? 0.0 : responses.length / totalResponses;
+
+    return Column(
+      children: [
+        if (showDivider) const Divider(height: 1, indent: 60),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 15, 18, 16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: _color.withValues(alpha: .12),
+                child: Text(
+                  '$index',
+                  style: TextStyle(color: _color, fontWeight: FontWeight.w900),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            option,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${responses.length}',
+                          style: TextStyle(
+                            color: _color,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(99),
+                      child: LinearProgressIndicator(
+                        value: ratio,
+                        minHeight: 7,
+                        color: _color,
+                        backgroundColor: EncbaColors.line,
+                      ),
+                    ),
+                    if (names.isNotEmpty) ...[
+                      const SizedBox(height: 9),
+                      Text(
+                        names,
+                        style: const TextStyle(
+                          color: EncbaColors.muted,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                    if (reasons.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      ...reasons.map(
+                        (response) => Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            '${response.name} · ${response.absenceReason!.trim()}',
+                            style: const TextStyle(
+                              color: EncbaColors.ink,
+                              height: 1.4,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -641,16 +994,28 @@ class _StrategyLine extends StatelessWidget {
   );
 }
 
-class EventRosterScreen extends ConsumerStatefulWidget {
-  const EventRosterScreen({super.key, required this.event});
+class EventRosterScreen extends StatelessWidget {
+  const EventRosterScreen({super.key, required this.eventId});
+
+  final String eventId;
+
+  @override
+  Widget build(BuildContext context) => _EventResolver(
+    eventId: eventId,
+    builder: (event) => _EventRosterView(event: event),
+  );
+}
+
+class _EventRosterView extends ConsumerStatefulWidget {
+  const _EventRosterView({required this.event});
 
   final LockerEvent event;
 
   @override
-  ConsumerState<EventRosterScreen> createState() => _EventRosterScreenState();
+  ConsumerState<_EventRosterView> createState() => _EventRosterViewState();
 }
 
-class _EventRosterScreenState extends ConsumerState<EventRosterScreen> {
+class _EventRosterViewState extends ConsumerState<_EventRosterView> {
   @override
   void initState() {
     super.initState();
@@ -664,7 +1029,11 @@ class _EventRosterScreenState extends ConsumerState<EventRosterScreen> {
   @override
   Widget build(BuildContext context) {
     final roster =
-        ref.watch(lockerControllerProvider).eventRosters[widget.event.id] ??
+        ref.watch(
+          lockerControllerProvider.select(
+            (state) => state.eventsState.eventRosters[widget.event.id],
+          ),
+        ) ??
         const <EventRosterMember>[];
     return Scaffold(
       appBar: AppBar(title: const Text('출전 명단 확정')),
@@ -728,29 +1097,25 @@ class _ExpandedTicket extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = _kindColor(event.kind);
+    const detailBackground = EncbaColors.navy;
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: event.isBattle ? EncbaColors.navy : Colors.white,
+        color: detailBackground,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: event.isBattle ? EncbaColors.navy : EncbaColors.line,
-        ),
+        border: Border.all(color: detailBackground),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              EventKindLabel(kind: event.kind, inverted: event.isBattle),
+              EventKindLabel(kind: event.kind, inverted: true),
               const Spacer(),
               if (event.uniformColors.isNotEmpty)
                 Text(
                   '${event.uniformColors.join(' · ')} 유니폼',
-                  style: TextStyle(
-                    color: event.isBattle ? Colors.white70 : EncbaColors.muted,
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
                 ),
             ],
           ),
@@ -759,7 +1124,7 @@ class _ExpandedTicket extends StatelessWidget {
             event.title,
             style: TextStyle(
               fontFamily: encbaFontFor(event.title, display: true),
-              color: event.isBattle ? Colors.white : EncbaColors.navy,
+              color: Colors.white,
               fontSize: 32,
               height: 1.1,
             ),
@@ -768,23 +1133,14 @@ class _ExpandedTicket extends StatelessWidget {
             const SizedBox(height: 7),
             Text(
               'vs ${event.opponents.join(' · ')}',
-              style: TextStyle(
-                color: event.isBattle ? Colors.white70 : EncbaColors.snuBlue,
-                fontSize: 15,
-              ),
+              style: const TextStyle(color: Colors.white70, fontSize: 15),
             ),
           ],
           const SizedBox(height: 18),
           _MetaLine(
             icon: Icons.calendar_today_outlined,
             text:
-                '${event.start.month}월 ${event.start.day}일 ${weekday(event.start)}요일',
-            color: event.isBattle ? Colors.white : EncbaColors.ink,
-          ),
-          const SizedBox(height: 7),
-          _MetaLine(
-            icon: Icons.schedule_rounded,
-            text: '${time(event.start)}–${time(event.end)}',
+                '${event.start.month}월 ${event.start.day}일 (${weekday(event.start)}) · ${time(event.start)}–${time(event.end)}',
             color: EncbaColors.navy,
             emphasized: true,
             markerColor: EncbaColors.timeMarker,
@@ -802,15 +1158,121 @@ class _ExpandedTicket extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             '${event.targetTeam} · ${event.attending}명 참석 예정${event.capacity == null ? '' : ' / ${event.capacity}명'}',
-            style: TextStyle(
-              color: event.isBattle ? Colors.white70 : EncbaColors.muted,
-              fontSize: 12,
-            ),
+            style: TextStyle(color: Colors.white70, fontSize: 12),
           ),
+          if (event.obParticipantCount > 0) ...[
+            const SizedBox(height: 5),
+            Text(
+              'OB ${event.obParticipantCount}명 참여',
+              style: TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ],
         ],
       ),
     );
   }
+}
+
+class _EventDetailFacts extends StatelessWidget {
+  const _EventDetailFacts({required this.event});
+
+  final LockerEvent event;
+
+  @override
+  Widget build(BuildContext context) {
+    final opponent = event.opponents.isEmpty
+        ? '미정'
+        : event.opponents.join(' · ');
+    final uniform = event.uniformColors.isEmpty
+        ? '미정'
+        : event.uniformColors.join(' · ');
+    final dateTime =
+        '${event.start.year}년 ${event.start.month}월 ${event.start.day}일 '
+        '(${weekday(event.start)}) ${time(event.start)}–${time(event.end)}';
+
+    return Semantics(
+      container: true,
+      label: '일정 정보',
+      child: Container(
+        key: const ValueKey('event-detail-facts'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: EncbaColors.line),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('일정 정보', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 14),
+            _EventDetailFactRow(
+              icon: Icons.groups_2_outlined,
+              label: '상대',
+              value: opponent,
+            ),
+            const SizedBox(height: 12),
+            _EventDetailFactRow(
+              icon: Icons.checkroom_outlined,
+              label: '유니폼',
+              value: uniform,
+            ),
+            const SizedBox(height: 12),
+            _EventDetailFactRow(
+              icon: Icons.schedule_outlined,
+              label: '일시',
+              value: dateTime,
+            ),
+            const SizedBox(height: 12),
+            _EventDetailFactRow(
+              icon: Icons.location_on_outlined,
+              label: '장소',
+              value: event.fullPlace,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EventDetailFactRow extends StatelessWidget {
+  const _EventDetailFactRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(icon, size: 19, color: EncbaColors.snuBlue),
+      const SizedBox(width: 10),
+      SizedBox(
+        width: 50,
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: EncbaColors.muted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(
+          value,
+          style: const TextStyle(fontWeight: FontWeight.w600, height: 1.4),
+        ),
+      ),
+    ],
+  );
 }
 
 class AttendanceSelector extends ConsumerWidget {
@@ -818,14 +1280,19 @@ class AttendanceSelector extends ConsumerWidget {
     super.key,
     required this.event,
     this.compact = false,
+    this.flush = false,
   });
   final LockerEvent event;
   final bool compact;
+  final bool flush;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final selected =
-        ref.watch(lockerControllerProvider).attendance[event.id] ?? '미정';
+    final selected = ref.watch(
+      lockerControllerProvider.select(
+        (state) => state.eventsState.attendance[event.id],
+      ),
+    );
     final isAdmin =
         ref.watch(authControllerProvider).user?.canAdminister ?? false;
     final isClosed = DateTime.now().isAfter(event.responseDeadline) && !isAdmin;
@@ -835,10 +1302,12 @@ class AttendanceSelector extends ConsumerWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final columns = choices.length <= 4 ? choices.length : 2;
-        final width = (constraints.maxWidth - (columns - 1) * 7) / columns;
+        final spacing = flush ? 0.0 : 7.0;
+        final width =
+            (constraints.maxWidth - (columns - 1) * spacing) / columns;
         return Wrap(
-          spacing: 7,
-          runSpacing: 7,
+          spacing: spacing,
+          runSpacing: spacing,
           children: choices.map((choice) {
             final active = selected == choice.$1;
             return SizedBox(
@@ -847,10 +1316,15 @@ class AttendanceSelector extends ConsumerWidget {
                 selected: active,
                 button: true,
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(13),
+                  borderRadius: flush
+                      ? BorderRadius.zero
+                      : BorderRadius.circular(13),
                   onTap: isClosed
                       ? null
                       : () async {
+                          final revision =
+                              (_attendanceUiRevisions[event.id] ?? 0) + 1;
+                          _attendanceUiRevisions[event.id] = revision;
                           String? reason;
                           if (choice.$1 == '불참') {
                             reason = await _askAbsenceReason(context);
@@ -859,21 +1333,26 @@ class AttendanceSelector extends ConsumerWidget {
                           final saved = await ref
                               .read(lockerControllerProvider.notifier)
                               .vote(event.id, choice.$1, absenceReason: reason);
+                          if (_attendanceUiRevisions[event.id] != revision) {
+                            return;
+                          }
                           if (saved) {
                             await ref
                                 .read(lockerControllerProvider.notifier)
                                 .loadEventAttendance(event.id);
                           }
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  saved
-                                      ? '${choice.$1}으로 저장했습니다.'
-                                      : '응답을 저장하지 못했습니다.',
+                            ScaffoldMessenger.of(context)
+                              ..clearSnackBars()
+                              ..showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    saved
+                                        ? '${choice.$1}으로 저장했습니다.'
+                                        : '응답을 저장하지 못했습니다.',
+                                  ),
                                 ),
-                              ),
-                            );
+                              );
                           }
                         },
                   child: AnimatedContainer(
@@ -884,7 +1363,9 @@ class AttendanceSelector extends ConsumerWidget {
                       color: active
                           ? choice.$3
                           : choice.$3.withValues(alpha: .09),
-                      borderRadius: BorderRadius.circular(13),
+                      borderRadius: flush
+                          ? BorderRadius.zero
+                          : BorderRadius.circular(13),
                       border: Border.all(
                         color: choice.$3.withValues(alpha: active ? 1 : .25),
                       ),
@@ -968,14 +1449,36 @@ class AttendanceSelector extends ConsumerWidget {
 }
 
 class EventEditorScreen extends ConsumerStatefulWidget {
-  const EventEditorScreen({super.key, this.existing});
-  final LockerEvent? existing;
+  const EventEditorScreen({super.key, this.eventId});
+
+  final String? eventId;
 
   @override
   ConsumerState<EventEditorScreen> createState() => _EventEditorScreenState();
 }
 
 class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
+  @override
+  Widget build(BuildContext context) {
+    final eventId = widget.eventId;
+    if (eventId == null) return const _EventEditorForm();
+    return _EventResolver(
+      eventId: eventId,
+      builder: (event) => _EventEditorForm(existing: event),
+    );
+  }
+}
+
+class _EventEditorForm extends ConsumerStatefulWidget {
+  const _EventEditorForm({this.existing});
+
+  final LockerEvent? existing;
+
+  @override
+  ConsumerState<_EventEditorForm> createState() => _EventEditorFormState();
+}
+
+class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _memo;
   late final TextEditingController _title;
@@ -985,6 +1488,8 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   late final TextEditingController _mapReference;
   late bool _hasCapacity;
   late double _capacity;
+  late bool _hasObParticipants;
+  late int _obParticipantCount;
   late EventKind _kind;
   late String _place;
   late String _court;
@@ -1049,6 +1554,8 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     _mapReference = TextEditingController(text: existing?.mapReference ?? '');
     _hasCapacity = existing?.capacity != null;
     _capacity = (existing?.capacity ?? 20).clamp(2, 60).toDouble();
+    _hasObParticipants = (existing?.obParticipantCount ?? 0) > 0;
+    _obParticipantCount = (existing?.obParticipantCount ?? 1).clamp(1, 30);
     _kind = existing?.kind ?? EventKind.training;
     _place = existing?.place.trim().isNotEmpty == true
         ? (knownPlace ? existing!.place : _customPlaceOption)
@@ -1143,10 +1650,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                   DropdownButtonFormField<EventKind>(
                     initialValue: _kind,
                     isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: '일정 유형 *',
-                      helperText: '선택한 유형이 일정 제목으로 표시됩니다.',
-                    ),
+                    decoration: const InputDecoration(labelText: '일정 유형 *'),
                     items: kindOptions
                         .map(
                           (kind) => DropdownMenuItem(
@@ -1179,7 +1683,6 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                     decoration: InputDecoration(
                       labelText: '제목 (선택)',
                       hintText: _kind.label,
-                      helperText: '비워 두면 “${_kind.label}”으로 등록됩니다.',
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -1246,10 +1749,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                     minLines: 2,
                     maxLines: 5,
                     scrollPadding: const EdgeInsets.only(bottom: 160),
-                    decoration: const InputDecoration(
-                      labelText: '공지 메모',
-                      hintText: '필요한 안내가 있을 때만 적어 주세요.',
-                    ),
+                    decoration: const InputDecoration(labelText: '공지 메모'),
                   ),
                   const SizedBox(height: 24),
                   const _FormSectionTitle('시간과 장소'),
@@ -1289,14 +1789,6 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                       });
                     },
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _preciseMinutes ? '시와 분을 정합니다.' : '분을 생략하고 정각으로 등록합니다.',
-                    style: const TextStyle(
-                      color: EncbaColors.muted,
-                      fontSize: 12,
-                    ),
-                  ),
                   const SizedBox(height: 10),
                   SizedBox(
                     width: double.infinity,
@@ -1334,7 +1826,11 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                   if (_supportsStarters) ...[
                     const SizedBox(height: 18),
                     _StarterSelector(
-                      members: ref.watch(lockerControllerProvider).members,
+                      members: ref.watch(
+                        lockerControllerProvider.select(
+                          (state) => state.membersState.members,
+                        ),
+                      ),
                       selectedIds: _starterIds,
                       onChanged: (ids) => setState(() => _starterIds = ids),
                     ),
@@ -1375,7 +1871,6 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                       decoration: const InputDecoration(
                         labelText: '네이버 지도 링크 또는 주소',
                         hintText: '공유 링크나 도로명 주소를 붙여 넣어 주세요.',
-                        helperText: '일정의 지도 버튼이 입력한 위치를 바로 엽니다.',
                       ),
                     ),
                   ],
@@ -1402,6 +1897,15 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                     onEnabledChanged: (value) =>
                         setState(() => _hasCapacity = value),
                     onChanged: (value) => setState(() => _capacity = value),
+                  ),
+                  const SizedBox(height: 12),
+                  _ObParticipantSelector(
+                    enabled: _hasObParticipants,
+                    count: _obParticipantCount,
+                    onEnabledChanged: (value) =>
+                        setState(() => _hasObParticipants = value),
+                    onChanged: (value) =>
+                        setState(() => _obParticipantCount = value),
                   ),
                   if (_kind != EventKind.training &&
                       _kind != EventKind.morning &&
@@ -1828,6 +2332,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                 ? null
                 : _mapReference.text.trim())
           : null,
+      obParticipantCount: _hasObParticipants ? _obParticipantCount : 0,
     );
     final saved = await ref
         .read(lockerControllerProvider.notifier)
@@ -1844,13 +2349,11 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       Navigator.pop(context, true);
     } else {
       setState(() => _saving = false);
+      final reason = ref.read(lockerControllerProvider).error;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            widget.existing == null
-                ? '일정 등록에 실패했습니다. 잠시 후 다시 시도해 주세요.'
-                : '일정 수정에 실패했습니다. 잠시 후 다시 시도해 주세요.',
-          ),
+          content: Text(reason ?? '일정 저장에 실패했습니다. 입력값과 연결 상태를 확인해 주세요.'),
+          action: SnackBarAction(label: '확인', onPressed: () {}),
         ),
       );
     }
@@ -2274,6 +2777,62 @@ class _UniformSelector extends StatelessWidget {
   );
 }
 
+class _ObParticipantSelector extends StatelessWidget {
+  const _ObParticipantSelector({
+    required this.enabled,
+    required this.count,
+    required this.onEnabledChanged,
+    required this.onChanged,
+  });
+
+  final bool enabled;
+  final int count;
+  final ValueChanged<bool> onEnabledChanged;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white,
+    shape: RoundedRectangleBorder(
+      side: const BorderSide(color: EncbaColors.line),
+      borderRadius: BorderRadius.circular(16),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      children: [
+        SwitchListTile.adaptive(
+          value: enabled,
+          title: const Text('OB 참여'),
+          onChanged: onEnabledChanged,
+        ),
+        if (enabled)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+            child: Column(
+              children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '$count명',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Slider(
+                  value: count.clamp(1, 30).toDouble(),
+                  min: 1,
+                  max: 30,
+                  divisions: 29,
+                  label: '$count명',
+                  onChanged: (value) => onChanged(value.round()),
+                ),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
 class _DateTimeButton extends StatelessWidget {
   const _DateTimeButton({
     required this.label,
@@ -2408,19 +2967,52 @@ class _MarkerPainter extends CustomPainter {
 
 Color _kindColor(EventKind kind) => switch (kind) {
   EventKind.training => EncbaColors.snuBlue,
-  EventKind.morning => EncbaColors.attending,
+  EventKind.morning => const Color(0xFFD4A017),
   EventKind.freeOpen => const Color(0xFF2A7C67),
   EventKind.internal => EncbaColors.deepBlue,
   EventKind.pickup => EncbaColors.deepBlue,
-  EventKind.ibDivision1 ||
-  EventKind.ibDivision2 ||
-  EventKind.ibFreshman => const Color(0xFF6D43A6),
+  EventKind.ibDivision1 => const Color(0xFF4B2A75),
+  EventKind.ibDivision2 || EventKind.ibFreshman => const Color(0xFF6D43A6),
   EventKind.scrimmage ||
   EventKind.threeWay ||
   EventKind.external => EncbaColors.absent,
   EventKind.operations => EncbaColors.late,
   EventKind.homecoming => const Color(0xFFB06C20),
 };
+
+({Color? color, Gradient? gradient, bool dark, bool split})
+_uniformCardDecoration(LockerEvent event) {
+  return (color: Colors.white, gradient: null, dark: false, split: false);
+}
+
+class _UniformCardForeground extends StatelessWidget {
+  const _UniformCardForeground({required this.decoration, required this.child});
+
+  final ({Color? color, Gradient? gradient, bool dark, bool split}) decoration;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = decoration.dark ? Colors.white : EncbaColors.ink;
+    Widget content = IconTheme.merge(
+      data: IconThemeData(color: foreground),
+      child: DefaultTextStyle.merge(
+        style: TextStyle(color: foreground),
+        child: child,
+      ),
+    );
+    if (!decoration.split) return content;
+    content = ShaderMask(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: (bounds) => const LinearGradient(
+        colors: [Colors.white, Colors.white, EncbaColors.ink, EncbaColors.ink],
+        stops: [0, .46, .46, 1],
+      ).createShader(bounds),
+      child: content,
+    );
+    return content;
+  }
+}
 
 String time(DateTime value) => DateFormat('HH:mm').format(value);
 String weekday(DateTime value) =>

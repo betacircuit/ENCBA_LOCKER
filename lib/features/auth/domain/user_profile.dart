@@ -1,3 +1,20 @@
+class PendingGoogleRegistration {
+  const PendingGoogleRegistration({
+    required this.email,
+    this.suggestedName = '',
+  });
+
+  final String email;
+  final String suggestedName;
+}
+
+bool isSnuSchoolEmail(String email) {
+  final separator = email.lastIndexOf('@');
+  if (separator < 1 || separator == email.length - 1) return false;
+  final domain = email.substring(separator + 1).toLowerCase();
+  return domain == 'snu.ac.kr' || domain.endsWith('.snu.ac.kr');
+}
+
 class UserProfile {
   const UserProfile({
     this.id,
