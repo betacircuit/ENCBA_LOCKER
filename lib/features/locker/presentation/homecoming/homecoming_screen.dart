@@ -331,11 +331,19 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
           ),
         );
       }
-    } on Object catch (error) {
+    } on FormatException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } on Object catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(kDebugMode ? '엑셀 오류: $error' : '엑셀 파일을 읽지 못했습니다.'),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _importing = false);
