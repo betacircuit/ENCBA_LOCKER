@@ -35,12 +35,17 @@ server {
     add_header Cache-Control "no-cache, no-store, must-revalidate";
   }
 
-  location ~ ^/(?:main\.dart\.js|flutter_bootstrap\.js|flutter_service_worker\.js|version\.json)$ {
+  location ~ ^/(?:main\.dart\.js|main\.dart\.mjs|flutter_bootstrap\.js|flutter_service_worker\.js|version\.json)$ {
+    # 베이스 이미지의 mime.types에 .mjs 항목이 없으면 application/octet-stream으로
+    # 내려가 브라우저의 모듈 스크립트 MIME 검사에 걸린다. .js/.json처럼 이미
+    # 알려진 확장자는 mime.types 매핑이 우선하므로 이 기본값의 영향을 받지 않는다.
+    default_type text/javascript;
     add_header Cache-Control "no-cache, no-store, must-revalidate";
     try_files $uri =404;
   }
 
-  location ~* \.(?:js|css|wasm|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf)$ {
+  location ~* \.(?:js|mjs|css|wasm|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf)$ {
+    default_type text/javascript;
     expires 1y;
     add_header Cache-Control "public, max-age=31536000, immutable";
     try_files $uri =404;
