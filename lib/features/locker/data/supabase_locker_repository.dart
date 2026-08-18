@@ -352,6 +352,7 @@ class SupabaseLockerRepository {
                 map['is_reservation_manager'] as bool? ?? false,
             department: map['department'] as String? ?? '',
             isFreshman: map['is_freshman'] as bool? ?? false,
+            titles: (map['titles'] as List?)?.cast<String>() ?? const [],
           );
         })
         .toList(growable: false);

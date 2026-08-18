@@ -259,6 +259,7 @@ class MemberProfile {
     this.isReservationManager = false,
     this.department = '',
     this.isFreshman = false,
+    this.titles = const [],
   });
 
   final String? id;
@@ -278,6 +279,8 @@ class MemberProfile {
   final bool isReservationManager;
   final String department;
   final bool isFreshman;
+  /// 관리자/주장/매니저 권한과는 무관한 표시용 직책(부서장, BEN 감독 등).
+  final List<String> titles;
 
   bool get canAdminister =>
       leadershipRole == 'admin' || leadershipRole == 'captain';
@@ -310,6 +313,7 @@ class MemberProfile {
     bool? isReservationManager,
     String? department,
     bool? isFreshman,
+    List<String>? titles,
   }) => MemberProfile(
     id: id,
     name: name ?? this.name,
@@ -328,6 +332,7 @@ class MemberProfile {
     isReservationManager: isReservationManager ?? this.isReservationManager,
     department: department ?? this.department,
     isFreshman: isFreshman ?? this.isFreshman,
+    titles: titles ?? this.titles,
   );
 }
 

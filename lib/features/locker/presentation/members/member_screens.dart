@@ -630,6 +630,19 @@ class _MemberDetailView extends ConsumerWidget {
                     title: const Text('직책'),
                     trailing: _SmallBadge(member.leadershipLabel!),
                   ),
+                if (member.titles.isNotEmpty)
+                  ListTile(
+                    leading: const Icon(Icons.local_offer_outlined),
+                    title: const Text('담당'),
+                    trailing: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      alignment: WrapAlignment.end,
+                      children: member.titles
+                          .map((title) => _SmallBadge(title))
+                          .toList(),
+                    ),
+                  ),
                 if (member.department.isNotEmpty)
                   ListTile(
                     leading: const Icon(Icons.school_outlined),
