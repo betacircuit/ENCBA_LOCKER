@@ -193,7 +193,9 @@ void main() {
     expect(find.text('회원 정보 입력'), findsOneWidget);
     expect(find.text('학교 계정 확인 완료'), findsOneWidget);
     expect(find.text('member@snu.ac.kr'), findsOneWidget);
-    expect(find.text('실명'), findsOneWidget);
+    // 실명은 구글 계정 이름으로 고정되어 표시만 되고, 입력칸으로는 없다.
+    expect(find.text('김멤버'), findsOneWidget);
+    expect(find.text('구글 계정 이름으로 고정되며 가입 명단과 자동으로 대조됩니다.'), findsOneWidget);
     expect(find.text('학번'), findsOneWidget);
     expect(find.text('엔크바 가입 년도'), findsOneWidget);
     expect(find.text('전화번호'), findsOneWidget);
@@ -206,9 +208,8 @@ void main() {
     await tester.ensureVisible(find.text('정보 저장하고 가입 완료'));
     await tester.tap(find.text('정보 저장하고 가입 완료'));
     await tester.pump();
-    expect(find.text('입력해 주세요.'), findsNWidgets(2));
-    expect(find.text('00–99로 입력해 주세요.'), findsOneWidget);
-    expect(find.text('올바른 가입 년도를 입력해 주세요.'), findsOneWidget);
+    // 학번·가입년도는 휠 피커라 항상 유효한 값을 들고 있어 별도 오류가 없다.
+    expect(find.text('입력해 주세요.'), findsOneWidget);
     expect(find.text('0–99로 입력해 주세요.'), findsOneWidget);
     expect(find.text('8자 이상 입력해 주세요.'), findsOneWidget);
   });
@@ -1039,7 +1040,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('인원 제한 슬라이더의 숫자는 60명에서도 영역을 벗어나지 않는다', (tester) async {
+  testWidgets('인원 제한 슬라이더는 2~20명 범위이고 끝까지 끌어도 안전하다', (tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(_signedInApp(const EventEditorScreen()));
@@ -1051,10 +1052,16 @@ void main() {
     );
     await tester.tap(find.text('인원 제한'));
     await tester.pumpAndSettle();
-    await tester.drag(find.byType(Slider), const Offset(600, 0));
-    await tester.pumpAndSettle();
 
-    expect(find.text('60명'), findsWidgets);
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    expect(slider.min, 2);
+    expect(slider.max, 20);
+
+    // 끝값(max)에서도 렌더링이 안전한지 직접 콜백을 호출해 확인한다.
+    // (예전엔 값 말풍선 위치를 직접 계산해서 끝값 근처에서 어긋났었다.)
+    slider.onChanged!(20);
+    await tester.pumpAndSettle();
+    expect(find.text('20명까지'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

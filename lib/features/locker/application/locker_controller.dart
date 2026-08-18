@@ -5,6 +5,7 @@ import 'package:encba_locker/core/storage/local_store.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/locker/data/supabase_locker_repository.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
+import 'package:encba_locker/features/locker/services/notification_category_prefs.dart';
 import 'package:encba_locker/features/locker/services/web_notification_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -358,6 +359,9 @@ class LockerController extends StateNotifier<LockerState> {
   final SupabaseLockerRepository? _repository;
   RealtimeChannel? _announcementChannel;
   RealtimeChannel? _operationSwapChannel;
+  RealtimeChannel? _eventChannel;
+  RealtimeChannel? _videoFeedChannel;
+  final _notificationPrefs = NotificationCategoryPrefs();
   Timer? _undecidedReminderTimer;
   Future<void>? _loadInFlight;
   final Map<String, int> _voteRevisions = {};
@@ -452,9 +456,32 @@ class LockerController extends StateNotifier<LockerState> {
           announcements: [announcement, ...state.announcements],
           unreadNotifications: state.unreadNotifications + 1,
         );
-        unawaited(
-          WebNotificationService().show(announcement.title, announcement.body),
+        unawaited(_notifyIfEnabled(
+          NotificationCategory.announcements,
+          announcement.title,
+          announcement.body,
+        ));
+      });
+      _eventChannel ??= repository.subscribeToEvents((record) {
+        state = state.copyWith(
+          unreadNotifications: state.unreadNotifications + 1,
         );
+        unawaited(_notifyIfEnabled(
+          NotificationCategory.events,
+          '새 일정이 등록됐습니다',
+          (record['title'] as String?) ?? '일정 탭에서 확인해 주세요.',
+        ));
+      });
+      _videoFeedChannel ??= repository.subscribeToVideos((record) {
+        state = state.copyWith(
+          unreadNotifications: state.unreadNotifications + 1,
+        );
+        final category = record['category'] as String? ?? '영상';
+        unawaited(_notifyIfEnabled(
+          NotificationCategory.videos,
+          '새 $category 영상이 올라왔습니다',
+          (record['title'] as String?) ?? '영상 탭에서 확인해 주세요.',
+        ));
       });
       _operationSwapChannel ??= repository.subscribeToOperationSwapRequests((
         record,
@@ -474,6 +501,16 @@ class LockerController extends StateNotifier<LockerState> {
       debugPrint('ENCBA data sync failed: $error\n$stackTrace');
       state = state.copyWith(isReady: true, error: '서버 데이터를 불러오지 못했습니다.');
     }
+  }
+
+  /// 항목별 알림 설정이 꺼져 있으면 브라우저 알림 자체를 띄우지 않는다.
+  Future<void> _notifyIfEnabled(
+    NotificationCategory category,
+    String title,
+    String body,
+  ) async {
+    if (!await _notificationPrefs.isEnabled(category)) return;
+    await WebNotificationService().show(title, body);
   }
 
   void _applySnapshot(LockerSnapshot snapshot) {
@@ -498,6 +535,10 @@ class LockerController extends StateNotifier<LockerState> {
     if (operationSwapChannel != null) {
       _repository?.unsubscribe(operationSwapChannel);
     }
+    final eventChannel = _eventChannel;
+    if (eventChannel != null) _repository?.unsubscribe(eventChannel);
+    final videoFeedChannel = _videoFeedChannel;
+    if (videoFeedChannel != null) _repository?.unsubscribe(videoFeedChannel);
     super.dispose();
   }
 

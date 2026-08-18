@@ -50,6 +50,17 @@ dependencies:
   web: ^1.1.1
   http: ^1.6.0
 
+# excel 4.0.6이 archive ^3.6.1을 요구하는데, 3.x의 zlib inflate는
+# dart:io/dart:html 조건부 임포트라 --wasm 빌드에서 스텁으로 빠져
+# "inflateBuffer requires html or io."로 죽는다. archive 4.x는 이미 고쳤지만
+# excel 4.0.6이 쓰는 API(decodeBuffer, ArchiveFile.compress 등)를 4.x가
+# 깨뜨려서 그대로 올릴 수 없다. 그래서 3.6.1을 그대로 두고 조건부 임포트에
+# dart.library.js_interop 분기만 추가한 로컬 복사본을 쓴다.
+# (third_party/archive/lib/src/zlib/inflate_buffer.dart 참고)
+dependency_overrides:
+  archive:
+    path: third_party/archive
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

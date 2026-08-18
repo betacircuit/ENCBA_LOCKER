@@ -42,12 +42,11 @@ packages:
     source: hosted
     version: "1.0.4"
   archive:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: archive
-      sha256: cb6a278ef2dbb298455e1a713bda08524a175630ec643a242c399c932a0a1f7d
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/archive"
+      relative: true
+    source: path
     version: "3.6.1"
   args:
     dependency: transitive

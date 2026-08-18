@@ -250,7 +250,7 @@ class _AnnouncementDetailView extends ConsumerWidget {
             style: const TextStyle(color: EncbaColors.muted, fontSize: 12),
           ),
           const SizedBox(height: 22),
-          Text(notice.body, style: const TextStyle(height: 1.75)),
+          _Linkified(notice.body, style: const TextStyle(height: 1.75)),
           if (notice.linkedEventIds.isNotEmpty) ...[
             const SizedBox(height: 24),
             const Text('연결 일정', style: TextStyle(fontWeight: FontWeight.w800)),
@@ -280,6 +280,83 @@ class _AnnouncementDetailView extends ConsumerWidget {
   }
 }
 
+/// URL을 자동으로 감지해 탭 가능한 링크로 바꿔 주는 텍스트.
+///
+/// 한글 음절 범위를 URL 문자 집합에서 아예 빼서 "...확인하세요"처럼 조사가
+/// 바로 붙어도 URL 뒤에서 정확히 끊긴다. 괄호는 문장 안 짝을 세어, 안에서
+/// 이미 열린 괄호가 아니면 닫는 괄호를 URL에서 떼어 낸다("(주소는
+/// https://a.com)"에서 마지막 `)`가 링크에 안 딸려가게).
+class _Linkified extends StatelessWidget {
+  const _Linkified(this.text, {this.style});
+
+  final String text;
+  final TextStyle? style;
+
+  // 　-〿: CJK 기호·구두점(、。「」 등), 가-힣: 완성형 한글 음절.
+  static final RegExp _urlPattern = RegExp(
+    '(?:https?://|www\\.)[^\\s　-〿가-힣<>]+',
+    caseSensitive: false,
+  );
+
+  static const _trimmableTrailing = '.,!?;:\'"”’·';
+
+  static String _trimTrailingPunctuation(String url) {
+    var end = url.length;
+    while (end > 0) {
+      final ch = url[end - 1];
+      if (ch == ')' || ch == ']') {
+        final open = ch == ')' ? '(' : '[';
+        final scanned = url.substring(0, end);
+        final opens = open.allMatches(scanned).length;
+        final closes = ch.allMatches(scanned).length;
+        if (closes > opens) {
+          end--;
+          continue;
+        }
+        break;
+      }
+      if (_trimmableTrailing.contains(ch)) {
+        end--;
+        continue;
+      }
+      break;
+    }
+    return url.substring(0, end);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final baseStyle = DefaultTextStyle.of(context).style.merge(style);
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+    for (final match in _urlPattern.allMatches(text)) {
+      final url = _trimTrailingPunctuation(match.group(0)!);
+      if (url.isEmpty) continue;
+      final start = match.start;
+      final end = start + url.length;
+      if (start > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, start)));
+      }
+      final target = url.startsWith('http') ? url : 'https://$url';
+      spans.add(
+        TextSpan(
+          text: url,
+          style: const TextStyle(
+            color: EncbaColors.snuBlue,
+            decoration: TextDecoration.underline,
+          ),
+          recognizer: TapGestureRecognizer()..onTap = () => _launch(target),
+        ),
+      );
+      cursor = end;
+    }
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor)));
+    }
+    return Text.rich(TextSpan(style: baseStyle, children: spans));
+  }
+}
+
 Future<void> _showNotifications(
   BuildContext context,
   WidgetRef ref,
@@ -288,7 +365,12 @@ Future<void> _showNotifications(
   required UserProfile user,
 }) async {
   final service = WebNotificationService();
+  final prefs = NotificationCategoryPrefs();
   var enabled = await service.isEnabled();
+  final categoryEnabled = <NotificationCategory, bool>{
+    for (final category in NotificationCategory.values)
+      category: await prefs.isEnabled(category),
+  };
   if (!context.mounted) return;
   await showModalBottomSheet<void>(
     context: context,
@@ -339,6 +421,32 @@ Future<void> _showNotifications(
                   }
                 },
               ),
+              if (enabled) ...[
+                const SizedBox(height: 4),
+                const Text(
+                  '항목별 알림',
+                  style: TextStyle(
+                    color: EncbaColors.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                for (final category in NotificationCategory.values)
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    value: categoryEnabled[category] ?? true,
+                    title: Text(switch (category) {
+                      NotificationCategory.announcements => '공지',
+                      NotificationCategory.events => '일정',
+                      NotificationCategory.videos => '영상',
+                    }),
+                    onChanged: (value) async {
+                      await prefs.setEnabled(category, value);
+                      setState(() => categoryEnabled[category] = value);
+                    },
+                  ),
+              ],
               const Divider(),
               if (announcements.isEmpty)
                 const ListTile(

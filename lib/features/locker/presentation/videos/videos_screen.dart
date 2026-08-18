@@ -421,6 +421,11 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
   final _comment = TextEditingController();
   final Set<String> _commentTargetIds = <String>{};
 
+  /// "@"를 입력하는 중일 때만 채워지는 멤버 자동완성 후보.
+  List<MemberProfile> _mentionMatches = const [];
+  /// 지금 완성 중인 "@" 토큰이 코멘트 텍스트에서 시작하는 위치.
+  int? _mentionStart;
+
   /// 플레이어에서 주기적으로 읽어오는 실시간 재생 위치(초).
   /// 상세 화면 전체를 초당 한 번씩 다시 그리지 않도록 버튼만 이 값을 구독한다.
   final ValueNotifier<double> _playbackSeconds = ValueNotifier(0);
@@ -632,8 +637,55 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
       setState(() {
         _commentTargetIds.clear();
         _pinnedSeconds = null;
+        _mentionMatches = const [];
+        _mentionStart = null;
       });
     }
+  }
+
+  /// 커서 바로 앞의 "@토큰"을 찾아 이름이 일치하는 멤버로 후보를 좁힌다.
+  /// "@" 뒤로 공백이 나오면 이미 완성된 언급이라 후보를 접는다.
+  void _onCommentChanged(String value) {
+    final cursor = _comment.selection.baseOffset;
+    if (cursor < 0) {
+      if (_mentionMatches.isNotEmpty) setState(() => _mentionMatches = const []);
+      return;
+    }
+    final upToCursor = value.substring(0, cursor);
+    final at = upToCursor.lastIndexOf('@');
+    if (at == -1 || RegExp(r'\s').hasMatch(upToCursor.substring(at + 1))) {
+      if (_mentionMatches.isNotEmpty) setState(() => _mentionMatches = const []);
+      return;
+    }
+    final query = upToCursor.substring(at + 1);
+    final members = ref.read(lockerControllerProvider).membersState.members;
+    final matches = (query.isEmpty
+            ? members
+            : members.where((member) => member.name.contains(query)))
+        .take(6)
+        .toList(growable: false);
+    setState(() {
+      _mentionStart = at;
+      _mentionMatches = matches;
+    });
+  }
+
+  /// 선택한 멤버로 "@토큰"을 "@이름 "으로 완성하고, 커서를 그 뒤로 옮긴다.
+  void _applyMention(MemberProfile member) {
+    final start = _mentionStart;
+    if (start == null) return;
+    final cursor = _comment.selection.baseOffset;
+    final text = _comment.text;
+    final end = cursor < 0 || cursor < start ? text.length : cursor;
+    final mention = '@${member.name} ';
+    _comment.value = TextEditingValue(
+      text: text.replaceRange(start, end, mention),
+      selection: TextSelection.collapsed(offset: start + mention.length),
+    );
+    setState(() {
+      _mentionMatches = const [];
+      _mentionStart = null;
+    });
   }
 
   String _activeVideoUrl(VideoItem item) => _selectedLink?.url ?? item.url;
@@ -914,11 +966,38 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
               ],
               const SizedBox(height: 8),
             ],
+            if (_mentionMatches.isNotEmpty) ...[
+              Container(
+                constraints: const BoxConstraints(maxHeight: 176),
+                decoration: BoxDecoration(
+                  color: EncbaColors.highlight,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: EncbaColors.line),
+                ),
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  itemCount: _mentionMatches.length,
+                  itemBuilder: (context, index) {
+                    final member = _mentionMatches[index];
+                    return ListTile(
+                      dense: true,
+                      leading: _Avatar(name: member.name, size: 30),
+                      title: Text(member.name),
+                      subtitle: Text(member.studentId),
+                      onTap: () => _applyMention(member),
+                    );
+                  },
+                ),
+              ),
+            ],
             TextField(
               controller: _comment,
+              onChanged: _onCommentChanged,
               onSubmitted: (_) => _addComment(),
               decoration: InputDecoration(
-                hintText: '이 장면에 대한 코멘트',
+                hintText: '이 장면에 대한 코멘트 · "@"로 멤버 언급',
                 suffixIcon: IconButton(
                   tooltip: '코멘트 등록',
                   onPressed: _addComment,
@@ -1076,7 +1155,7 @@ class _Comment extends StatelessWidget {
           ),
         ),
       ),
-      title: Text(text),
+      title: _MentionText(text),
       subtitle: Text(
         [
           quarterNumber == null ? author : '$author · $quarterNumber쿼터',
@@ -1086,6 +1165,39 @@ class _Comment extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// 코멘트 본문에서 "@이름" 토큰만 굵게 강조해 보여준다.
+class _MentionText extends StatelessWidget {
+  const _MentionText(this.text);
+  final String text;
+
+  static final RegExp _mentionPattern = RegExp(r'@\S+');
+
+  @override
+  Widget build(BuildContext context) {
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+    for (final match in _mentionPattern.allMatches(text)) {
+      if (match.start > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, match.start)));
+      }
+      spans.add(
+        TextSpan(
+          text: match.group(0),
+          style: const TextStyle(
+            color: EncbaColors.snuBlue,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+      cursor = match.end;
+    }
+    if (cursor < text.length) spans.add(TextSpan(text: text.substring(cursor)));
+    return Text.rich(
+      TextSpan(style: DefaultTextStyle.of(context).style, children: spans),
+    );
+  }
 }
 
 class _MemberChecklistButton extends StatelessWidget {
@@ -1563,6 +1675,13 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
                   ),
                 ),
                 const SizedBox(height: 14),
+                TextFormField(
+                  controller: _title,
+                  decoration: const InputDecoration(labelText: '제목'),
+                  validator: (value) =>
+                      (value?.trim().isEmpty ?? true) ? '제목을 입력해 주세요.' : null,
+                ),
+                const SizedBox(height: 12),
                 if (isReview) ...[
                   const Text('쿼터별 YouTube 링크'),
                   const SizedBox(height: 4),
@@ -1670,12 +1789,6 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                TextFormField(
-                  controller: _title,
-                  decoration: const InputDecoration(labelText: '제목'),
-                  validator: (value) =>
-                      (value?.trim().isEmpty ?? true) ? '제목을 입력해 주세요.' : null,
-                ),
                 if (widget.category == '공유') ...[
                   const SizedBox(height: 16),
                   _VideoAudienceSelector(

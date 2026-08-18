@@ -50,7 +50,7 @@ class ProfileScreen extends ConsumerWidget {
         ),
         _MenuTile(
           icon: Icons.groups_2_outlined,
-          title: user.canAdminister ? '계정 및 멤버 관리' : '멤버 디렉토리',
+          title: user.canAdminister ? '멤버' : '멤버 디렉토리',
           subtitle: user.canAdminister ? '계정 정보·직책·활성 상태 관리' : '재학·군 휴학 상태 확인',
           onTap: () => context.push('/members'),
         ),

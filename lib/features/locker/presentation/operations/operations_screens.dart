@@ -370,29 +370,64 @@ class AuditLogScreen extends ConsumerWidget {
         (state) => state.operationsState.auditEntries,
       ),
     );
+    final groups = _groupAuditEntries(entries);
     return Scaffold(
       appBar: AppBar(title: const Text('수정 이력')),
       body: ListView(
         padding: const EdgeInsets.all(20),
-        children: entries
+        children: groups
             .map(
-              (entry) => _AuditItem(
-                icon: entry.table == 'events'
+              (group) => _AuditItem(
+                icon: group.entry.table == 'events'
                     ? Icons.edit_calendar_outlined
-                    : entry.table == 'announcements'
+                    : group.entry.table == 'announcements'
                     ? Icons.campaign_outlined
                     : Icons.play_circle_outline_rounded,
                 title:
-                    '${_auditTableLabel(entry.table)} ${_auditActionLabel(entry.action)}',
-                author: '${entry.actor} · ${_relativeTime(entry.createdAt)}',
+                    '${_auditTableLabel(group.entry.table)} ${_auditActionLabel(group.entry.action)}'
+                    '${group.count > 1 ? ' 외 ${group.count - 1}건' : ''}',
+                author:
+                    '${group.entry.actor} · ${_relativeTime(group.entry.createdAt)}',
                 detail:
-                    '변경 시각 ${entry.createdAt.month}.${entry.createdAt.day} ${time(entry.createdAt)}',
+                    '변경 시각 ${group.entry.createdAt.month}.${group.entry.createdAt.day} ${time(group.entry.createdAt)}',
               ),
             )
             .toList(),
       ),
     );
   }
+}
+
+class _AuditGroup {
+  const _AuditGroup({required this.entry, required this.count});
+  final AuditEntry entry;
+  final int count;
+}
+
+/// 같은 (테이블, 동작, 담당자)가 1분 안에 연달아 찍히면 한 줄로 묶는다.
+/// 일괄 삭제/가져오기처럼 한 번의 조작이 행마다 별도 로그를 남길 때,
+/// 완전히 똑같은 줄이 여러 번 나열되는 것처럼 보이던 문제를 없앤다.
+List<_AuditGroup> _groupAuditEntries(List<AuditEntry> entries) {
+  final groups = <_AuditGroup>[];
+  for (final entry in entries) {
+    final last = groups.isEmpty ? null : groups.last;
+    final sameBurst =
+        last != null &&
+        last.entry.table == entry.table &&
+        last.entry.action == entry.action &&
+        last.entry.actor == entry.actor &&
+        last.entry.createdAt.difference(entry.createdAt).abs() <
+            const Duration(minutes: 1);
+    if (sameBurst) {
+      groups[groups.length - 1] = _AuditGroup(
+        entry: last.entry,
+        count: last.count + 1,
+      );
+    } else {
+      groups.add(_AuditGroup(entry: entry, count: 1));
+    }
+  }
+  return groups;
 }
 
 String _auditTableLabel(String table) => switch (table) {

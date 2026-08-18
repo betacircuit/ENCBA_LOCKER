@@ -101,7 +101,7 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                   ),
           ),
           const SizedBox(height: 20),
-          _SectionHeader(title: '오늘 이후 일정 ${futureEvents.length}'),
+          _SectionHeader(title: '오늘 이후 일정 ${futureEvents.length}개'),
           const SizedBox(height: 11),
           if (visible.isEmpty)
             _EmptyState(

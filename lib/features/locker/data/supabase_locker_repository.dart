@@ -600,6 +600,30 @@ class SupabaseLockerRepository {
       )
       .subscribe();
 
+  RealtimeChannel subscribeToEvents(
+    void Function(Map<String, dynamic> record) onInsert,
+  ) => _client
+      .channel('encba-events')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'events',
+        callback: (payload) => onInsert(payload.newRecord),
+      )
+      .subscribe();
+
+  RealtimeChannel subscribeToVideos(
+    void Function(Map<String, dynamic> record) onInsert,
+  ) => _client
+      .channel('encba-videos-feed')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'videos',
+        callback: (payload) => onInsert(payload.newRecord),
+      )
+      .subscribe();
+
   Future<void> unsubscribe(RealtimeChannel channel) =>
       _client.removeChannel(channel);
 

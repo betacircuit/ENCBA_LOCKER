@@ -1,5 +1,16 @@
 part of '../locker_shell.dart';
 
+/// 멤버 상태(status) 코드를 화면에 보여줄 한글 라벨로 바꾼다.
+String _statusLabel(String status) => switch (status) {
+  'MILITARY_LEAVE' => '군 휴학',
+  'EXCHANGE_STUDENT' => '교환학생',
+  'STUDY_ABROAD' => '유학',
+  'GRADUATED' => '졸업',
+  'INACTIVE' => '비활동',
+  'OB' => 'OB',
+  _ => '재학',
+};
+
 class MemberDirectoryScreen extends ConsumerStatefulWidget {
   const MemberDirectoryScreen({super.key});
 
@@ -15,6 +26,7 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
   bool _showMilitary = false;
   bool _showInactive = false;
   bool _reservationOnly = false;
+  bool _freshmenOnly = false;
   bool _exporting = false;
 
   @override
@@ -28,6 +40,7 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
       if (!_showMilitary && member.status == 'MILITARY_LEAVE') return false;
       if (!_showInactive && !member.isActive) return false;
       if (_reservationOnly && !member.isReservationManager) return false;
+      if (_freshmenOnly && !member.isFreshman) return false;
       return true;
     }).toList()..sort(_compareMembers);
     return Scaffold(
@@ -103,22 +116,27 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
             runSpacing: 8,
             children: [
               FilterChip(
-                label: const Text('군 휴학 멤버 표시'),
+                label: const Text('군대'),
                 selected: _showMilitary,
                 onSelected: (value) => setState(() => _showMilitary = value),
               ),
+              FilterChip(
+                label: const Text('신입생'),
+                selected: _freshmenOnly,
+                onSelected: (value) => setState(() => _freshmenOnly = value),
+              ),
               if (isAdmin)
                 FilterChip(
-                  label: const Text('비활성 계정 표시'),
-                  selected: _showInactive,
-                  onSelected: (value) => setState(() => _showInactive = value),
-                ),
-              if (isAdmin)
-                FilterChip(
-                  label: const Text('예약자만'),
+                  label: const Text('예약'),
                   selected: _reservationOnly,
                   onSelected: (value) =>
                       setState(() => _reservationOnly = value),
+                ),
+              if (isAdmin)
+                FilterChip(
+                  label: const Text('비활성'),
+                  selected: _showInactive,
+                  onSelected: (value) => setState(() => _showInactive = value),
                 ),
             ],
           ),
@@ -607,7 +625,9 @@ class _MemberDetailView extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Center(child: _Avatar(name: member.name, size: 88)),
+          Center(
+            child: _Avatar(name: member.name, size: 88, isActive: member.isActive),
+          ),
           const SizedBox(height: 16),
           Text(
             member.name,
@@ -692,15 +712,14 @@ class _MemberDetailView extends ConsumerWidget {
                   trailing: Text(member.teamLabel),
                 ),
                 ListTile(
-                  leading: Icon(
-                    member.status == 'MILITARY_LEAVE'
-                        ? Icons.military_tech_outlined
-                        : Icons.school_outlined,
-                  ),
+                  leading: Icon(switch (member.status) {
+                    'MILITARY_LEAVE' => Icons.military_tech_outlined,
+                    'EXCHANGE_STUDENT' ||
+                    'STUDY_ABROAD' => Icons.flight_takeoff_outlined,
+                    _ => Icons.school_outlined,
+                  }),
                   title: const Text('상태'),
-                  trailing: Text(
-                    member.status == 'MILITARY_LEAVE' ? '군 휴학' : '재학',
-                  ),
+                  trailing: Text(_statusLabel(member.status)),
                 ),
                 if (isAdmin && member.id != null) ...[
                   const Divider(height: 1),
@@ -885,6 +904,8 @@ Future<void> _showMemberEditor(
                             'YB': '재학',
                             'OB': 'OB',
                             'MILITARY_LEAVE': '군 휴학',
+                            'EXCHANGE_STUDENT': '교환학생',
+                            'STUDY_ABROAD': '유학',
                             'GRADUATED': '졸업',
                             'INACTIVE': '비활동',
                           }.entries
@@ -1011,7 +1032,7 @@ class _MemberTile extends StatelessWidget {
     child: ListTile(
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      leading: _Avatar(name: member.name, size: 48),
+      leading: _Avatar(name: member.name, size: 48, isActive: member.isActive),
       title: Row(
         children: [
           Expanded(
@@ -1037,27 +1058,60 @@ class _MemberTile extends StatelessWidget {
         ],
       ),
       subtitle: Text(
-        '${member.isFreshman ? '신입생 · ' : ''}${member.department.isEmpty ? (member.status == 'MILITARY_LEAVE' ? '군 휴학' : '재학') : member.department} · ${member.teamLabel}${member.joinedYear == null ? '' : ' · ${member.joinedYear} 가입'}',
+        '${member.isFreshman ? '신입생 · ' : ''}${member.department.isEmpty ? _statusLabel(member.status) : member.department} · ${member.teamLabel}${member.joinedYear == null ? '' : ' · ${member.joinedYear} 가입'}',
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _SmallBadge(member.isActive ? '활성' : '비활성'),
-          const SizedBox(width: 4),
-          const Icon(Icons.chevron_right_rounded),
-        ],
-      ),
+      trailing: const Icon(Icons.chevron_right_rounded),
     ),
   );
 }
 
 class _Avatar extends StatelessWidget {
-  const _Avatar({required this.name, required this.size, this.photoBase64});
+  const _Avatar({
+    required this.name,
+    required this.size,
+    this.photoBase64,
+    this.isActive,
+  });
   final String name;
   final double size;
   final String? photoBase64;
+  /// null이면 표시하지 않고, 값이 있으면 인스타그램 접속 표시처럼
+  /// 아바타 모서리에 초록(활성)/빨강(비활성) 점을 얹는다.
+  final bool? isActive;
+
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final circle = _circle();
+    if (isActive == null) return circle;
+    final dotSize = size * .3;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          circle,
+          Positioned(
+            right: -dotSize * .1,
+            bottom: -dotSize * .1,
+            child: Container(
+              width: dotSize,
+              height: dotSize,
+              decoration: BoxDecoration(
+                color: isActive!
+                    ? const Color(0xFF35C759)
+                    : const Color(0xFFE5484D),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _circle() => Container(
     width: size,
     height: size,
     alignment: Alignment.center,

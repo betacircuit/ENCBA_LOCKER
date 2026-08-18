@@ -1,21 +1,9 @@
 import 'package:encba_locker/core/theme/app_theme.dart';
+import 'package:encba_locker/core/widgets/wheel_picker_field.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/domain/user_profile.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-/// 학번 피커의 선택지. 최근 가입자 기준으로 00~25만 다룬다.
-final List<String> _studentYearOptions = List.generate(
-  26,
-  (i) => (25 - i).toString().padLeft(2, '0'),
-);
-
-/// 가입년도 피커의 선택지. 학번과 같은 범위를 연도로 표현한다.
-final List<String> _joinedYearOptions = List.generate(
-  26,
-  (i) => (2025 - i).toString(),
-);
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -34,8 +22,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   bool _signUp = false;
   bool _obscure = true;
   String _position = 'PG';
-  String _studentYearPick = _studentYearOptions.first;
-  String _joinedYearPick = _joinedYearOptions.first;
+  String _studentYearPick = studentYearPickerOptions.first;
+  String _joinedYearPick = joinedYearPickerOptions.first;
   String? _phonePrefillApplied;
 
   @override
@@ -142,10 +130,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             name: pendingRegistration.suggestedName,
                           ),
                           const SizedBox(height: 12),
-                          _WheelPickerField(
+                          WheelPickerField(
                             label: '학번',
                             value: _studentYearPick,
-                            options: _studentYearOptions,
+                            options: studentYearPickerOptions,
                             onChanged: (value) =>
                                 setState(() => _studentYearPick = value),
                           ),
@@ -153,10 +141,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           Row(
                             children: [
                               Expanded(
-                                child: _WheelPickerField(
+                                child: WheelPickerField(
                                   label: '엔크바 가입 년도',
                                   value: _joinedYearPick,
-                                  options: _joinedYearOptions,
+                                  options: joinedYearPickerOptions,
                                   onChanged: (value) =>
                                       setState(() => _joinedYearPick = value),
                                 ),
@@ -565,78 +553,6 @@ class _LockedNameField extends StatelessWidget {
       ],
     ),
   );
-}
-
-/// 텍스트 입력 대신 휠을 드래그해 값을 고르는 필드. 학번·가입년도처럼
-/// 범위가 정해진 숫자 입력에서 오타를 원천적으로 막는다.
-class _WheelPickerField extends StatelessWidget {
-  const _WheelPickerField({
-    required this.label,
-    required this.value,
-    required this.options,
-    required this.onChanged,
-  });
-
-  final String label;
-  final String value;
-  final List<String> options;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    borderRadius: BorderRadius.circular(4),
-    onTap: () => _openPicker(context),
-    child: InputDecorator(
-      decoration: InputDecoration(labelText: label),
-      child: Text(value, style: const TextStyle(fontSize: 16)),
-    ),
-  );
-
-  Future<void> _openPicker(BuildContext context) async {
-    var pending = value;
-    final initialIndex = options.indexOf(value).clamp(0, options.length - 1);
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (sheetContext) => SafeArea(
-        child: SizedBox(
-          height: 260,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
-                    TextButton(
-                      onPressed: () => Navigator.of(sheetContext).pop(),
-                      child: const Text('확인'),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: CupertinoPicker(
-                  scrollController: FixedExtentScrollController(
-                    initialItem: initialIndex,
-                  ),
-                  itemExtent: 40,
-                  onSelectedItemChanged: (index) => pending = options[index],
-                  children: options
-                      .map((option) => Center(child: Text(option)))
-                      .toList(),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    onChanged(pending);
-  }
 }
 
 /// 실명 로그인과 학교 계정 로그인을 갈라 주는 구분선.

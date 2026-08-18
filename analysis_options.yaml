@@ -9,6 +9,12 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  # third_party/archive는 pub.dev 패키지를 그대로 옮겨온 벤더 코드라
+  # 이 프로젝트의 린트 규칙 대상이 아니다.
+  exclude:
+    - third_party/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

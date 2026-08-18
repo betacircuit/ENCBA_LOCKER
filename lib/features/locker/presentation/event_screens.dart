@@ -1621,9 +1621,7 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
       );
     }
     final editing = widget.existing != null;
-    final placeOptions = _kind == EventKind.external
-        ? [..._places, _customPlaceOption]
-        : _places;
+    final placeOptions = [..._places, _customPlaceOption];
     final kindOptions = _editableKinds.contains(_kind)
         ? _editableKinds
         : [_kind, ..._editableKinds];
@@ -1850,8 +1848,7 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                         .toList(),
                     onChanged: (value) => setState(() => _place = value!),
                   ),
-                  if (_kind == EventKind.external &&
-                      _place == _customPlaceOption) ...[
+                  if (_place == _customPlaceOption) ...[
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _customPlace,
@@ -2508,7 +2505,7 @@ class _TeamSuggestionStrip extends StatelessWidget {
   );
 }
 
-class _StarterSelector extends StatelessWidget {
+class _StarterSelector extends ConsumerWidget {
   const _StarterSelector({
     required this.members,
     required this.selectedIds,
@@ -2520,7 +2517,7 @@ class _StarterSelector extends StatelessWidget {
   final ValueChanged<Set<String>> onChanged;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final selectedNames = members
         .where((member) => selectedIds.contains(member.id))
         .map((member) => member.name)
@@ -2533,7 +2530,7 @@ class _StarterSelector extends StatelessWidget {
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
-            onPressed: () => _open(context),
+            onPressed: () => _open(context, ref),
             icon: const Icon(Icons.groups_2_outlined),
             label: Text(
               selectedNames.isEmpty
@@ -2548,10 +2545,19 @@ class _StarterSelector extends StatelessWidget {
     );
   }
 
-  Future<void> _open(BuildContext context) async {
+  Future<void> _open(BuildContext context, WidgetRef ref) async {
     var draft = {...selectedIds};
+    // 이 화면을 멤버 목록이 아직 안 불러와진 채로 열었을 수 있다(로그인 직후
+    // 곧장 일정 등록으로 들어온 경우). 비어 있으면 시트를 열기 전에 한 번
+    // 다시 불러와서 "주전 선택"이 빈 목록으로 뜨는 걸 막는다.
+    var source = members;
+    if (source.isEmpty) {
+      await ref.read(lockerControllerProvider.notifier).reload();
+      if (!context.mounted) return;
+      source = ref.read(lockerControllerProvider).membersState.members;
+    }
     final available =
-        members.where((member) => member.id != null && member.isActive).toList()
+        source.where((member) => member.id != null && member.isActive).toList()
           ..sort((a, b) => a.name.compareTo(b.name));
     final result = await showModalBottomSheet<Set<String>>(
       context: context,
@@ -2657,67 +2663,29 @@ class _CapacitySelector extends StatelessWidget {
             onChanged: onEnabledChanged,
           ),
           if (enabled)
-            LayoutBuilder(
-              builder: (context, constraints) {
-                const badgeWidth = 58.0;
-                final progress = (value - 2) / 58;
-                final badgeLeft =
-                    (progress * (constraints.maxWidth - 28) -
-                            badgeWidth / 2 +
-                            14)
-                        .clamp(0.0, constraints.maxWidth - badgeWidth)
-                        .toDouble();
-                return Column(
+            Builder(
+              builder: (context) {
+                // 값 말풍선 위치를 직접 계산하던 예전 방식은 슬라이더 트랙
+                // 안쪽 여백(양옆 라벨 폭만큼)을 셈에 넣지 않아, 값이 커질수록
+                // 말풍선과 실제 손잡이 위치가 어긋났다. Slider의 내장
+                // label(드래그 중 자동으로 손잡이 위를 따라가는 말풍선)을
+                // 쓰면 이 계산 자체가 필요 없다.
+                return Row(
                   children: [
-                    SizedBox(
-                      height: 30,
-                      child: Stack(
-                        children: [
-                          AnimatedPositioned(
-                            duration: const Duration(milliseconds: 100),
-                            left: badgeLeft,
-                            top: 0,
-                            width: badgeWidth,
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: EncbaColors.navy,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 5,
-                                ),
-                                child: Text(
-                                  '${value.round()}명',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                    const SizedBox(width: 24, child: Text('2')),
+                    Expanded(
+                      child: Slider(
+                        value: value,
+                        min: 2,
+                        max: 20,
+                        divisions: 18,
+                        label: '${value.round()}명',
+                        onChanged: onChanged,
                       ),
                     ),
-                    Row(
-                      children: [
-                        const SizedBox(width: 24, child: Text('2')),
-                        Expanded(
-                          child: Slider(
-                            value: value,
-                            min: 2,
-                            max: 60,
-                            divisions: 58,
-                            onChanged: onChanged,
-                          ),
-                        ),
-                        const SizedBox(
-                          width: 30,
-                          child: Text('60', textAlign: TextAlign.right),
-                        ),
-                      ],
+                    const SizedBox(
+                      width: 30,
+                      child: Text('20', textAlign: TextAlign.right),
                     ),
                   ],
                 );
@@ -2818,10 +2786,10 @@ class _ObParticipantSelector extends StatelessWidget {
                   ),
                 ),
                 Slider(
-                  value: count.clamp(1, 30).toDouble(),
+                  value: count.clamp(1, 15).toDouble(),
                   min: 1,
-                  max: 30,
-                  divisions: 29,
+                  max: 15,
+                  divisions: 14,
                   label: '$count명',
                   onChanged: (value) => onChanged(value.round()),
                 ),
