@@ -1,8 +1,21 @@
 import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/domain/user_profile.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+/// 학번 피커의 선택지. 최근 가입자 기준으로 00~25만 다룬다.
+final List<String> _studentYearOptions = List.generate(
+  26,
+  (i) => (25 - i).toString().padLeft(2, '0'),
+);
+
+/// 가입년도 피커의 선택지. 학번과 같은 범위를 연도로 표현한다.
+final List<String> _joinedYearOptions = List.generate(
+  26,
+  (i) => (2025 - i).toString(),
+);
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -16,13 +29,13 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _password = TextEditingController();
   final _passwordConfirm = TextEditingController();
   final _name = TextEditingController();
-  final _studentId = TextEditingController();
-  final _joinedYear = TextEditingController();
   final _phone = TextEditingController();
   final _jerseyNumber = TextEditingController();
   bool _signUp = false;
   bool _obscure = true;
   String _position = 'PG';
+  String _studentYearPick = _studentYearOptions.first;
+  String _joinedYearPick = _joinedYearOptions.first;
 
   @override
   void dispose() {
@@ -30,8 +43,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       _password,
       _passwordConfirm,
       _name,
-      _studentId,
-      _joinedYear,
       _phone,
       _jerseyNumber,
     ]) {
@@ -118,46 +129,27 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             ),
                           ),
                           const SizedBox(height: 16),
-                          _Field(
-                            controller: _name,
-                            label: '실명',
-                            hint: pendingRegistration.suggestedName.isEmpty
-                                ? '가입 명단과 동일하게 입력'
-                                : '${pendingRegistration.suggestedName} · 가입 명단과 동일하게',
-                            autofillHints: const [AutofillHints.name],
-                            validator: _required,
+                          _LockedNameField(
+                            name: pendingRegistration.suggestedName,
                           ),
                           const SizedBox(height: 12),
-                          _Field(
-                            controller: _studentId,
+                          _WheelPickerField(
                             label: '학번',
-                            hint: '22',
-                            keyboardType: TextInputType.number,
-                            validator: (value) {
-                              final year = int.tryParse(value ?? '');
-                              return year == null || year < 0 || year > 99
-                                  ? '00–99로 입력해 주세요.'
-                                  : null;
-                            },
+                            value: _studentYearPick,
+                            options: _studentYearOptions,
+                            onChanged: (value) =>
+                                setState(() => _studentYearPick = value),
                           ),
                           const SizedBox(height: 12),
                           Row(
                             children: [
                               Expanded(
-                                child: _Field(
-                                  controller: _joinedYear,
+                                child: _WheelPickerField(
                                   label: '엔크바 가입 년도',
-                                  hint: '${DateTime.now().year}',
-                                  keyboardType: TextInputType.number,
-                                  validator: (value) {
-                                    final year = int.tryParse(value ?? '');
-                                    if (year == null ||
-                                        year < 1977 ||
-                                        year > DateTime.now().year) {
-                                      return '올바른 가입 년도를 입력해 주세요.';
-                                    }
-                                    return null;
-                                  },
+                                  value: _joinedYearPick,
+                                  options: _joinedYearOptions,
+                                  onChanged: (value) =>
+                                      setState(() => _joinedYearPick = value),
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -408,13 +400,22 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     final controller = ref.read(authControllerProvider.notifier);
     final registration = ref.read(authControllerProvider).pendingRegistration;
     if (registration != null) {
+      final name = registration.suggestedName.trim();
+      if (name.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('구글 계정에서 이름 정보를 가져오지 못했습니다. 관리자에게 문의해 주세요.'),
+          ),
+        );
+        return;
+      }
       await controller.completeGoogleRegistration(
         UserProfile(
           email: registration.email,
-          name: _name.text.trim(),
-          studentId: '${_studentId.text.trim()}학번',
+          name: name,
+          studentId: '$_studentYearPick학번',
           generation: 1,
-          joinedYear: int.parse(_joinedYear.text.trim()),
+          joinedYear: int.parse(_joinedYearPick),
           phone: _phone.text.trim(),
           position: _position,
           jerseyNumber: int.parse(_jerseyNumber.text),
@@ -504,6 +505,118 @@ class _Field extends StatelessWidget {
       suffixIcon: suffix,
     ),
   );
+}
+
+/// 구글 계정에서 가져온 실명을 그대로 보여줄 뿐, 고칠 수는 없다.
+/// 가입 명단 매칭은 이 값 기준으로 이뤄지므로 임의 수정을 막는다.
+class _LockedNameField extends StatelessWidget {
+  const _LockedNameField({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    decoration: BoxDecoration(
+      border: Border.all(color: EncbaColors.line),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Row(
+      children: [
+        const Icon(Icons.badge_outlined, color: EncbaColors.snuBlue, size: 20),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name.isEmpty ? '이름 정보를 가져오지 못했습니다' : name,
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              ),
+              const SizedBox(height: 2),
+              const Text(
+                '구글 계정 이름으로 고정되며 가입 명단과 자동으로 대조됩니다.',
+                style: TextStyle(color: EncbaColors.muted, fontSize: 11.5),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// 텍스트 입력 대신 휠을 드래그해 값을 고르는 필드. 학번·가입년도처럼
+/// 범위가 정해진 숫자 입력에서 오타를 원천적으로 막는다.
+class _WheelPickerField extends StatelessWidget {
+  const _WheelPickerField({
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String value;
+  final List<String> options;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    borderRadius: BorderRadius.circular(4),
+    onTap: () => _openPicker(context),
+    child: InputDecorator(
+      decoration: InputDecoration(labelText: label),
+      child: Text(value, style: const TextStyle(fontSize: 16)),
+    ),
+  );
+
+  Future<void> _openPicker(BuildContext context) async {
+    var pending = value;
+    final initialIndex = options.indexOf(value).clamp(0, options.length - 1);
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: SizedBox(
+          height: 260,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+                    TextButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      child: const Text('확인'),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: CupertinoPicker(
+                  scrollController: FixedExtentScrollController(
+                    initialItem: initialIndex,
+                  ),
+                  itemExtent: 40,
+                  onSelectedItemChanged: (index) => pending = options[index],
+                  children: options
+                      .map((option) => Center(child: Text(option)))
+                      .toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    onChanged(pending);
+  }
 }
 
 /// 실명 로그인과 학교 계정 로그인을 갈라 주는 구분선.
