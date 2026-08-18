@@ -36,6 +36,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   String _position = 'PG';
   String _studentYearPick = _studentYearOptions.first;
   String _joinedYearPick = _joinedYearOptions.first;
+  String? _phonePrefillApplied;
 
   @override
   void dispose() {
@@ -56,6 +57,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     final auth = ref.watch(authControllerProvider);
     final pendingRegistration = auth.pendingRegistration;
     final isRegistration = _signUp || pendingRegistration != null;
+    final suggestedPhone = pendingRegistration?.suggestedPhone;
+    if (suggestedPhone != null &&
+        suggestedPhone.isNotEmpty &&
+        _phonePrefillApplied != suggestedPhone &&
+        _phone.text.trim().isEmpty) {
+      _phone.text = suggestedPhone;
+      _phonePrefillApplied = suggestedPhone;
+    }
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -197,6 +206,17 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             keyboardType: TextInputType.phone,
                             validator: _required,
                           ),
+                          if (suggestedPhone != null &&
+                              suggestedPhone.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            const Text(
+                              '회원 명단에 있는 번호로 채웠습니다. 맞는지 확인해 주세요.',
+                              style: TextStyle(
+                                color: EncbaColors.muted,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           _Field(
                             controller: _password,

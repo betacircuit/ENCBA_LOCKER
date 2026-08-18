@@ -2,10 +2,14 @@ class PendingGoogleRegistration {
   const PendingGoogleRegistration({
     required this.email,
     this.suggestedName = '',
+    this.suggestedPhone,
   });
 
   final String email;
   final String suggestedName;
+  /// 가입 명단·기존 프로필에 이미 남아 있는 번호가 있으면 채워 넣는 값.
+  /// 확인용일 뿐이라 사용자가 자유롭게 고칠 수 있다.
+  final String? suggestedPhone;
 }
 
 bool isSnuSchoolEmail(String email) {

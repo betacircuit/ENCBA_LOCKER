@@ -150,7 +150,12 @@ class SupabaseAuthRepository {
         supabase.UserAttributes(password: password),
       );
     } on supabase.AuthException catch (error) {
-      throw EncbaAuthException(_friendlyAuthMessage(error.message));
+      // 이전 시도에서 이미 이 비밀번호로 걸어뒀다면 굳이 막을 이유가 없다.
+      // 가입 명단 매칭이 나중에 막혀 프로필 생성만 실패했던 계정이 재시도할 때
+      // 이 경로를 탄다.
+      if (!error.message.toLowerCase().contains('different from the old password')) {
+        throw EncbaAuthException(_friendlyAuthMessage(error.message));
+      }
     }
     try {
       await _client.rpc(
@@ -332,7 +337,40 @@ class SupabaseAuthRepository {
       await _client.auth.signOut();
       throw const EncbaAuthException('서울대학교 학교 계정으로 가입해 주세요.');
     }
-    return AuthSessionSnapshot(pendingRegistration: pendingRegistration);
+    return AuthSessionSnapshot(
+      pendingRegistration: await _withSuggestedPhone(pendingRegistration),
+    );
+  }
+
+  /// 가입 명단·기존 프로필에 같은 이름으로 이미 등록된 번호가 있으면 미리
+  /// 채워 넣는다. 조회가 실패해도 가입 자체를 막을 이유는 없다.
+  Future<PendingGoogleRegistration> _withSuggestedPhone(
+    PendingGoogleRegistration base,
+  ) async {
+    if (base.suggestedName.isEmpty) return base;
+    try {
+      final rows = await _client.rpc(
+        'list_member_directory',
+        params: {
+          'requested_status': 'all',
+          'requested_query': base.suggestedName,
+        },
+      );
+      for (final row in rows as List) {
+        final map = Map<String, dynamic>.from(row as Map);
+        if (map['name'] != base.suggestedName) continue;
+        final phone = map['phone'] as String?;
+        if (phone == null || phone.isEmpty) break;
+        return PendingGoogleRegistration(
+          email: base.email,
+          suggestedName: base.suggestedName,
+          suggestedPhone: phone,
+        );
+      }
+    } on Object {
+      // 미리 채우기용 조회일 뿐이라 실패해도 가입 흐름은 그대로 진행한다.
+    }
+    return base;
   }
 
   static const _googleSignUpIntentKey = 'encba.google-signup-intent.v1';
