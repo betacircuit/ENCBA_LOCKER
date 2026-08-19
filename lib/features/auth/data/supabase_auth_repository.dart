@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:encba_locker/core/storage/local_store.dart';
 import 'package:encba_locker/features/auth/domain/user_profile.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
@@ -142,36 +143,35 @@ class SupabaseAuthRepository {
     if (password.length < 8) {
       throw const EncbaAuthException('비밀번호는 8자 이상으로 입력해 주세요.');
     }
-    // 비밀번호를 먼저 건다. 프로필을 만든 뒤에 실패하면 계정은 있는데
-    // 비밀번호만 없는 상태로 남아, 무엇을 다시 해야 하는지 알기 어렵다.
-    // 이 순서면 어느 단계에서 끊겨도 처음부터 다시 눌러 이어갈 수 있다.
+    final userId = _client.auth.currentUser!.id;
     try {
-      await _client.auth.updateUser(
-        supabase.UserAttributes(password: password),
-      );
-    } on supabase.AuthException catch (error) {
-      // 이전 시도에서 이미 이 비밀번호로 걸어뒀다면 굳이 막을 이유가 없다.
-      // 가입 명단 매칭이 나중에 막혀 프로필 생성만 실패했던 계정이 재시도할 때
-      // 이 경로를 탄다.
-      if (!isReusableGoogleRegistrationPasswordError(error)) {
-        throw EncbaAuthException(_friendlyAuthMessage(error.message));
-      }
-    }
-    try {
-      await _client.rpc(
-        'complete_google_registration',
-        params: {
+      await _client.functions.invoke(
+        'complete-google-registration',
+        body: {
           'requested_name': profile.name,
           'requested_student_year': _studentYear(profile.studentId),
           'requested_joined_year': profile.joinedYear,
           'requested_phone': profile.phone,
           'requested_position': profile.position,
           'requested_jersey_number': profile.jerseyNumber,
+          'password': password,
         },
       );
-      return await _profileFor(_client.auth.currentUser!.id);
+      await _clearGoogleSignUpIntent();
+      try {
+        await _client.auth.refreshSession();
+      } on supabase.AuthException {
+        // 프로필 조회는 기존 토큰으로도 가능하다. 새 로그인 아이디는 다음 로그인부터 쓴다.
+      }
+      return await _profileFor(userId);
     } on supabase.AuthException catch (error) {
       throw EncbaAuthException(_friendlyAuthMessage(error.message));
+    } on supabase.FunctionException catch (error) {
+      if (error.status == 409) {
+        await _clearGoogleSignUpIntent();
+        await _client.auth.signOut();
+      }
+      throw EncbaAuthException(_friendlyFunctionMessage(error));
     } on supabase.PostgrestException catch (error) {
       throw EncbaAuthException(_friendlyDatabaseMessage(error));
     }
@@ -186,7 +186,7 @@ class SupabaseAuthRepository {
     }
     try {
       final response = await _client.auth.signUp(
-        email: _internalEmail(profile.name),
+        email: internalLoginEmailForName(profile.name),
         password: password,
         data: {
           'name': profile.name,
@@ -217,15 +217,33 @@ class SupabaseAuthRepository {
   /// 부원의 계정 이메일은 학교 이메일이라 실명으로 만든 내부 주소와 다르다.
   Future<UserProfile> signIn(String loginName, String password) async {
     try {
-      final response = await _client.auth.signInWithPassword(
-        email: loginIdToEmail(loginName),
-        password: password,
-      );
-      final user = response.user;
-      if (user == null) {
-        throw const EncbaAuthException('아이디 또는 비밀번호를 확인해 주세요.');
+      final value = loginName.trim();
+      final candidates = value.contains('@')
+          ? <String>[value.toLowerCase()]
+          : <String>[
+              internalLoginEmailForName(value),
+              legacyInternalLoginEmailForName(value),
+            ];
+      for (var index = 0; index < candidates.length; index++) {
+        try {
+          final response = await _client.auth.signInWithPassword(
+            email: candidates[index],
+            password: password,
+          );
+          final user = response.user;
+          if (user == null) {
+            throw const EncbaAuthException('아이디 또는 비밀번호를 확인해 주세요.');
+          }
+          return await _profileFor(user.id);
+        } on supabase.AuthException catch (error) {
+          final hasLegacyCandidate = index + 1 < candidates.length;
+          if (hasLegacyCandidate && _isInvalidLoginCredentials(error)) {
+            continue;
+          }
+          rethrow;
+        }
       }
-      return await _profileFor(user.id);
+      throw const EncbaAuthException('아이디 또는 비밀번호를 확인해 주세요.');
     } on supabase.AuthException catch (error) {
       throw EncbaAuthException(_friendlyAuthMessage(error.message));
     } on supabase.PostgrestException catch (error) {
@@ -313,18 +331,23 @@ class SupabaseAuthRepository {
     }
   }
 
-  Future<void> signOut() => _client.auth.signOut();
+  Future<void> signOut() async {
+    await _clearGoogleSignUpIntent();
+    await _client.auth.signOut();
+  }
 
   Future<AuthSessionSnapshot> _sessionFor(supabase.User user) async {
-    final wantedSignUp = await _consumeGoogleSignUpIntent();
+    final wantedSignUp = await _hasGoogleSignUpIntent();
     final profile = await _profileForIfExists(user.id);
     if (profile != null) {
-      // 가입하러 들어왔는데 이미 계정이 있으면 그대로 들여보내지 않고 알린다.
-      // 조용히 로그인시키면 새 계정이 만들어진 줄 알기 쉽다.
+      // member_allowlist의 존재 여부가 아니라 Google 사용자에게 연결된 프로필이
+      // 실제 가입 완료 여부를 결정한다. 가입 버튼으로 기존 계정에 들어온 경우에는
+      // 조용히 로그인시키지 않고 분명한 안내를 보여 준다.
       if (wantedSignUp && _hasGoogleIdentity(user)) {
+        await _clearGoogleSignUpIntent();
         await _client.auth.signOut();
         throw EncbaAuthException(
-          '이미 가입된 Google 계정입니다. ${user.email ?? '학교 계정'}으로 로그인해 주세요.',
+          '이미 등록된 계정입니다. 로그인 화면에서 Google 계정으로 로그인해 주세요.',
         );
       }
       return AuthSessionSnapshot(profile: profile);
@@ -334,56 +357,31 @@ class SupabaseAuthRepository {
       throw const EncbaAuthException('가입 정보를 찾지 못했습니다. 관리자에게 문의해 주세요.');
     }
     if (!isSnuSchoolEmail(pendingRegistration.email)) {
+      await _clearGoogleSignUpIntent();
       await _client.auth.signOut();
       throw const EncbaAuthException('서울대학교 학교 계정으로 가입해 주세요.');
     }
-    return AuthSessionSnapshot(
-      pendingRegistration: await _withSuggestedPhone(pendingRegistration),
-    );
-  }
-
-  /// 가입 명단·기존 프로필에 같은 이름으로 이미 등록된 번호가 있으면 미리
-  /// 채워 넣는다. 조회가 실패해도 가입 자체를 막을 이유는 없다.
-  Future<PendingGoogleRegistration> _withSuggestedPhone(
-    PendingGoogleRegistration base,
-  ) async {
-    if (base.suggestedName.isEmpty) return base;
-    try {
-      final rows = await _client.rpc(
-        'list_member_directory',
-        params: {
-          'requested_status': 'all',
-          'requested_query': base.suggestedName,
-        },
-      );
-      for (final row in rows as List) {
-        final map = Map<String, dynamic>.from(row as Map);
-        if (map['name'] != base.suggestedName) continue;
-        final phone = map['phone'] as String?;
-        if (phone == null || phone.isEmpty) break;
-        return PendingGoogleRegistration(
-          email: base.email,
-          suggestedName: base.suggestedName,
-          suggestedPhone: phone,
-        );
-      }
-    } on Object {
-      // 미리 채우기용 조회일 뿐이라 실패해도 가입 흐름은 그대로 진행한다.
-    }
-    return base;
+    return AuthSessionSnapshot(pendingRegistration: pendingRegistration);
   }
 
   static const _googleSignUpIntentKey = 'encba.google-signup-intent.v1';
 
-  /// 가입 의도는 한 번만 쓴다. 남겨 두면 다음에 앱을 열 때 엉뚱하게 걸린다.
-  Future<bool> _consumeGoogleSignUpIntent() async {
+  /// OAuth 리디렉트 직후 세션 복원과 인증 이벤트가 동시에 들어올 수 있으므로
+  /// 가입 의도를 읽는 순간 지우지 않는다. 가입 완료·취소·중복 판정 시에만 지운다.
+  Future<bool> _hasGoogleSignUpIntent() async {
     try {
       final value = await _store.getString(_googleSignUpIntentKey);
-      if (value == null) return false;
-      await _store.remove(_googleSignUpIntentKey);
       return value == 'true';
     } on Object {
       return false;
+    }
+  }
+
+  Future<void> _clearGoogleSignUpIntent() async {
+    try {
+      await _store.remove(_googleSignUpIntentKey);
+    } on Object {
+      // 로그인 상태 판정은 로컬 의도 정리 실패 때문에 막지 않는다.
     }
   }
 
@@ -396,12 +394,9 @@ class SupabaseAuthRepository {
   PendingGoogleRegistration? _pendingRegistrationFor(supabase.User? user) {
     if (user == null || user.email == null) return null;
     if (!_hasGoogleIdentity(user)) return null;
-    final metadata = user.userMetadata;
-    final suggestedName =
-        metadata?['full_name'] as String? ?? metadata?['name'] as String? ?? '';
     return PendingGoogleRegistration(
       email: user.email!,
-      suggestedName: suggestedName,
+      suggestedName: googleRealNameFromMetadata(user.userMetadata),
     );
   }
 
@@ -473,15 +468,9 @@ class SupabaseAuthRepository {
   /// 이메일이므로 그대로 쓰고, 아니면 실명으로 만든 내부 주소를 쓴다.
   String loginIdToEmail(String loginId) {
     final value = loginId.trim();
-    return value.contains('@') ? value.toLowerCase() : _internalEmail(value);
-  }
-
-  String _internalEmail(String loginName) {
-    final canonical = loginName.trim();
-    final encoded = base64Url
-        .encode(utf8.encode(canonical))
-        .replaceAll('=', '');
-    return 'encba.$encoded@members.encba.local';
+    return value.contains('@')
+        ? value.toLowerCase()
+        : internalLoginEmailForName(value);
   }
 
   int _studentYear(String value) =>
@@ -508,6 +497,10 @@ class SupabaseAuthRepository {
     return '계정 서버 요청에 실패했습니다. 잠시 뒤 다시 시도해 주세요.';
   }
 
+  bool _isInvalidLoginCredentials(supabase.AuthException error) =>
+      error.code == 'invalid_credentials' ||
+      error.message.toLowerCase().contains('invalid login credentials');
+
   String _friendlyDatabaseMessage(supabase.PostgrestException error) {
     if (error.message.contains('ENCBA_SNU_GOOGLE_ACCOUNT_REQUIRED')) {
       return '서울대학교 학교 계정으로 가입해 주세요.';
@@ -525,11 +518,39 @@ class SupabaseAuthRepository {
     if (error.code == '23505') return '이미 등록된 정보입니다.';
     return '계정 정보를 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.';
   }
+
+  String _friendlyFunctionMessage(supabase.FunctionException error) {
+    final details = error.details;
+    if (details is Map && details['error'] is String) {
+      return details['error'] as String;
+    }
+    if (error.status == 401) return 'Google 인증을 다시 진행해 주세요.';
+    return '계정 서버 요청에 실패했습니다. 잠시 뒤 다시 시도해 주세요.';
+  }
 }
 
-/// 비밀번호 설정은 성공했지만 프로필 RPC가 끝나기 전에 끊긴 가입을 재개할 수
-/// 있게 한다. 서버의 안정적인 오류 코드를 우선하고 구버전 응답 문구도 받는다.
+/// 서울대 Google Workspace 표시명은 `최재원 / 학생 / 전기·정보공학부`처럼
+/// 소속 정보까지 붙는다. 첫 구간만 실명으로 쓰고 보이지 않는 soft hyphen도 제거한다.
 @visibleForTesting
-bool isReusableGoogleRegistrationPasswordError(supabase.AuthException error) =>
-    error.code == 'same_password' ||
-    error.message.toLowerCase().contains('different from the old password');
+String googleRealNameFromMetadata(Map<String, dynamic>? metadata) {
+  final raw =
+      metadata?['full_name'] as String? ?? metadata?['name'] as String? ?? '';
+  return raw.replaceAll('\u00ad', '').split(RegExp(r'\s*/\s*')).first.trim();
+}
+
+/// 이메일 로컬 파트의 64자 제한과 대소문자 비구분을 모두 만족하도록 실명을
+/// 고정 길이 소문자 SHA-256 식별자로 바꾼다.
+@visibleForTesting
+String internalLoginEmailForName(String loginName) {
+  final digest = sha256.convert(utf8.encode(loginName.trim())).toString();
+  return '$digest@members.encba.local';
+}
+
+/// 기존 실명 계정의 Base64URL 주소를 로그인 호환용으로만 유지한다.
+@visibleForTesting
+String legacyInternalLoginEmailForName(String loginName) {
+  final encoded = base64Url
+      .encode(utf8.encode(loginName.trim()))
+      .replaceAll('=', '');
+  return 'encba.$encoded@members.encba.local';
+}

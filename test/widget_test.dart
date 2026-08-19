@@ -193,9 +193,14 @@ void main() {
     expect(find.text('회원 정보 입력'), findsOneWidget);
     expect(find.text('학교 계정 확인 완료'), findsOneWidget);
     expect(find.text('member@snu.ac.kr'), findsOneWidget);
-    // 실명은 구글 계정 이름으로 고정되어 표시만 되고, 입력칸으로는 없다.
+    expect(find.text('로그인 아이디 (실명)'), findsOneWidget);
     expect(find.text('김멤버'), findsOneWidget);
-    expect(find.text('구글 계정 이름으로 고정되며 가입 명단과 자동으로 대조됩니다.'), findsOneWidget);
+    expect(find.textContaining('로그인 아이디는 아래에 입력한 실명'), findsOneWidget);
+    expect(
+      find.text('학교 Google 계정에서 확인된 실명이며, 이 이름으로 로그인합니다.'),
+      findsOneWidget,
+    );
+    expect(find.widgetWithText(TextFormField, '로그인 아이디 (실명)'), findsNothing);
     expect(find.text('학번'), findsOneWidget);
     expect(find.text('엔크바 가입 년도'), findsOneWidget);
     expect(find.text('전화번호'), findsOneWidget);
@@ -207,8 +212,7 @@ void main() {
       '010-',
     );
     expect(find.text('정보 저장하고 가입 완료'), findsOneWidget);
-    // 학교 이메일이 아이디가 되고, 여기서 비밀번호까지 함께 만든다.
-    expect(find.textContaining('로그인 아이디가 됩니다'), findsOneWidget);
+    // 학교 이메일은 인증에만 쓰고, 여기서 실명 아이디와 비밀번호를 만든다.
     expect(find.text('비밀번호'), findsOneWidget);
     expect(find.text('비밀번호 확인'), findsOneWidget);
 
@@ -845,11 +849,7 @@ void main() {
 
   test('선수 목록은 학번이 높은 순으로 선다', () {
     final members = [
-      const VideoTaggedMember(
-        directoryId: 'a',
-        name: '박지훈',
-        studentYear: 20,
-      ),
+      const VideoTaggedMember(directoryId: 'a', name: '박지훈', studentYear: 20),
       const VideoTaggedMember(directoryId: 'b', name: '김민수', studentYear: 25),
       const VideoTaggedMember(directoryId: 'c', name: '이서준'),
     ]..sort(compareTaggedMembers);

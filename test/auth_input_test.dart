@@ -2,7 +2,6 @@ import 'package:encba_locker/features/auth/data/supabase_auth_repository.dart';
 import 'package:encba_locker/features/auth/presentation/auth_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 void main() {
   const formatter = KoreanMobilePhoneFormatter();
@@ -16,10 +15,10 @@ void main() {
     expect(formatter.formatEditUpdate(value(''), value('')).text, '010-');
     expect(
       formatter.formatEditUpdate(value('010-123'), value('010-1234')).text,
-      '010-1234',
+      '010-1234-',
     );
     expect(
-      formatter.formatEditUpdate(value('010-1234'), value('010-12345')).text,
+      formatter.formatEditUpdate(value('010-1234-'), value('010-1234-5')).text,
       '010-1234-5',
     );
     expect(
@@ -40,13 +39,40 @@ void main() {
     expect(result.selection.baseOffset, result.text.length);
   });
 
-  test('Supabase same_password 오류는 Google 가입 재시도로 처리한다', () {
-    const error = supabase.AuthApiException(
-      'New password should be different from the old password.',
-      statusCode: '422',
-      code: 'same_password',
+  test('전체 삭제·다시 입력·붙여넣기에도 010 접두사와 하이픈을 복원한다', () {
+    final cleared = formatter.formatEditUpdate(
+      value('010-1234-5678'),
+      value(''),
     );
+    expect(cleared.text, '010-');
 
-    expect(isReusableGoogleRegistrationPasswordError(error), isTrue);
+    final retyped = formatter.formatEditUpdate(cleared, value('010-9876'));
+    expect(retyped.text, '010-9876-');
+
+    final pasted = formatter.formatEditUpdate(value('010-'), value('40953346'));
+    expect(pasted.text, '010-4095-3346');
+  });
+
+  test('서울대 Google 표시명에서 가입 명단용 실명만 추출한다', () {
+    expect(
+      googleRealNameFromMetadata(const {
+        'full_name': '\u00ad최재원 / 학생 / 전기·정보공학부',
+      }),
+      '최재원',
+    );
+  });
+
+  test('실명 로그인 주소는 이메일 대소문자 정규화에도 충돌하지 않는다', () {
+    final first = internalLoginEmailForName('가');
+    final second = internalLoginEmailForName('갚');
+
+    expect(first, isNot(equals(second)));
+    expect(first, first.toLowerCase());
+    expect(second, second.toLowerCase());
+    expect(first.split('@').first.length, lessThanOrEqualTo(64));
+    expect(
+      internalLoginEmailForName('가나다라마바사아자차카타파하').split('@').first.length,
+      lessThanOrEqualTo(64),
+    );
   });
 }

@@ -49,6 +49,7 @@ dependencies:
   excel: ^4.0.6
   web: ^1.1.1
   http: ^1.6.0
+  crypto: 3.0.7
 
 # excel 4.0.6이 archive ^3.6.1을 요구하는데, 3.x의 zlib inflate는
 # dart:io/dart:html 조건부 임포트라 --wasm 빌드에서 스텁으로 빠져

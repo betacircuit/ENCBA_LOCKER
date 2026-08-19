@@ -25,7 +25,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   String _position = 'PG';
   String _studentYearPick = studentYearPickerOptions.first;
   String _joinedYearPick = joinedYearPickerOptions.first;
-  String? _phonePrefillApplied;
 
   @override
   void dispose() {
@@ -46,20 +45,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     final auth = ref.watch(authControllerProvider);
     final pendingRegistration = auth.pendingRegistration;
     final isRegistration = _signUp || pendingRegistration != null;
-    final suggestedPhone = pendingRegistration?.suggestedPhone;
-    if (suggestedPhone != null &&
-        suggestedPhone.isNotEmpty &&
-        _phonePrefillApplied != suggestedPhone &&
-        (_phone.text.trim().isEmpty || _phone.text == '010-')) {
-      _phone.value = const KoreanMobilePhoneFormatter().formatEditUpdate(
-        _phone.value,
-        TextEditingValue(
-          text: suggestedPhone,
-          selection: TextSelection.collapsed(offset: suggestedPhone.length),
-        ),
-      );
-      _phonePrefillApplied = suggestedPhone;
-    }
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -121,8 +106,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 ),
                                 const SizedBox(height: 6),
                                 const Text(
-                                  '이 주소가 로그인 아이디가 됩니다. 아래에서 비밀번호를 정하면 '
-                                  'Google 없이도 로그인할 수 있습니다.',
+                                  'Google 계정은 학교 구성원 확인에만 사용합니다. 로그인 아이디는 '
+                                  '아래에 입력한 실명이며, 비밀번호를 정하면 Google 없이도 로그인할 수 있습니다.',
                                   style: TextStyle(
                                     color: EncbaColors.muted,
                                     fontSize: 12,
@@ -133,7 +118,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             ),
                           ),
                           const SizedBox(height: 16),
-                          _LockedNameField(
+                          _VerifiedRealNameField(
                             name: pendingRegistration.suggestedName,
                           ),
                           const SizedBox(height: 12),
@@ -209,17 +194,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 ? null
                                 : '010-1234-5678 형식으로 입력해 주세요.',
                           ),
-                          if (suggestedPhone != null &&
-                              suggestedPhone.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            const Text(
-                              '회원 명단에 있는 번호로 채웠습니다. 맞는지 확인해 주세요.',
-                              style: TextStyle(
-                                color: EncbaColors.muted,
-                                fontSize: 11.5,
-                              ),
-                            ),
-                          ],
                           const SizedBox(height: 12),
                           _Field(
                             controller: _password,
@@ -427,7 +401,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       if (name.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('구글 계정에서 이름 정보를 가져오지 못했습니다. 관리자에게 문의해 주세요.'),
+            content: Text('학교 계정에서 실명을 확인하지 못했습니다. 관리자에게 문의해 주세요.'),
           ),
         );
         return;
@@ -563,6 +537,13 @@ class KoreanMobilePhoneFormatter extends TextInputFormatter {
       final removeAt = digitCursor - 1;
       digits = digits.substring(0, removeAt) + digits.substring(removeAt + 1);
       digitCursor--;
+      final formatted = _format(digits);
+      return TextEditingValue(
+        text: formatted,
+        selection: TextSelection.collapsed(
+          offset: _cursorAfterDigits(formatted, digitCursor),
+        ),
+      );
     }
 
     if (digits.length > 11) digits = digits.substring(0, 11);
@@ -586,7 +567,8 @@ class KoreanMobilePhoneFormatter extends TextInputFormatter {
 
   static String _format(String digits) {
     final subscriber = digits.length <= 3 ? '' : digits.substring(3);
-    if (subscriber.length <= 4) return '010-$subscriber';
+    if (subscriber.length < 4) return '010-$subscriber';
+    if (subscriber.length == 4) return '010-$subscriber-';
     return '010-${subscriber.substring(0, 4)}-${subscriber.substring(4)}';
   }
 
@@ -604,10 +586,10 @@ class KoreanMobilePhoneFormatter extends TextInputFormatter {
   }
 }
 
-/// 구글 계정에서 가져온 실명을 그대로 보여줄 뿐, 고칠 수는 없다.
-/// 가입 명단 매칭은 이 값 기준으로 이뤄지므로 임의 수정을 막는다.
-class _LockedNameField extends StatelessWidget {
-  const _LockedNameField({required this.name});
+/// 학교 Google 디렉터리에서 확인한 실명이다. 이메일 대신 이 값이 로그인
+/// 아이디가 되며, 가입 명단 선점을 막기 위해 사용자가 임의로 바꿀 수 없다.
+class _VerifiedRealNameField extends StatelessWidget {
+  const _VerifiedRealNameField({required this.name});
 
   final String name;
 
@@ -627,8 +609,13 @@ class _LockedNameField extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              const Text(
+                '로그인 아이디 (실명)',
+                style: TextStyle(color: EncbaColors.muted, fontSize: 11.5),
+              ),
+              const SizedBox(height: 2),
               Text(
-                name.isEmpty ? '이름 정보를 가져오지 못했습니다' : name,
+                name.isEmpty ? '실명을 확인하지 못했습니다' : name,
                 style: const TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: 16,
@@ -636,7 +623,7 @@ class _LockedNameField extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               const Text(
-                '구글 계정 이름으로 고정되며 가입 명단과 자동으로 대조됩니다.',
+                '학교 Google 계정에서 확인된 실명이며, 이 이름으로 로그인합니다.',
                 style: TextStyle(color: EncbaColors.muted, fontSize: 11.5),
               ),
             ],
