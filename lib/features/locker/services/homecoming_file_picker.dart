@@ -11,7 +11,7 @@ class PickedHomecomingFile {
 Future<PickedHomecomingFile?> pickHomecomingFile() async {
   final result = await FilePicker.pickFiles(
     type: FileType.custom,
-    allowedExtensions: const ['xlsx'],
+    allowedExtensions: const ['xlsx', 'xls'],
     withData: true,
     // WASM 웹 빌드에서는 FileReader가 정상 종료돼도 bytes가 비어 오는 경우가
     // 있다. readStream은 Blob.arrayBuffer를 쓰는 별도 경로라 함께 요청한다.
