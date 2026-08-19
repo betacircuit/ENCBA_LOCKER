@@ -153,7 +153,7 @@ class SupabaseAuthRepository {
       // 이전 시도에서 이미 이 비밀번호로 걸어뒀다면 굳이 막을 이유가 없다.
       // 가입 명단 매칭이 나중에 막혀 프로필 생성만 실패했던 계정이 재시도할 때
       // 이 경로를 탄다.
-      if (!error.message.toLowerCase().contains('different from the old password')) {
+      if (!isReusableGoogleRegistrationPasswordError(error)) {
         throw EncbaAuthException(_friendlyAuthMessage(error.message));
       }
     }
@@ -526,3 +526,10 @@ class SupabaseAuthRepository {
     return '계정 정보를 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.';
   }
 }
+
+/// 비밀번호 설정은 성공했지만 프로필 RPC가 끝나기 전에 끊긴 가입을 재개할 수
+/// 있게 한다. 서버의 안정적인 오류 코드를 우선하고 구버전 응답 문구도 받는다.
+@visibleForTesting
+bool isReusableGoogleRegistrationPasswordError(supabase.AuthException error) =>
+    error.code == 'same_password' ||
+    error.message.toLowerCase().contains('different from the old password');

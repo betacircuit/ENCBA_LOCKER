@@ -4,6 +4,7 @@ import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/domain/user_profile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -17,7 +18,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _password = TextEditingController();
   final _passwordConfirm = TextEditingController();
   final _name = TextEditingController();
-  final _phone = TextEditingController();
+  final _phone = TextEditingController(text: '010-');
   final _jerseyNumber = TextEditingController();
   bool _signUp = false;
   bool _obscure = true;
@@ -49,8 +50,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     if (suggestedPhone != null &&
         suggestedPhone.isNotEmpty &&
         _phonePrefillApplied != suggestedPhone &&
-        _phone.text.trim().isEmpty) {
-      _phone.text = suggestedPhone;
+        (_phone.text.trim().isEmpty || _phone.text == '010-')) {
+      _phone.value = const KoreanMobilePhoneFormatter().formatEditUpdate(
+        _phone.value,
+        TextEditingValue(
+          text: suggestedPhone,
+          selection: TextSelection.collapsed(offset: suggestedPhone.length),
+        ),
+      );
       _phonePrefillApplied = suggestedPhone;
     }
     return Scaffold(
@@ -192,7 +199,15 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             label: '전화번호',
                             hint: '010-1234-5678',
                             keyboardType: TextInputType.phone,
-                            validator: _required,
+                            inputFormatters: const [
+                              KoreanMobilePhoneFormatter(),
+                            ],
+                            validator: (value) =>
+                                RegExp(
+                                  r'^010-\d{4}-\d{4}$',
+                                ).hasMatch(value ?? '')
+                                ? null
+                                : '010-1234-5678 형식으로 입력해 주세요.',
                           ),
                           if (suggestedPhone != null &&
                               suggestedPhone.isNotEmpty) ...[
@@ -489,6 +504,7 @@ class _Field extends StatelessWidget {
     this.validator,
     this.suffix,
     this.autofillHints,
+    this.inputFormatters,
   });
 
   final TextEditingController controller;
@@ -499,6 +515,7 @@ class _Field extends StatelessWidget {
   final String? Function(String?)? validator;
   final Widget? suffix;
   final Iterable<String>? autofillHints;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) => TextFormField(
@@ -507,12 +524,84 @@ class _Field extends StatelessWidget {
     obscureText: obscureText,
     validator: validator,
     autofillHints: autofillHints,
+    inputFormatters: inputFormatters,
     decoration: InputDecoration(
       labelText: label,
       hintText: hint,
       suffixIcon: suffix,
     ),
   );
+}
+
+/// 국내 휴대전화 번호를 `010-1234-5678` 형태로 유지한다.
+///
+/// 자동으로 붙은 두 번째 하이픈을 백스페이스로 지우면 하이픈이 즉시 다시
+/// 생겨 입력이 막히기 쉽다. 그 경우에는 하이픈 앞 숫자까지 함께 지워서
+/// 자연스러운 백스페이스 동작으로 바꾼다.
+class KoreanMobilePhoneFormatter extends TextInputFormatter {
+  const KoreanMobilePhoneFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final oldDigits = _digits(oldValue.text);
+    var digits = _digits(newValue.text);
+    var digitCursor = _digitCountBeforeCursor(newValue);
+
+    if (!digits.startsWith('010')) {
+      digits = '010$digits';
+      digitCursor += 3;
+    }
+
+    final deletedOnlySeparator =
+        newValue.text.length < oldValue.text.length &&
+        digits == oldDigits &&
+        digitCursor > 3;
+    if (deletedOnlySeparator) {
+      final removeAt = digitCursor - 1;
+      digits = digits.substring(0, removeAt) + digits.substring(removeAt + 1);
+      digitCursor--;
+    }
+
+    if (digits.length > 11) digits = digits.substring(0, 11);
+    if (digitCursor > digits.length) digitCursor = digits.length;
+
+    final formatted = _format(digits);
+    final cursor = _cursorAfterDigits(formatted, digitCursor);
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: cursor),
+    );
+  }
+
+  static String _digits(String value) =>
+      value.replaceAll(RegExp(r'[^0-9]'), '');
+
+  static int _digitCountBeforeCursor(TextEditingValue value) {
+    final offset = value.selection.baseOffset.clamp(0, value.text.length);
+    return _digits(value.text.substring(0, offset)).length;
+  }
+
+  static String _format(String digits) {
+    final subscriber = digits.length <= 3 ? '' : digits.substring(3);
+    if (subscriber.length <= 4) return '010-$subscriber';
+    return '010-${subscriber.substring(0, 4)}-${subscriber.substring(4)}';
+  }
+
+  static int _cursorAfterDigits(String value, int digitCount) {
+    var seen = 0;
+    for (var index = 0; index < value.length; index++) {
+      if (RegExp(r'[0-9]').hasMatch(value[index])) seen++;
+      if (seen == digitCount) {
+        var offset = index + 1;
+        if (offset < value.length && value[offset] == '-') offset++;
+        return offset;
+      }
+    }
+    return value.length;
+  }
 }
 
 /// 구글 계정에서 가져온 실명을 그대로 보여줄 뿐, 고칠 수는 없다.
@@ -540,7 +629,10 @@ class _LockedNameField extends StatelessWidget {
             children: [
               Text(
                 name.isEmpty ? '이름 정보를 가져오지 못했습니다' : name,
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
               ),
               const SizedBox(height: 2),
               const Text(

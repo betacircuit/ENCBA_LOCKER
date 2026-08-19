@@ -199,6 +199,13 @@ void main() {
     expect(find.text('학번'), findsOneWidget);
     expect(find.text('엔크바 가입 년도'), findsOneWidget);
     expect(find.text('전화번호'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextFormField>(find.widgetWithText(TextFormField, '전화번호'))
+          .controller!
+          .text,
+      '010-',
+    );
     expect(find.text('정보 저장하고 가입 완료'), findsOneWidget);
     // 학교 이메일이 아이디가 되고, 여기서 비밀번호까지 함께 만든다.
     expect(find.textContaining('로그인 아이디가 됩니다'), findsOneWidget);
@@ -209,7 +216,7 @@ void main() {
     await tester.tap(find.text('정보 저장하고 가입 완료'));
     await tester.pump();
     // 학번·가입년도는 휠 피커라 항상 유효한 값을 들고 있어 별도 오류가 없다.
-    expect(find.text('입력해 주세요.'), findsOneWidget);
+    expect(find.text('010-1234-5678 형식으로 입력해 주세요.'), findsOneWidget);
     expect(find.text('0–99로 입력해 주세요.'), findsOneWidget);
     expect(find.text('8자 이상 입력해 주세요.'), findsOneWidget);
   });
