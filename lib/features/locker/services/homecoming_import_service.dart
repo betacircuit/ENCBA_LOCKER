@@ -1,6 +1,6 @@
 import 'package:encba_locker/features/locker/services/homecoming_file_picker.dart'
     as platform_picker;
-import 'package:excel/excel.dart';
+import 'package:excel_plus/excel_plus.dart';
 
 class HomecomingImportResult {
   const HomecomingImportResult({
@@ -31,7 +31,7 @@ class HomecomingImportService {
     required String fileName,
     required List<int> bytes,
   }) {
-    final workbook = Excel.decodeBytes(bytes);
+    final workbook = _decodeWorkbook(bytes);
     if (workbook.tables.isEmpty) {
       throw const FormatException('엑셀 시트가 비어 있습니다.');
     }
@@ -137,6 +137,19 @@ class HomecomingImportService {
       duplicateNameCount: duplicateNameCount,
       warnings: warnings,
     );
+  }
+
+  Excel _decodeWorkbook(List<int> bytes) {
+    if (bytes.isEmpty) {
+      throw const FormatException('선택한 엑셀 파일이 비어 있습니다.');
+    }
+    try {
+      return Excel.decodeBytes(bytes);
+    } on ExcelException {
+      throw const FormatException(
+        '엑셀 통합문서를 열 수 없습니다. 암호가 걸리지 않은 .xlsx 또는 .xls 파일인지 확인해 주세요.',
+      );
+    }
   }
 
   _HomecomingSheetLayout? _findLayout(MapEntry<String, Sheet> entry) {

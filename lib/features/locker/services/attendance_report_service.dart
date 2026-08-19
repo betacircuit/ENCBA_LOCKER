@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
-import 'package:excel/excel.dart';
+import 'package:excel_plus/excel_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 

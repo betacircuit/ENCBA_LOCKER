@@ -1,9 +1,25 @@
 import 'package:encba_locker/features/locker/services/ib_operation_import_service.dart';
-import 'package:excel/excel.dart';
+import 'package:excel_plus/excel_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'dart:io';
 
 void main() {
+  test('빈 통합문서는 명확한 오류로 거절한다', () {
+    expect(
+      () => IbOperationImportService().parseBytes(
+        fileName: '빈파일.xlsx',
+        bytes: const [],
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('비어 있습니다'),
+        ),
+      ),
+    );
+  });
+
   test('IB 운영표의 날짜와 담당자를 분리해 읽는다', () {
     final workbook = Excel.createExcel();
     final sheet = workbook[workbook.getDefaultSheet()!];

@@ -26,10 +26,6 @@ ARG SUPABASE_PUBLISHABLE_KEY
 ARG YOUTUBE_API_KEY
 
 COPY pubspec.yaml pubspec.lock ./
-# archive는 pub.dev가 아니라 third_party/archive 로컬 경로를 문다
-# (dependency_overrides). pub get이 그 경로의 실제 파일을 확인하므로
-# 소스 전체를 복사하기 전에 이것부터 있어야 한다.
-COPY third_party ./third_party
 RUN flutter --version && flutter pub get --enforce-lockfile
 
 COPY . .

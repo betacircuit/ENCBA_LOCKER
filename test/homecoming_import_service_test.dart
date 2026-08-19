@@ -1,10 +1,26 @@
 import 'dart:io';
 
 import 'package:encba_locker/features/locker/services/homecoming_import_service.dart';
-import 'package:excel/excel.dart';
+import 'package:excel_plus/excel_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('깨진 통합문서는 사용자가 조치할 수 있는 오류로 변환한다', () {
+    expect(
+      () => HomecomingImportService().parseBytes(
+        fileName: '깨진파일.xlsx',
+        bytes: const [1, 2, 3],
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('.xlsx 또는 .xls'),
+        ),
+      ),
+    );
+  });
+
   test('열 순서가 달라도 헤더로 찾고 연락처 없는 사람도 보존한다', () {
     final workbook = Excel.createExcel();
     final sheet = workbook[workbook.getDefaultSheet()!];
@@ -110,14 +126,12 @@ void main() {
     final sheet = workbook[workbook.getDefaultSheet()!];
     void put(int column, int row, String value) =>
         sheet
-                .cell(
-                  CellIndex.indexByColumnRow(
-                    columnIndex: column,
-                    rowIndex: row,
-                  ),
-                )
-                .value =
-            TextCellValue(value);
+            .cell(
+              CellIndex.indexByColumnRow(columnIndex: column, rowIndex: row),
+            )
+            .value = TextCellValue(
+          value,
+        );
 
     put(0, 0, '연락담당');
     put(1, 0, '이름');
@@ -137,9 +151,10 @@ void main() {
       bytes: workbook.encode()!,
     );
 
-    expect(
-      result.rows.map((row) => row['assigned_to_name']),
-      ['윤석', '윤석', '우진'],
-    );
+    expect(result.rows.map((row) => row['assigned_to_name']), [
+      '윤석',
+      '윤석',
+      '우진',
+    ]);
   });
 }

@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/locker/application/locker_controller.dart';
@@ -5,6 +8,7 @@ import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/services/calendar_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1337,6 +1341,12 @@ class AttendanceSelector extends ConsumerWidget {
                             return;
                           }
                           if (saved) {
+                            if (choice.$1 == '참석' &&
+                                !active &&
+                                context.mounted) {
+                              unawaited(HapticFeedback.mediumImpact());
+                              _showAttendanceCelebration(context);
+                            }
                             await ref
                                 .read(lockerControllerProvider.notifier)
                                 .loadEventAttendance(event.id);
@@ -1446,6 +1456,167 @@ class AttendanceSelector extends ConsumerWidget {
     );
     return reason;
   }
+}
+
+void _showAttendanceCelebration(BuildContext context) {
+  if (MediaQuery.disableAnimationsOf(context)) return;
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (overlay == null) return;
+
+  late final OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (_) => _AttendanceCelebration(onComplete: entry.remove),
+  );
+  overlay.insert(entry);
+}
+
+class _AttendanceCelebration extends StatefulWidget {
+  const _AttendanceCelebration({required this.onComplete});
+
+  final VoidCallback onComplete;
+
+  @override
+  State<_AttendanceCelebration> createState() => _AttendanceCelebrationState();
+}
+
+class _AttendanceCelebrationState extends State<_AttendanceCelebration>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..forward().whenComplete(widget.onComplete);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      key: const ValueKey('attendance-celebration'),
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) {
+            final progress = _controller.value;
+            final scale = Curves.elasticOut.transform(
+              math.min(progress / .62, 1),
+            );
+            final opacity = progress < .7 ? 1.0 : (1 - progress) / .3;
+            return CustomPaint(
+              painter: _AttendanceBurstPainter(progress),
+              child: Center(
+                child: Opacity(
+                  opacity: opacity.clamp(0, 1),
+                  child: Transform.scale(
+                    scale: scale,
+                    child: Semantics(
+                      liveRegion: true,
+                      label: '참석 확정',
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 76,
+                            height: 76,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [Color(0xFF29A36A), Color(0xFF096540)],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: EncbaColors.attending.withValues(
+                                    alpha: .34,
+                                  ),
+                                  blurRadius: 30,
+                                  spreadRadius: 8,
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.check_rounded,
+                              color: Colors.white,
+                              size: 48,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Material(
+                            color: const Color(0xFF092E22),
+                            borderRadius: BorderRadius.circular(999),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              child: Text(
+                                '참석 확정!',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontFamily: 'Jua',
+                                  fontSize: 17,
+                                  letterSpacing: .2,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _AttendanceBurstPainter extends CustomPainter {
+  const _AttendanceBurstPainter(this.progress);
+
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2 - 38);
+    final travel = Curves.easeOutCubic.transform(progress);
+    final fade = (1 - progress).clamp(0.0, 1.0);
+    final ringPaint = Paint()
+      ..color = EncbaColors.attending.withValues(alpha: fade * .32)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4 * fade;
+    canvas.drawCircle(center, 45 + 105 * travel, ringPaint);
+
+    const colors = [Color(0xFF167A50), Color(0xFFFFB02E), Color(0xFFE96B2C)];
+    for (var index = 0; index < 18; index++) {
+      final angle = -math.pi / 2 + index * (2 * math.pi / 18);
+      final distance = 48 + (92 + (index % 3) * 15) * travel;
+      final particleCenter =
+          center +
+          Offset(math.cos(angle) * distance, math.sin(angle) * distance);
+      final paint = Paint()
+        ..color = colors[index % colors.length].withValues(alpha: fade);
+      final radius = (index.isEven ? 5.0 : 3.5) * fade;
+      canvas.drawCircle(particleCenter, radius, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _AttendanceBurstPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
 
 class EventEditorScreen extends ConsumerStatefulWidget {
