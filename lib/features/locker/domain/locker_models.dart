@@ -279,11 +279,15 @@ class MemberProfile {
   final bool isReservationManager;
   final String department;
   final bool isFreshman;
+
   /// 관리자/주장/매니저 권한과는 무관한 표시용 직책(부서장, BEN 감독 등).
   final List<String> titles;
 
   bool get canAdminister =>
       leadershipRole == 'admin' || leadershipRole == 'captain';
+
+  /// 명단 전용 ID는 아직 Auth 계정과 연결되지 않은 사람이다.
+  bool get hasRegisteredAccount => id != null && !id!.startsWith('allowlist:');
 
   String? get leadershipLabel => switch (leadershipRole) {
     'admin' => '관리자',
@@ -485,6 +489,8 @@ class HomecomingContact {
     this.followUpOn,
     this.notes,
     this.sourceRow,
+    this.assignedToId,
+    this.assignedToName,
   });
   final String id;
   final String name;
@@ -498,6 +504,8 @@ class HomecomingContact {
   final DateTime? followUpOn;
   final String? notes;
   final int? sourceRow;
+  final String? assignedToId;
+  final String? assignedToName;
 
   bool get contacted => status == 'contacted' || status == 'confirmed';
   bool get handled => status != 'pending';
@@ -521,6 +529,8 @@ class HomecomingContact {
     followUpOn: followUpOn ?? this.followUpOn,
     notes: notes ?? this.notes,
     sourceRow: sourceRow,
+    assignedToId: assignedToId,
+    assignedToName: assignedToName,
   );
 }
 

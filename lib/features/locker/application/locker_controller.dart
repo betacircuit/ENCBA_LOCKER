@@ -456,32 +456,38 @@ class LockerController extends StateNotifier<LockerState> {
           announcements: [announcement, ...state.announcements],
           unreadNotifications: state.unreadNotifications + 1,
         );
-        unawaited(_notifyIfEnabled(
-          NotificationCategory.announcements,
-          announcement.title,
-          announcement.body,
-        ));
+        unawaited(
+          _notifyIfEnabled(
+            NotificationCategory.announcements,
+            announcement.title,
+            announcement.body,
+          ),
+        );
       });
       _eventChannel ??= repository.subscribeToEvents((record) {
         state = state.copyWith(
           unreadNotifications: state.unreadNotifications + 1,
         );
-        unawaited(_notifyIfEnabled(
-          NotificationCategory.events,
-          '새 일정이 등록됐습니다',
-          (record['title'] as String?) ?? '일정 탭에서 확인해 주세요.',
-        ));
+        unawaited(
+          _notifyIfEnabled(
+            NotificationCategory.events,
+            '새 일정이 등록됐습니다',
+            (record['title'] as String?) ?? '일정 탭에서 확인해 주세요.',
+          ),
+        );
       });
       _videoFeedChannel ??= repository.subscribeToVideos((record) {
         state = state.copyWith(
           unreadNotifications: state.unreadNotifications + 1,
         );
         final category = record['category'] as String? ?? '영상';
-        unawaited(_notifyIfEnabled(
-          NotificationCategory.videos,
-          '새 $category 영상이 올라왔습니다',
-          (record['title'] as String?) ?? '영상 탭에서 확인해 주세요.',
-        ));
+        unawaited(
+          _notifyIfEnabled(
+            NotificationCategory.videos,
+            '새 $category 영상이 올라왔습니다',
+            (record['title'] as String?) ?? '영상 탭에서 확인해 주세요.',
+          ),
+        );
       });
       _operationSwapChannel ??= repository.subscribeToOperationSwapRequests((
         record,
@@ -646,6 +652,14 @@ class LockerController extends StateNotifier<LockerState> {
     } on Object {
       state = state.copyWith(error: '멤버 검색에 실패했습니다.');
     }
+  }
+
+  /// 엑셀 배정을 보내기 전 계정 등록·활성 상태를 확인할 때는 현재 화면의
+  /// 검색어나 군휴학 필터와 무관한 전체 명단이 필요하다.
+  Future<List<MemberProfile>> loadAllMembersForAccountCheck() async {
+    final repository = _repository;
+    if (repository == null) return state.members;
+    return _orDefault(repository.loadMembers(membership: 'ALL'), state.members);
   }
 
   /// 검색 결과에서 빠진 멤버도 상세 주소의 ID로 읽어 현재 상태에 합친다.

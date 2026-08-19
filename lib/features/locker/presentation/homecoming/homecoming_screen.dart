@@ -8,6 +8,7 @@ class HomecomingScreen extends ConsumerStatefulWidget {
 
 class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
   bool _importing = false;
+  int _assigneeIndex = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -18,6 +19,25 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
     );
     final campaign = operationsState.homecomingCampaign;
     final contacts = operationsState.homecomingContacts;
+    final assignees =
+        contacts
+            .map((item) => item.assignedToName?.trim() ?? '')
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    final assigneePages = isAdmin ? ['전체', ...assignees] : assignees;
+    final safeAssigneeIndex = assigneePages.isEmpty
+        ? 0
+        : _assigneeIndex.clamp(0, assigneePages.length - 1);
+    final selectedAssignee = assigneePages.isEmpty
+        ? null
+        : assigneePages[safeAssigneeIndex];
+    final visibleContacts = selectedAssignee == null || selectedAssignee == '전체'
+        ? contacts
+        : contacts
+              .where((item) => item.assignedToName == selectedAssignee)
+              .toList(growable: false);
     final complete = contacts.where((item) => item.handled).length;
     return Scaffold(
       appBar: AppBar(title: const Text('홈커밍 연락 보드')),
@@ -88,7 +108,50 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
               ],
             ),
             const SizedBox(height: 18),
-            ...contacts.map((contact) {
+            if (assigneePages.isNotEmpty) ...[
+              Card(
+                child: Row(
+                  children: [
+                    IconButton(
+                      tooltip: '이전 담당자',
+                      onPressed: safeAssigneeIndex == 0
+                          ? null
+                          : () => setState(() => _assigneeIndex--),
+                      icon: const Icon(Icons.chevron_left_rounded),
+                    ),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          const Text(
+                            '연락 담당',
+                            style: TextStyle(
+                              color: EncbaColors.muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                          Text(
+                            '$selectedAssignee · ${visibleContacts.length}명',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 17,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '다음 담당자',
+                      onPressed: safeAssigneeIndex >= assigneePages.length - 1
+                          ? null
+                          : () => setState(() => _assigneeIndex++),
+                      icon: const Icon(Icons.chevron_right_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+            ...visibleContacts.map((contact) {
               final callPhone = contact.phone.isNotEmpty
                   ? contact.phone
                   : contact.homeOrOfficePhone ?? '';
@@ -119,6 +182,14 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
                                       color: EncbaColors.muted,
                                     ),
                                   ),
+                                  if (isAdmin && contact.assignedToName != null)
+                                    Text(
+                                      '담당 ${contact.assignedToName}',
+                                      style: const TextStyle(
+                                        color: EncbaColors.snuBlue,
+                                        fontSize: 12,
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
@@ -292,63 +363,180 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
     try {
       final parsed = await HomecomingImportService().pickAndParse();
       if (parsed == null || !mounted) return;
-      final details = <String>[
-        '${parsed.sheetName} 시트에서 ${parsed.rows.length}명을 읽었습니다.',
-        ...parsed.warnings,
-        '',
-        '현재 캠페인의 기존 연락망은 새 명단으로 교체됩니다.',
-      ].join('\n');
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('홈커밍 연락망 확인'),
-          content: SingleChildScrollView(child: Text(details)),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('취소'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('가져오기'),
-            ),
-          ],
-        ),
+      final selectedAssignees = await _selectHomecomingAssignees(
+        parsed.rows,
+        parsed.sheetName,
+        parsed.warnings,
       );
-      if (!mounted || confirmed != true) return;
+      if (!mounted || selectedAssignees == null) return;
+      final selectedRows = parsed.rows
+          .where(
+            (row) => selectedAssignees.contains(
+              (row['assigned_to_name'] as String?)?.trim() ?? '담당 미지정',
+            ),
+          )
+          .toList(growable: false);
       final ok = await ref
           .read(lockerControllerProvider.notifier)
           .importHomecomingContacts(
             fileName: parsed.fileName,
-            contacts: parsed.rows,
+            contacts: selectedRows,
           );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              ok ? '${parsed.rows.length}명을 가져왔습니다.' : '가져오지 못했습니다.',
-            ),
-          ),
-        );
+        if (ok) {
+          _assigneeIndex = 0;
+        } else {
+          await _showImportError('홈커밍 연락망을 가져오지 못했습니다.');
+        }
       }
     } on FormatException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.message)));
+        await _showImportError(error.message);
       }
     } on Object catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(kDebugMode ? '엑셀 오류: $error' : '엑셀 파일을 읽지 못했습니다.'),
-          ),
+        await _showImportError(
+          kDebugMode ? '엑셀 오류: $error' : '엑셀 파일을 읽지 못했습니다.',
         );
       }
     } finally {
       if (mounted) setState(() => _importing = false);
     }
   }
+
+  Future<Set<String>?> _selectHomecomingAssignees(
+    List<Map<String, dynamic>> rows,
+    String sheetName,
+    List<String> warnings,
+  ) async {
+    final members = await ref
+        .read(lockerControllerProvider.notifier)
+        .loadAllMembersForAccountCheck();
+    if (!mounted) return null;
+    final memberByName = {for (final member in members) member.name: member};
+    final counts = <String, int>{};
+    for (final row in rows) {
+      final name = (row['assigned_to_name'] as String?)?.trim();
+      final key = name == null || name.isEmpty ? '담당 미지정' : name;
+      counts.update(key, (value) => value + 1, ifAbsent: () => 1);
+    }
+    final names = counts.keys.toList()..sort();
+    final selected = names.toSet();
+    return showDialog<Set<String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('$sheetName · 담당자 선택 등록'),
+          content: SizedBox(
+            width: 520,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${rows.length}명의 선배 연락처를 읽었습니다.'),
+                if (warnings.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    warnings.join('\n'),
+                    style: const TextStyle(
+                      color: EncbaColors.late,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    TextButton(
+                      onPressed: () => setDialogState(() {
+                        selected
+                          ..clear()
+                          ..addAll(names);
+                      }),
+                      child: const Text('전체 선택'),
+                    ),
+                    TextButton(
+                      onPressed: () => setDialogState(() {
+                        selected
+                          ..clear()
+                          ..addAll(
+                            names.where((name) {
+                              final member = memberByName[name];
+                              return member?.hasRegisteredAccount == true &&
+                                  member?.isActive == true;
+                            }),
+                          );
+                      }),
+                      child: const Text('활성 계정만'),
+                    ),
+                  ],
+                ),
+                SizedBox(
+                  height: 300,
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: names
+                        .map((name) {
+                          final member = memberByName[name];
+                          final status =
+                              member == null || !member.hasRegisteredAccount
+                              ? '계정 미등록'
+                              : member.isActive
+                              ? '활성 계정'
+                              : '비활성 계정';
+                          return CheckboxListTile(
+                            dense: true,
+                            value: selected.contains(name),
+                            title: Text('$name · ${counts[name]}명'),
+                            subtitle: Text(status),
+                            onChanged: (checked) => setDialogState(() {
+                              checked == true
+                                  ? selected.add(name)
+                                  : selected.remove(name);
+                            }),
+                          );
+                        })
+                        .toList(growable: false),
+                  ),
+                ),
+                const Text(
+                  '선택한 담당자 그룹만 새 연락망으로 등록됩니다. 비활성·미등록 계정은 앱으로 배정이 전달되지 않을 수 있습니다.',
+                  style: TextStyle(color: EncbaColors.muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => Navigator.pop(dialogContext, Set.of(selected)),
+              child: Text('${selected.length}개 그룹 등록'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showImportError(String message) => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('가져오기 실패'),
+      content: Text(message),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('확인'),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _sendSms(
     HomecomingContact contact,

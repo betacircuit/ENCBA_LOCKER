@@ -103,20 +103,25 @@ grant execute on function public.list_member_directory(text, text) to authentica
 
 -- 부서장·BEN 팀 내 직책 배정. leadership_role(전체 동아리 권한)은 건드리지 않는다.
 update public.member_allowlist
-set department = '컴퓨터공학과', student_year = 25, titles = titles || array['밴드부장']
+set department = '컴퓨터공학과', student_year = 25,
+    titles = case when titles @> array['밴드부장'] then titles else titles || array['밴드부장'] end
 where login_name = '이민섭';
 
 update public.member_allowlist
-set department = '국어교육과', student_year = 24, titles = titles || array['연경/대회부장']
+set department = '국어교육과', student_year = 24,
+    titles = case when titles @> array['연경/대회부장'] then titles else titles || array['연경/대회부장'] end
 where login_name = '이승민';
 
 update public.member_allowlist
 set department = '첨단융합학부', student_year = 25,
-    titles = titles || array['신입생부장', '벤 주장']
+    titles = array(
+      select distinct value
+      from unnest(titles || array['신입생부장', '벤 주장']) value
+    )
 where login_name = '홍성준';
 
 update public.member_allowlist
-set titles = titles || array['벤 감독']
+set titles = case when titles @> array['벤 감독'] then titles else titles || array['벤 감독'] end
 where login_name in ('유승준', '임준호', '시유상');
 
 commit;

@@ -758,7 +758,8 @@ class SupabaseLockerRepository {
         .select(
           'id,source_row,senior_name,generation,home_or_office_phone,phone,'
           'contact_status,parking_required,parking_registered,follow_up_allowed,'
-          'follow_up_on,notes,homecoming_campaigns!inner(is_active)',
+          'follow_up_on,notes,assigned_to,assigned_to_name,'
+          'homecoming_campaigns!inner(is_active)',
         )
         .eq('homecoming_campaigns.is_active', true)
         .order('generation', ascending: false, nullsFirst: false)
@@ -780,6 +781,8 @@ class SupabaseLockerRepository {
                 : DateTime.parse(row['follow_up_on'] as String),
             notes: row['notes'] as String?,
             sourceRow: row['source_row'] as int?,
+            assignedToId: row['assigned_to'] as String?,
+            assignedToName: row['assigned_to_name'] as String?,
           ),
         )
         .toList();
@@ -1160,9 +1163,7 @@ class SupabaseLockerRepository {
     } on PostgrestException catch (error) {
       if (!_isMissingVideoLinkFeature(error)) rethrow;
       debugPrint('Supabase video link migration pending: $error');
-      return write(
-        Map<String, dynamic>.from(payload)..remove('recorded_on'),
-      );
+      return write(Map<String, dynamic>.from(payload)..remove('recorded_on'));
     }
   }
 

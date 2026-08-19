@@ -213,13 +213,14 @@ class SupabaseAuthRepository {
     }
   }
 
-  /// 실명 또는 학교 이메일 어느 쪽으로도 들어올 수 있다. Google로 가입한
-  /// 부원의 계정 이메일은 학교 이메일이라 실명으로 만든 내부 주소와 다르다.
+  /// 실명 또는 학교 이메일 어느 쪽으로도 들어올 수 있다. Google 가입 뒤 Auth의
+  /// 기본 이메일은 실명용 내부 주소로 바뀌므로 학교 이메일은 서버에서 그 주소를
+  /// 찾아 같은 비밀번호 로그인으로 이어 준다.
   Future<UserProfile> signIn(String loginName, String password) async {
     try {
       final value = loginName.trim();
       final candidates = value.contains('@')
-          ? <String>[value.toLowerCase()]
+          ? await _emailLoginCandidates(value)
           : <String>[
               internalLoginEmailForName(value),
               legacyInternalLoginEmailForName(value),
@@ -249,6 +250,24 @@ class SupabaseAuthRepository {
     } on supabase.PostgrestException catch (error) {
       throw EncbaAuthException(_friendlyDatabaseMessage(error));
     }
+  }
+
+  Future<List<String>> _emailLoginCandidates(String value) async {
+    final email = value.toLowerCase();
+    try {
+      final response = await _client.functions.invoke(
+        'resolve-login-email',
+        body: {'email': email},
+      );
+      final data = response.data;
+      final resolved = data is Map ? data['login_email'] as String? : null;
+      if (resolved != null && resolved.trim().isNotEmpty && resolved != email) {
+        return [resolved.trim().toLowerCase(), email];
+      }
+    } on Object {
+      // 일반 이메일 계정은 Edge Function 장애 중에도 기존 방식으로 로그인한다.
+    }
+    return [email];
   }
 
   Future<UserProfile> refreshProfile() async {

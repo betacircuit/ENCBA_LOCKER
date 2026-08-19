@@ -300,65 +300,195 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
     try {
       final parsed = await IbOperationImportService().pickAndParse();
       if (!mounted || parsed == null) return;
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('${parsed.academicYear}-${parsed.term} IB 운영표'),
-          content: SingleChildScrollView(
-            child: Text(
-              '${parsed.dateCount}개 날짜에서 ${parsed.rows.length}건을 읽었습니다.\n'
-              '원본 시간 ${parsed.explicitTimeCount}건 · 기본 시간 ${parsed.defaultTimeCount}건\n\n'
-              '${parsed.warnings.isEmpty ? '' : '${parsed.warnings.join('\n')}\n\n'}'
-              '같은 학기의 기존 엑셀 배정은 교체됩니다. 표에 시간이 없는 경우 '
-              '1경기 11시, 2경기 13시, 3경기 15시로 적용합니다.',
+      final selectedAssignees = await _selectOperationAssignees(parsed);
+      if (!mounted || selectedAssignees == null) return;
+      final selectedRows = parsed.rows
+          .where(
+            (row) => selectedAssignees.contains(
+              (row['assignee_name'] as String?)?.trim() ?? '',
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('취소'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('가져오기'),
-            ),
-          ],
-        ),
-      );
-      if (!mounted || confirmed != true) return;
+          )
+          .toList(growable: false);
       final result = await ref
           .read(lockerControllerProvider.notifier)
           .importOperations(
             fileName: parsed.fileName,
             academicYear: parsed.academicYear,
             term: parsed.term,
-            assignments: parsed.rows,
+            assignments: selectedRows,
           );
       if (!mounted) return;
-      final message = result == null
-          ? 'IB 운영표를 가져오지 못했습니다.'
-          : '${result.imported}건 저장 · 계정 미연결 ${result.unmatched}건';
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      await _showOperationImportResult(result);
     } on FormatException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.message)));
+        await _showOperationImportError(error.message);
       }
     } on Object catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(kDebugMode ? '엑셀 오류: $error' : '엑셀 파일을 읽지 못했습니다.'),
-          ),
+        await _showOperationImportError(
+          kDebugMode ? '엑셀 오류: $error' : '엑셀 파일을 읽지 못했습니다.',
         );
       }
     } finally {
       if (mounted) setState(() => _importing = false);
     }
   }
+
+  Future<Set<String>?> _selectOperationAssignees(
+    IbOperationImportResult parsed,
+  ) async {
+    final members = await ref
+        .read(lockerControllerProvider.notifier)
+        .loadAllMembersForAccountCheck();
+    if (!mounted) return null;
+    final memberByName = {for (final member in members) member.name: member};
+    final counts = <String, int>{};
+    for (final row in parsed.rows) {
+      final name = (row['assignee_name'] as String?)?.trim() ?? '';
+      if (name.isNotEmpty) {
+        counts.update(name, (value) => value + 1, ifAbsent: () => 1);
+      }
+    }
+    final names = counts.keys.toList()..sort();
+    final selected = names.toSet();
+    return showDialog<Set<String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('${parsed.academicYear}-${parsed.term} IB 선택 등록'),
+          content: SizedBox(
+            width: 540,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${parsed.dateCount}개 날짜 · ${parsed.rows.length}건 · '
+                  '원본 시간 ${parsed.explicitTimeCount}건 · 기본 시간 ${parsed.defaultTimeCount}건',
+                ),
+                if (parsed.warnings.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    parsed.warnings.join('\n'),
+                    style: const TextStyle(
+                      color: EncbaColors.late,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    TextButton(
+                      onPressed: () => setDialogState(() {
+                        selected
+                          ..clear()
+                          ..addAll(names);
+                      }),
+                      child: const Text('전체 선택'),
+                    ),
+                    TextButton(
+                      onPressed: () => setDialogState(() {
+                        selected
+                          ..clear()
+                          ..addAll(
+                            names.where((name) {
+                              final member = memberByName[name];
+                              return member?.hasRegisteredAccount == true &&
+                                  member?.isActive == true;
+                            }),
+                          );
+                      }),
+                      child: const Text('활성 계정만'),
+                    ),
+                  ],
+                ),
+                SizedBox(
+                  height: 320,
+                  child: ListView(
+                    children: names
+                        .map((name) {
+                          final member = memberByName[name];
+                          final status =
+                              member == null || !member.hasRegisteredAccount
+                              ? '계정 미등록'
+                              : member.isActive
+                              ? '활성 계정'
+                              : '비활성 계정';
+                          return CheckboxListTile(
+                            dense: true,
+                            value: selected.contains(name),
+                            title: Text('$name · ${counts[name]}건'),
+                            subtitle: Text(status),
+                            onChanged: (checked) => setDialogState(() {
+                              checked == true
+                                  ? selected.add(name)
+                                  : selected.remove(name);
+                            }),
+                          );
+                        })
+                        .toList(growable: false),
+                  ),
+                ),
+                const Text(
+                  '선택한 멤버의 일정만 계정에 등록합니다. 같은 학기의 기존 엑셀 배정은 선택 결과로 교체됩니다. 시간이 없으면 1경기 11시, 2경기 13시, 3경기 15시입니다.',
+                  style: TextStyle(color: EncbaColors.muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => Navigator.pop(dialogContext, Set.of(selected)),
+              child: Text('${selected.length}명 등록'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showOperationImportResult(
+    ({int imported, int unmatched})? result,
+  ) => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(result == null ? '가져오기 실패' : 'IB 운영 일정 등록 완료'),
+      content: Text(
+        result == null
+            ? 'IB 운영표를 가져오지 못했습니다.'
+            : '${result.imported}건을 저장했습니다.\n'
+                  '계정 미등록 또는 이름이 맞지 않아 연결되지 않은 일정은 ${result.unmatched}건입니다.',
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('확인'),
+        ),
+      ],
+    ),
+  );
+
+  Future<void> _showOperationImportError(String message) => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('엑셀 가져오기 실패'),
+      content: Text(message),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('확인'),
+        ),
+      ],
+    ),
+  );
 }
 
 class AuditLogScreen extends ConsumerWidget {

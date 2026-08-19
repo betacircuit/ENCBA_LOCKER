@@ -626,7 +626,11 @@ class _MemberDetailView extends ConsumerWidget {
         padding: const EdgeInsets.all(20),
         children: [
           Center(
-            child: _Avatar(name: member.name, size: 88, isActive: member.isActive),
+            child: _Avatar(
+              name: member.name,
+              size: 88,
+              isActive: member.isActive,
+            ),
           ),
           const SizedBox(height: 16),
           Text(
@@ -763,7 +767,8 @@ class _MemberDetailView extends ConsumerWidget {
 }
 
 /// 전화 앱에 넘길 때는 구분 기호를 떼어 낸다.
-String _dialableNumber(String phone) => phone.replaceAll(RegExp(r'[^0-9+]'), '');
+String _dialableNumber(String phone) =>
+    phone.replaceAll(RegExp(r'[^0-9+]'), '');
 
 Future<void> _showMemberEditor(
   BuildContext context,
@@ -787,6 +792,7 @@ Future<void> _showMemberEditor(
   var isFreshman = member.isFreshman;
   var isActive = member.isActive;
   var teams = {...member.teams};
+  String? validationError;
 
   final save = await showModalBottomSheet<bool>(
     context: context,
@@ -962,15 +968,13 @@ Future<void> _showMemberEditor(
                     final joined = int.tryParse(joinedYear.text.trim());
                     final number = int.tryParse(jersey.text.trim());
                     if (name.text.trim().isEmpty ||
-                        joined == null ||
-                        joined < 1977 ||
+                        (joined != null && (joined < 1977 || joined > 2100)) ||
                         number == null ||
                         number < 0 ||
                         number > 99) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('이름, 가입 년도, 등번호를 확인해 주세요.'),
-                        ),
+                      setState(
+                        () => validationError =
+                            '이름과 등번호를 확인해 주세요. 가입 연도는 비어 있어도 됩니다.',
                       );
                       return;
                     }
@@ -978,6 +982,16 @@ Future<void> _showMemberEditor(
                   },
                   child: const Text('변경 사항 저장'),
                 ),
+                if (validationError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    validationError!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -990,7 +1004,7 @@ Future<void> _showMemberEditor(
     final updated = member.copyWith(
       name: name.text.trim(),
       studentId: '${studentYear.text.trim()}학번',
-      joinedYear: int.parse(joinedYear.text.trim()),
+      joinedYear: int.tryParse(joinedYear.text.trim()),
       phone: phone.text.trim(),
       position: position,
       jerseyNumber: int.parse(jersey.text.trim()),
@@ -1005,14 +1019,20 @@ Future<void> _showMemberEditor(
     final failure = await ref
         .read(lockerControllerProvider.notifier)
         .updateMember(updated);
-    if (context.mounted) {
-      // 저장 후에도 상세 화면에 머문다. 예전에는 성공하면 화면을 닫아 버려서
-      // 바뀐 값을 확인할 데가 없었고, 그래서 저장이 안 된 것처럼 보였다.
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(
-          SnackBar(content: Text(failure ?? '멤버 정보를 수정했습니다.')),
-        );
+    if (context.mounted && failure != null) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('멤버 정보를 저장하지 못했습니다'),
+          content: Text(failure),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
     }
   }
   name.dispose();
@@ -1075,6 +1095,7 @@ class _Avatar extends StatelessWidget {
   final String name;
   final double size;
   final String? photoBase64;
+
   /// null이면 표시하지 않고, 값이 있으면 인스타그램 접속 표시처럼
   /// 아바타 모서리에 초록(활성)/빨강(비활성) 점을 얹는다.
   final bool? isActive;
