@@ -658,6 +658,25 @@ void main() {
     expect(find.text('참석으로 저장했습니다.'), findsNothing);
   });
 
+  testWidgets('참석 저장 성공 때 축하 이펙트가 한 번 재생되고 사라진다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('참석').first);
+    await tester.tap(find.text('참석').first);
+    await tester.pump(const Duration(milliseconds: 240));
+
+    expect(
+      find.byKey(const ValueKey('attendance-celebration')),
+      findsOneWidget,
+    );
+    expect(find.text('참석 확정!'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('attendance-celebration')), findsNothing);
+  });
+
   test('픽업게임과 복수 유니폼·가변 투표가 캐시에 보존된다', () {
     final event = LockerEvent(
       id: 'pickup',
