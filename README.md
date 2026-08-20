@@ -47,7 +47,7 @@ C:\flutter\bin\flutter.bat run -d chrome `
   --dart-define="YOUTUBE_API_KEY=$env:YOUTUBE_API_KEY"
 ```
 
-`service_role` 또는 secret key는 앱, Render, Git에 넣지 않습니다.
+`service_role` 또는 secret key는 앱, Vercel 클라이언트 환경변수, Git에 넣지 않습니다.
 
 ## Supabase
 
@@ -62,7 +62,7 @@ npx supabase db lint --linked --level error
 ```
 
 초기 명단은 `supabase/seed.sql`에 있습니다. 신규 가입은 `snu.ac.kr` 계열 Google 계정을 먼저 인증한 뒤 명단의 실명과 회원정보를 확인합니다. 기존 부원의 실명 로그인용 가상 이메일은 앱 내부에서만 만들며 비밀번호는 Supabase Auth가 해시로 저장합니다.
-Supabase Auth의 Google Provider에는 Google Cloud의 Web Client ID와 Client Secret을 등록하고, Site URL에 Render 주소를 등록합니다. Client Secret은 앱·환경 파일·Git에 넣지 않습니다.
+Supabase Auth의 Google Provider에는 Google Cloud의 Web Client ID와 Client Secret을 등록합니다. `Site URL`은 Vercel의 고정 Production Domain으로 지정하고, 같은 도메인의 `/sign-in`과 필요한 Vercel Preview Domain을 Redirect URLs에 추가합니다. Google OAuth의 승인된 리디렉션 URI는 앱 주소가 아니라 `https://<project-ref>.supabase.co/auth/v1/callback`입니다. Client Secret은 앱·환경 파일·Git에 넣지 않습니다.
 
 관리자는 `IB 운영 일정` 화면의 업로드 버튼으로 `26-1 IB리그 운영표.xlsx` 형식의 파일을 가져올 수 있습니다. 표의 날짜·운영 A/B·심판·담당자를 읽고, 아직 가입하지 않은 담당자 이름도 보존했다가 가입 후 자동 연결합니다. 마이그레이션 적용 전에는 이 기능이 동작하지 않습니다.
 
@@ -76,7 +76,7 @@ Supabase Auth의 Google Provider에는 Google Cloud의 Web Client ID와 Client S
 
 iOS 빌드는 공지와 미정 일정 알림을 네이티브 알림 센터 형식으로 표시합니다. 체육관 예약자에게는 다음 화요일 09:30 오픈 5분 전 로컬 알림을 예약하며, 알림 수신 여부는 홈의 종 아이콘에서 설정합니다. 앱이 완전히 종료된 상태의 원격 푸시는 APNs 키와 서버 발송 함수가 준비된 뒤 연결합니다.
 
-## 검증과 배포
+## 검증
 
 ```powershell
 C:\flutter\bin\flutter.bat analyze
@@ -87,4 +87,16 @@ C:\flutter\bin\flutter.bat build web --release `
   --dart-define="YOUTUBE_API_KEY=$env:YOUTUBE_API_KEY"
 ```
 
-Render는 루트의 `render.yaml`과 `Dockerfile`을 사용합니다. 환경변수는 `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `YOUTUBE_API_KEY`입니다. YouTube 키는 HTTP 리퍼러와 YouTube Data API v3로 제한합니다. 자동 배포는 꺼져 있어 Render Dashboard에서 수동 배포합니다.
+## Vercel 배포
+
+웹 프런트엔드는 Vercel만 사용합니다. 루트의 `vercel.json`이
+`tool/vercel_build.sh`를 실행해 Flutter Web WASM 산출물을 `build/web`에 만들고,
+SPA 딥 링크, 보안 헤더와 `/healthz` 응답을 설정합니다. `master`에 푸시하면 연결된
+Vercel 프로젝트가 Production 배포를 생성합니다.
+
+필수 환경변수는 `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
+`YOUTUBE_API_KEY`입니다. YouTube 키는 Vercel Production/Preview 도메인만 허용하는
+HTTP 리퍼러와 YouTube Data API v3로 제한합니다.
+
+프로젝트 생성, 고정 도메인, Supabase OAuth, 검증과 롤백 절차는
+[`docs/deployment.md`](docs/deployment.md)를 따릅니다.
