@@ -419,12 +419,24 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
   /// 링크 자체를 들고 있어야 한다.
   VideoLink? _selectedLink;
   final _comment = TextEditingController();
+  final _commentFocus = FocusNode();
   final Set<String> _commentTargetIds = <String>{};
 
   /// "@"를 입력하는 중일 때만 채워지는 멤버 자동완성 후보.
-  List<MemberProfile> _mentionMatches = const [];
+  ///
+  /// 오버레이로 따로 그려서 값이 바뀔 때마다 화면 전체(영상 플레이어 포함)를
+  /// 다시 그리지 않는다. 댓글 입력창 위에 목록을 끼워 넣던 예전 방식은 입력
+  /// 중 레이아웃이 밀리면서 모바일 키보드가 닫히는 문제가 있었다.
+  final ValueNotifier<List<MemberProfile>> _mentionMatches = ValueNotifier(
+    const [],
+  );
+
   /// 지금 완성 중인 "@" 토큰이 코멘트 텍스트에서 시작하는 위치.
   int? _mentionStart;
+
+  final _mentionLayerLink = LayerLink();
+  final _mentionFieldKey = GlobalKey();
+  OverlayEntry? _mentionOverlay;
 
   /// 플레이어에서 주기적으로 읽어오는 실시간 재생 위치(초).
   /// 상세 화면 전체를 초당 한 번씩 다시 그리지 않도록 버튼만 이 값을 구독한다.
@@ -504,7 +516,10 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
   void dispose() {
     _positionTimer?.cancel();
     _playbackSeconds.dispose();
+    _mentionOverlay?.remove();
+    _mentionMatches.dispose();
     _comment.dispose();
+    _commentFocus.dispose();
     _player?.close();
     final channel = _videoChannel;
     if (channel != null) {
@@ -634,11 +649,11 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
         );
     if (mounted && saved) {
       _comment.clear();
+      _mentionStart = null;
+      _updateMentionMatches(const []);
       setState(() {
         _commentTargetIds.clear();
         _pinnedSeconds = null;
-        _mentionMatches = const [];
-        _mentionStart = null;
       });
     }
   }
@@ -648,26 +663,96 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
   void _onCommentChanged(String value) {
     final cursor = _comment.selection.baseOffset;
     if (cursor < 0) {
-      if (_mentionMatches.isNotEmpty) setState(() => _mentionMatches = const []);
+      _updateMentionMatches(const []);
       return;
     }
     final upToCursor = value.substring(0, cursor);
     final at = upToCursor.lastIndexOf('@');
     if (at == -1 || RegExp(r'\s').hasMatch(upToCursor.substring(at + 1))) {
-      if (_mentionMatches.isNotEmpty) setState(() => _mentionMatches = const []);
+      _updateMentionMatches(const []);
       return;
     }
     final query = upToCursor.substring(at + 1);
     final members = ref.read(lockerControllerProvider).membersState.members;
-    final matches = (query.isEmpty
-            ? members
-            : members.where((member) => member.name.contains(query)))
-        .take(6)
-        .toList(growable: false);
-    setState(() {
-      _mentionStart = at;
-      _mentionMatches = matches;
-    });
+    final matches =
+        (query.isEmpty
+                ? members
+                : members.where((member) => member.name.contains(query)))
+            .take(6)
+            .toList(growable: false);
+    _mentionStart = at;
+    _updateMentionMatches(matches);
+  }
+
+  /// 멘션 후보를 오버레이에만 반영한다. 댓글 입력창을 담은 화면 전체를
+  /// setState로 다시 그리지 않으므로 영상 플레이어가 흔들리거나 입력창이
+  /// 밀리는 일이 없다.
+  void _updateMentionMatches(List<MemberProfile> matches) {
+    _mentionMatches.value = matches;
+    if (matches.isNotEmpty) {
+      _ensureMentionOverlay();
+    } else {
+      _mentionOverlay?.remove();
+      _mentionOverlay = null;
+    }
+  }
+
+  void _ensureMentionOverlay() {
+    if (_mentionOverlay != null) return;
+    final entry = OverlayEntry(builder: _buildMentionOverlay);
+    _mentionOverlay = entry;
+    Overlay.of(context).insert(entry);
+  }
+
+  /// 댓글 입력창 바로 위에 겹쳐 그리는 멘션 후보 목록.
+  /// [CompositedTransformFollower]로 입력창 위치만 따라가므로 목록이
+  /// 나타나거나 사라져도 입력창 자체는 움직이지 않는다.
+  Widget _buildMentionOverlay(BuildContext context) {
+    final box =
+        _mentionFieldKey.currentContext?.findRenderObject() as RenderBox?;
+    final width = box?.size.width ?? 280.0;
+    return CompositedTransformFollower(
+      link: _mentionLayerLink,
+      showWhenUnlinked: false,
+      targetAnchor: Alignment.topLeft,
+      followerAnchor: Alignment.bottomLeft,
+      child: Material(
+        color: Colors.transparent,
+        child: SizedBox(
+          width: width,
+          child: ValueListenableBuilder<List<MemberProfile>>(
+            valueListenable: _mentionMatches,
+            builder: (context, matches, _) {
+              if (matches.isEmpty) return const SizedBox.shrink();
+              return Container(
+                constraints: const BoxConstraints(maxHeight: 176),
+                decoration: BoxDecoration(
+                  color: EncbaColors.highlight,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: EncbaColors.line),
+                ),
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  itemCount: matches.length,
+                  itemBuilder: (context, index) {
+                    final member = matches[index];
+                    return ListTile(
+                      dense: true,
+                      leading: _Avatar(name: member.name, size: 30),
+                      title: Text(member.name),
+                      subtitle: Text(member.studentId),
+                      onTap: () => _applyMention(member),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   /// 선택한 멤버로 "@토큰"을 "@이름 "으로 완성하고, 커서를 그 뒤로 옮긴다.
@@ -682,10 +767,9 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
       text: text.replaceRange(start, end, mention),
       selection: TextSelection.collapsed(offset: start + mention.length),
     );
-    setState(() {
-      _mentionMatches = const [];
-      _mentionStart = null;
-    });
+    _mentionStart = null;
+    _updateMentionMatches(const []);
+    _commentFocus.requestFocus();
   }
 
   String _activeVideoUrl(VideoItem item) => _selectedLink?.url ?? item.url;
@@ -729,47 +813,47 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
             icon: const Icon(Icons.ios_share_rounded),
           ),
           ...?canManage
-            ? [
-                IconButton(
-                  tooltip: '영상 수정',
-                  onPressed: () => _showVideoEditor(
-                    context,
-                    ref,
-                    displayed.category,
-                    existing: displayed,
+              ? [
+                  IconButton(
+                    tooltip: '영상 수정',
+                    onPressed: () => _showVideoEditor(
+                      context,
+                      ref,
+                      displayed.category,
+                      existing: displayed,
+                    ),
+                    icon: const Icon(Icons.edit_outlined),
                   ),
-                  icon: const Icon(Icons.edit_outlined),
-                ),
-                IconButton(
-                  tooltip: '영상 삭제',
-                  onPressed: () async {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('영상을 삭제할까요?'),
-                        content: const Text('댓글과 시청 기록도 함께 삭제됩니다.'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            child: const Text('취소'),
-                          ),
-                          FilledButton(
-                            onPressed: () => Navigator.pop(context, true),
-                            child: const Text('삭제'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirmed != true) return;
-                    final deleted = await ref
-                        .read(lockerControllerProvider.notifier)
-                        .deleteVideo(video.id);
-                    if (context.mounted && deleted) Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.delete_outline_rounded),
-                ),
-              ]
-            : null,
+                  IconButton(
+                    tooltip: '영상 삭제',
+                    onPressed: () async {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('영상을 삭제할까요?'),
+                          content: const Text('댓글과 시청 기록도 함께 삭제됩니다.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              child: const Text('취소'),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.pop(context, true),
+                              child: const Text('삭제'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirmed != true) return;
+                      final deleted = await ref
+                          .read(lockerControllerProvider.notifier)
+                          .deleteVideo(video.id);
+                      if (context.mounted && deleted) Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.delete_outline_rounded),
+                  ),
+                ]
+              : null,
         ],
       ),
       body: ListView(
@@ -956,8 +1040,9 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
                             (member) => InputChip(
                               label: Text(member.label),
                               onDeleted: () => setState(
-                                () =>
-                                    _commentTargetIds.remove(member.directoryId),
+                                () => _commentTargetIds.remove(
+                                  member.directoryId,
+                                ),
                               ),
                             ),
                           )
@@ -966,42 +1051,22 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
               ],
               const SizedBox(height: 8),
             ],
-            if (_mentionMatches.isNotEmpty) ...[
-              Container(
-                constraints: const BoxConstraints(maxHeight: 176),
-                decoration: BoxDecoration(
-                  color: EncbaColors.highlight,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: EncbaColors.line),
-                ),
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  itemCount: _mentionMatches.length,
-                  itemBuilder: (context, index) {
-                    final member = _mentionMatches[index];
-                    return ListTile(
-                      dense: true,
-                      leading: _Avatar(name: member.name, size: 30),
-                      title: Text(member.name),
-                      subtitle: Text(member.studentId),
-                      onTap: () => _applyMention(member),
-                    );
-                  },
-                ),
-              ),
-            ],
-            TextField(
-              controller: _comment,
-              onChanged: _onCommentChanged,
-              onSubmitted: (_) => _addComment(),
-              decoration: InputDecoration(
-                hintText: '이 장면에 대한 코멘트 · "@"로 멤버 언급',
-                suffixIcon: IconButton(
-                  tooltip: '코멘트 등록',
-                  onPressed: _addComment,
-                  icon: const Icon(Icons.send_rounded),
+            CompositedTransformTarget(
+              key: _mentionFieldKey,
+              link: _mentionLayerLink,
+              child: TextField(
+                key: const ValueKey('video-comment-input'),
+                controller: _comment,
+                focusNode: _commentFocus,
+                onChanged: _onCommentChanged,
+                onSubmitted: (_) => _addComment(),
+                decoration: InputDecoration(
+                  hintText: '이 장면에 대한 코멘트 · "@"로 멤버 언급',
+                  suffixIcon: IconButton(
+                    tooltip: '코멘트 등록',
+                    onPressed: _addComment,
+                    icon: const Icon(Icons.send_rounded),
+                  ),
                 ),
               ),
             ),
@@ -1597,7 +1662,7 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
       youtubeId: youtubeId ?? '',
       sourceType: isInstagram ? 'instagram' : 'youtube',
       links: isReview ? sortedVideoLinks(links) : const [],
-      recordedOn: _recordedOn,
+      recordedOn: widget.category == '공유' ? null : _recordedOn,
       uploadedAt: widget.existing?.uploadedAt ?? now,
       uploader: widget.existing?.uploader ?? user?.name ?? 'ENCBA',
       accent: EncbaColors.snuBlue.toARGB32(),
@@ -1648,8 +1713,8 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
         if (member.id != null && member.isActive)
           member.id!: _taggedMember(member),
     };
-    final availableReviewPlayers =
-        availableReviewPlayerById.values.toList()..sort(compareTaggedMembers);
+    final availableReviewPlayers = availableReviewPlayerById.values.toList()
+      ..sort(compareTaggedMembers);
     return SafeArea(
       top: false,
       child: Padding(
@@ -1770,14 +1835,16 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                _RecordedDateField(
-                  value: _recordedOn,
-                  onPick: _pickRecordedOn,
-                  onClear: _recordedOn == null
-                      ? null
-                      : () => setState(() => _recordedOn = null),
-                ),
-                const SizedBox(height: 12),
+                if (widget.category != '공유') ...[
+                  _RecordedDateField(
+                    value: _recordedOn,
+                    onPick: _pickRecordedOn,
+                    onClear: _recordedOn == null
+                        ? null
+                        : () => setState(() => _recordedOn = null),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 if (isReview) ...[
                   _MemberChecklistButton(
                     label: '출전 선수',
@@ -1941,9 +2008,7 @@ class _RecordedDateField extends StatelessWidget {
 VideoTaggedMember _taggedMember(MemberProfile member) => VideoTaggedMember(
   directoryId: member.id!,
   name: member.name,
-  studentYear: int.tryParse(
-    member.studentId.replaceAll(RegExp(r'[^0-9]'), ''),
-  ),
+  studentYear: int.tryParse(member.studentId.replaceAll(RegExp(r'[^0-9]'), '')),
   jerseyNumber: member.jerseyNumber,
 );
 

@@ -21,13 +21,19 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
   @override
   Widget build(BuildContext context) {
     final operationsState = ref.watch(
-      lockerControllerProvider.select((state) => state.operationsState),
+      lockerControllerProvider.select(
+        (state) => (
+          operations: state.operationsState.operations,
+          swapRequests: state.operationsState.operationSwapRequests,
+          exchangeBoard: state.operationsState.operationExchangeBoard,
+        ),
+      ),
     );
     final operations = operationsState.operations;
-    final pendingRequests = operationsState.operationSwapRequests
+    final pendingRequests = operationsState.swapRequests
         .where((request) => request.status == 'pending')
         .toList(growable: false);
-    final exchangeTargets = operationsState.operationExchangeBoard
+    final exchangeTargets = operationsState.exchangeBoard
         .where((assignment) => !assignment.isMine)
         .toList(growable: false);
     final isAdmin =
@@ -363,8 +369,7 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${parsed.dateCount}개 날짜 · ${parsed.rows.length}건 · '
-                  '원본 시간 ${parsed.explicitTimeCount}건 · 기본 시간 ${parsed.defaultTimeCount}건',
+                  '${parsed.dateCount}개 날짜 · ${parsed.rows.length}건 · 고정 경기 시간 적용',
                 ),
                 if (parsed.warnings.isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -432,7 +437,7 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
                   ),
                 ),
                 const Text(
-                  '선택한 멤버의 일정만 계정에 등록합니다. 같은 학기의 기존 엑셀 배정은 선택 결과로 교체됩니다. 시간이 없으면 1경기 11시, 2경기 13시, 3경기 15시입니다.',
+                  '선택한 멤버의 일정만 계정에 등록합니다. 같은 학기의 기존 엑셀 배정은 선택 결과로 교체됩니다. 1경기 13:00–14:00, 2경기 14:10–15:10, 3경기 15:20–16:20으로 고정됩니다.',
                   style: TextStyle(color: EncbaColors.muted, fontSize: 12),
                 ),
               ],
@@ -491,10 +496,24 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
   );
 }
 
-class AuditLogScreen extends ConsumerWidget {
+class AuditLogScreen extends ConsumerStatefulWidget {
   const AuditLogScreen({super.key});
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AuditLogScreen> createState() => _AuditLogScreenState();
+}
+
+class _AuditLogScreenState extends ConsumerState<AuditLogScreen> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(
+      () => ref.read(lockerControllerProvider.notifier).loadAuditEntries(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final entries = ref.watch(
       lockerControllerProvider.select(
         (state) => state.operationsState.auditEntries,

@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:encba_locker/core/routing/app_router.dart';
+import 'package:encba_locker/features/locker/services/push_notification_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -16,6 +17,7 @@ Future<void> main() async {
     url: AppConfig.supabaseUrl,
     publishableKey: AppConfig.supabasePublishableKey,
   );
+  await PushNotificationService.instance.initialize();
   runApp(const EncbaLockerApp());
 }
 
@@ -59,6 +61,7 @@ class _RoutedApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // routerProvider는 내부에서 watch하지 않으므로 한 번만 만들어진다.
     final router = ref.watch(routerProvider);
+    PushNotificationService.instance.attachRouter(router);
     return MaterialApp.router(
       title: 'ENCBA LOCKER',
       theme: AppTheme.lightTheme,

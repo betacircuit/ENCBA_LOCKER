@@ -8,17 +8,32 @@ class HomecomingScreen extends ConsumerStatefulWidget {
 
 class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
   bool _importing = false;
+  bool _exporting = false;
   int _assigneeIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(
+      () =>
+          ref.read(lockerControllerProvider.notifier).loadHomecomingContacts(),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final isAdmin =
         ref.watch(authControllerProvider).user?.leadershipRole == 'admin';
-    final operationsState = ref.watch(
-      lockerControllerProvider.select((state) => state.operationsState),
+    final homecomingState = ref.watch(
+      lockerControllerProvider.select(
+        (state) => (
+          campaign: state.operationsState.homecomingCampaign,
+          contacts: state.operationsState.homecomingContacts,
+        ),
+      ),
     );
-    final campaign = operationsState.homecomingCampaign;
-    final contacts = operationsState.homecomingContacts;
+    final campaign = homecomingState.campaign;
+    final contacts = homecomingState.contacts;
     final assignees =
         contacts
             .map((item) => item.assignedToName?.trim() ?? '')
@@ -107,6 +122,35 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
                 ],
               ],
             ),
+            if (isAdmin) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _exporting || contacts.isEmpty
+                          ? null
+                          : () => _exportExcel(campaign, contacts),
+                      icon: _exporting
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.download_outlined),
+                      label: Text(_exporting ? '만드는 중…' : '응답 엑셀'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _lockCampaign(campaign),
+                      icon: const Icon(Icons.lock_outline_rounded),
+                      label: const Text('다시 잠그기'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 18),
             if (assigneePages.isNotEmpty) ...[
               Card(
@@ -120,23 +164,13 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
                       icon: const Icon(Icons.chevron_left_rounded),
                     ),
                     Expanded(
-                      child: Column(
-                        children: [
-                          const Text(
-                            '연락 담당',
-                            style: TextStyle(
-                              color: EncbaColors.muted,
-                              fontSize: 12,
-                            ),
-                          ),
-                          Text(
-                            '$selectedAssignee · ${visibleContacts.length}명',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 17,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        '$selectedAssignee · ${visibleContacts.length}명',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 17,
+                        ),
                       ),
                     ),
                     IconButton(
@@ -151,189 +185,61 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
               ),
               const SizedBox(height: 10),
             ],
-            ...visibleContacts.map((contact) {
-              final callPhone = contact.phone.isNotEmpty
-                  ? contact.phone
-                  : contact.homeOrOfficePhone ?? '';
-              final phoneLabel = callPhone.isEmpty ? '연락처 없음' : callPhone;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 10, 12),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '${contact.name} 선배',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 17,
-                                    ),
-                                  ),
-                                  Text(
-                                    '${contact.generation == null ? '학번 미상' : '${contact.generation}학번'} · $phoneLabel',
-                                    style: const TextStyle(
-                                      color: EncbaColors.muted,
-                                    ),
-                                  ),
-                                  if (isAdmin && contact.assignedToName != null)
-                                    Text(
-                                      '담당 ${contact.assignedToName}',
-                                      style: const TextStyle(
-                                        color: EncbaColors.snuBlue,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: '전화',
-                              onPressed: callPhone.isEmpty
-                                  ? null
-                                  : () => _launch('tel:$callPhone'),
-                              icon: const Icon(Icons.phone_outlined),
-                            ),
-                            IconButton(
-                              tooltip: '문자',
-                              onPressed: contact.phone.isEmpty
-                                  ? null
-                                  : () => _sendSms(contact, campaign),
-                              icon: const Icon(Icons.sms_outlined),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        DropdownButtonFormField<String>(
-                          initialValue: contact.status,
-                          decoration: const InputDecoration(labelText: '응답 상태'),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'pending',
-                              child: Text('미연락'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'contacted',
-                              child: Text('미정 · 재연락'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'confirmed',
-                              child: Text('참석'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'declined',
-                              child: Text('불참'),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) {
-                              _saveContact(
-                                contact.copyWith(
-                                  status: value,
-                                  followUpAllowed: value == 'contacted'
-                                      ? true
-                                      : contact.followUpAllowed,
-                                  followUpOn: value == 'contacted'
-                                      ? DateTime.now().add(
-                                          const Duration(days: 7),
-                                        )
-                                      : contact.followUpOn,
-                                ),
-                              );
-                            }
-                          },
-                        ),
-                        CheckboxListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          value: contact.parkingRequired ?? false,
-                          title: const Text('주차권 필요'),
-                          onChanged: (value) => _saveContact(
-                            contact.copyWith(parkingRequired: value),
-                          ),
-                        ),
-                        if (contact.parkingRequired == true)
-                          CheckboxListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            value: contact.parkingRegistered,
-                            title: const Text('주차권 처리 완료'),
-                            onChanged: (value) => _saveContact(
-                              contact.copyWith(parkingRegistered: value),
-                            ),
-                          ),
-                        if (contact.followUpOn != null)
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              '다시 연락: ${contact.followUpOn!.month}.${contact.followUpOn!.day}',
-                              style: const TextStyle(color: EncbaColors.late),
-                            ),
-                          ),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton.icon(
-                            onPressed: () => _editContactNotes(contact),
-                            icon: const Icon(Icons.edit_note_rounded),
-                            label: Text(
-                              contact.notes?.trim().isNotEmpty == true
-                                  ? '기록 보기'
-                                  : '메모 추가',
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            }),
+            ...visibleContacts.map(
+              (contact) => _HomecomingContactListTile(
+                contact: contact,
+                onTap: () => _showContact(contact, campaign, isAdmin),
+              ),
+            ),
           ],
         ],
       ),
     );
   }
 
-  Future<void> _saveContact(HomecomingContact contact) async {
-    await ref
-        .read(lockerControllerProvider.notifier)
-        .updateHomecomingContact(contact);
-  }
+  Future<void> _showContact(
+    HomecomingContact contact,
+    HomecomingCampaign campaign,
+    bool isAdmin,
+  ) => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) => _HomecomingContactDetailSheet(
+      contactId: contact.id,
+      campaign: campaign,
+      isAdmin: isAdmin,
+      onSendSms: _sendSms,
+    ),
+  );
 
-  Future<void> _editContactNotes(HomecomingContact contact) async {
-    var notes = contact.notes ?? '';
-    final value = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('${contact.name} 선배 연락 기록'),
-        content: TextFormField(
-          initialValue: notes,
-          autofocus: true,
-          minLines: 4,
-          maxLines: 8,
-          maxLength: 2000,
-          onChanged: (value) => notes = value,
-          decoration: const InputDecoration(hintText: '통화·답장 내용을 기록해 주세요.'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
+  Future<void> _exportExcel(
+    HomecomingCampaign campaign,
+    List<HomecomingContact> contacts,
+  ) async {
+    setState(() => _exporting = true);
+    try {
+      final saved = await HomecomingExportService().export(
+        campaign: campaign,
+        contacts: contacts,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(saved ? '홈커밍 응답 엑셀을 저장했습니다.' : '파일 저장을 취소했습니다.'),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, notes.trim()),
-            child: const Text('저장'),
-          ),
-        ],
-      ),
-    );
-    if (value != null) await _saveContact(contact.copyWith(notes: value));
+        );
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA homecoming export failed: $error\n$stackTrace');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('홈커밍 응답 엑셀을 만들지 못했습니다.')));
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 
   Future<void> _activateCampaign() async {
@@ -356,6 +262,34 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
           endsAt: '18:00',
           venue: '서울대학교 기숙사체육관',
         );
+  }
+
+  Future<void> _lockCampaign(HomecomingCampaign campaign) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('홈커밍을 다시 잠글까요?'),
+        content: const Text('연락 기록은 삭제되지 않으며, 관리자가 다시 열기 전까지 연락 보드가 숨겨집니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('잠그기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final locked = await ref
+        .read(lockerControllerProvider.notifier)
+        .deactivateHomecomingCampaign(campaign.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(locked ? '홈커밍 연락 보드를 잠갔습니다.' : '홈커밍을 잠그지 못했습니다.')),
+    );
   }
 
   Future<void> _importExcel() async {
@@ -584,3 +518,304 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
     );
   }
 }
+
+class _HomecomingContactListTile extends StatelessWidget {
+  const _HomecomingContactListTile({
+    required this.contact,
+    required this.onTap,
+  });
+
+  final HomecomingContact contact;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Card(
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        onTap: onTap,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        leading: Container(
+          width: 42,
+          height: 42,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: _homecomingStatusColor(
+              contact.status,
+            ).withValues(alpha: .12),
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            contact.generationCode.isEmpty ? '--' : contact.generationCode,
+            style: TextStyle(
+              color: _homecomingStatusColor(contact.status),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        title: Text(
+          '${contact.name} 선배님 (${contact.statusLabel})',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        trailing: const Icon(Icons.chevron_right_rounded),
+      ),
+    ),
+  );
+}
+
+class _HomecomingContactDetailSheet extends ConsumerWidget {
+  const _HomecomingContactDetailSheet({
+    required this.contactId,
+    required this.campaign,
+    required this.isAdmin,
+    required this.onSendSms,
+  });
+
+  final String contactId;
+  final HomecomingCampaign campaign;
+  final bool isAdmin;
+  final Future<void> Function(HomecomingContact, HomecomingCampaign) onSendSms;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final contact = ref.watch(
+      lockerControllerProvider.select((state) {
+        for (final item in state.operationsState.homecomingContacts) {
+          if (item.id == contactId) return item;
+        }
+        return null;
+      }),
+    );
+    if (contact == null) {
+      return const SizedBox(
+        height: 240,
+        child: Center(child: Text('연락 정보를 찾지 못했습니다.')),
+      );
+    }
+    final callPhone = contact.phone.isNotEmpty
+        ? contact.phone
+        : contact.homeOrOfficePhone ?? '';
+    final phoneLabel = callPhone.isEmpty ? '연락처 없음' : callPhone;
+    return FractionallySizedBox(
+      heightFactor: .92,
+      child: Column(
+        children: [
+          const SizedBox(height: 10),
+          Container(
+            width: 42,
+            height: 4,
+            decoration: BoxDecoration(
+              color: EncbaColors.line,
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 8, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${contact.name} 선배님',
+                        style: const TextStyle(
+                          fontFamily: 'Jua',
+                          fontSize: 25,
+                          color: EncbaColors.navy,
+                        ),
+                      ),
+                      Text(
+                        '${contact.generationLabel} · $phoneLabel',
+                        style: const TextStyle(color: EncbaColors.muted),
+                      ),
+                      if (isAdmin &&
+                          contact.assignedToName?.trim().isNotEmpty == true)
+                        Text(
+                          '담당 ${contact.assignedToName}',
+                          style: const TextStyle(
+                            color: EncbaColors.snuBlue,
+                            fontSize: 12,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: '닫기',
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: callPhone.isEmpty
+                            ? null
+                            : () => _launch('tel:$callPhone'),
+                        icon: const Icon(Icons.phone_outlined),
+                        label: const Text('전화'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: contact.phone.isEmpty
+                            ? null
+                            : () => onSendSms(contact, campaign),
+                        icon: const Icon(Icons.sms_outlined),
+                        label: const Text('문자'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  key: ValueKey(contact.status),
+                  initialValue: contact.status,
+                  decoration: const InputDecoration(labelText: '응답 상태'),
+                  items: const [
+                    DropdownMenuItem(value: 'pending', child: Text('미연락')),
+                    DropdownMenuItem(
+                      value: 'contacted',
+                      child: Text('미정 · 재연락'),
+                    ),
+                    DropdownMenuItem(value: 'confirmed', child: Text('참석')),
+                    DropdownMenuItem(value: 'declined', child: Text('불참')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    _save(
+                      ref,
+                      contact.copyWith(
+                        status: value,
+                        parkingRequired: value == 'confirmed'
+                            ? contact.parkingRequired
+                            : false,
+                        parkingRegistered: value == 'confirmed'
+                            ? contact.parkingRegistered
+                            : false,
+                        followUpAllowed: value == 'contacted'
+                            ? true
+                            : contact.followUpAllowed,
+                        followUpOn: value == 'contacted'
+                            ? DateTime.now().add(const Duration(days: 7))
+                            : contact.followUpOn,
+                      ),
+                    );
+                  },
+                ),
+                if (contact.canRequestParking) ...[
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    value: contact.parkingRequired ?? false,
+                    title: const Text('주차권 필요'),
+                    onChanged: (value) =>
+                        _save(ref, contact.copyWith(parkingRequired: value)),
+                  ),
+                  if (contact.parkingRequired == true)
+                    CheckboxListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: contact.parkingRegistered,
+                      title: const Text('주차권 처리 완료'),
+                      onChanged: (value) => _save(
+                        ref,
+                        contact.copyWith(parkingRegistered: value),
+                      ),
+                    ),
+                ],
+                if (contact.followUpOn != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '다시 연락: ${contact.followUpOn!.month}.${contact.followUpOn!.day}',
+                    style: const TextStyle(color: EncbaColors.late),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                if (contact.notes?.trim().isNotEmpty == true)
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: EncbaColors.highlight,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(contact.notes!),
+                  ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => _editNotes(context, ref, contact),
+                    icon: const Icon(Icons.edit_note_rounded),
+                    label: Text(
+                      contact.notes?.trim().isNotEmpty == true
+                          ? '메모 수정'
+                          : '메모 추가',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _save(WidgetRef ref, HomecomingContact contact) => ref
+      .read(lockerControllerProvider.notifier)
+      .updateHomecomingContact(contact);
+
+  Future<void> _editNotes(
+    BuildContext context,
+    WidgetRef ref,
+    HomecomingContact contact,
+  ) async {
+    var notes = contact.notes ?? '';
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${contact.name} 선배 연락 기록'),
+        content: TextFormField(
+          initialValue: notes,
+          autofocus: true,
+          minLines: 4,
+          maxLines: 8,
+          maxLength: 2000,
+          onChanged: (value) => notes = value,
+          decoration: const InputDecoration(hintText: '통화·답장 내용을 기록해 주세요.'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, notes.trim()),
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+    if (value != null) await _save(ref, contact.copyWith(notes: value));
+  }
+}
+
+Color _homecomingStatusColor(String status) => switch (status) {
+  'confirmed' => EncbaColors.attending,
+  'contacted' => EncbaColors.late,
+  'declined' => EncbaColors.muted,
+  _ => EncbaColors.snuBlue,
+};

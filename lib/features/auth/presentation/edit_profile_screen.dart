@@ -30,7 +30,6 @@ class EditProfileScreen extends ConsumerStatefulWidget {
 class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _name;
-  late final TextEditingController _displayName;
   late final TextEditingController _phone;
   late final TextEditingController _jerseyNumber;
   late String _position;
@@ -44,7 +43,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     super.initState();
     final user = ref.read(authControllerProvider).user!;
     _name = TextEditingController(text: user.name);
-    _displayName = TextEditingController(text: user.visibleName);
     final rawStudentYear = user.studentId.replaceAll('학번', '').trim();
     _studentYearPick = _editStudentYearOptions.contains(rawStudentYear)
         ? rawStudentYear
@@ -62,7 +60,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   @override
   void dispose() {
     _name.dispose();
-    _displayName.dispose();
     _phone.dispose();
     _jerseyNumber.dispose();
     super.dispose();
@@ -136,11 +133,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                         ? null
                         : MemoryImage(base64Decode(_photoBase64!)),
                     child: _photoBase64 == null
-                        ? Text(
-                            _displayName.text.isEmpty
-                                ? 'E'
-                                : _displayName.text[0],
-                          )
+                        ? Text(_name.text.isEmpty ? 'E' : _name.text[0])
                         : null,
                   ),
                   const SizedBox(width: 12),
@@ -149,9 +142,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _displayName.text.trim().isEmpty
-                              ? _name.text
-                              : _displayName.text.trim(),
+                          _name.text,
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         Text('$_position · #${_jerseyNumber.text}'),
@@ -165,14 +156,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             TextFormField(
               controller: _name,
               readOnly: true,
-              decoration: const InputDecoration(labelText: '가입 실명'),
-              validator: _required,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _displayName,
-              decoration: const InputDecoration(labelText: '다른 부원에게 보이는 이름 *'),
-              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: '실명',
+                helperText: '다른 부원에게도 이 이름으로 표시됩니다.',
+              ),
               validator: _required,
             ),
             const SizedBox(height: 12),
@@ -248,7 +235,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         .read(authControllerProvider.notifier)
         .updateProfile(
           user.copyWith(
-            displayName: _displayName.text.trim(),
+            displayName: user.name,
             studentId: '$_studentYearPick학번',
             joinedYear: int.parse(_joinedYearPick),
             phone: _phone.text.trim(),

@@ -59,7 +59,6 @@ class IbOperationImportService {
 
     final pending =
         <({String name, String title, int row, int column, DateTime date})>[];
-    final timeOverrides = <String, ({int hour, int minute})>{};
     final unrecognizedCells = <String>[];
     String? currentTitle;
 
@@ -82,9 +81,6 @@ class IbOperationImportService {
         final raw = _valueAt(row, entry.key);
         if (raw.isEmpty || raw.toLowerCase() == 'x') continue;
         final explicitTime = _parseTime(raw);
-        if (explicitTime != null) {
-          timeOverrides['$title:${entry.key}'] = explicitTime;
-        }
         final names = _namesFromCell(raw);
         if (names.isEmpty &&
             explicitTime == null &&
@@ -102,21 +98,6 @@ class IbOperationImportService {
             column: entry.key + 1,
             date: entry.value,
           ));
-        }
-      }
-
-      // 실제 양식은 마지막 날짜의 시작 시간을 바로 오른쪽 보조 칸에 적기도 한다.
-      for (var column = 0; column < row.length; column++) {
-        if (dateColumns.containsKey(column)) continue;
-        final explicitTime = _parseTime(_valueAt(row, column));
-        if (explicitTime == null) continue;
-        final previousDateColumns =
-            dateColumns.keys.where((dateColumn) => dateColumn < column).toList()
-              ..sort();
-        if (previousDateColumns.isEmpty) continue;
-        final nearestDateColumn = previousDateColumns.last;
-        if (column - nearestDateColumn <= 2) {
-          timeOverrides['$title:$nearestDateColumn'] = explicitTime;
         }
       }
     }
@@ -142,23 +123,23 @@ class IbOperationImportService {
         duplicateKeys.add(semanticKey);
         continue;
       }
-      final override = timeOverrides['${item.title}:${item.column - 1}'];
-      final time = override ?? _defaultTime(item.title);
-      if (override == null) {
-        defaultTimeCount++;
-      } else {
-        explicitTimeCount++;
-      }
+      final slot = _fixedGameSlot(item.title);
+      defaultTimeCount++;
       final start = _koreaTimeAsUtc(
         item.date,
-        hour: time.hour,
-        minute: time.minute,
+        hour: slot.startHour,
+        minute: slot.startMinute,
+      );
+      final end = _koreaTimeAsUtc(
+        item.date,
+        hour: slot.endHour,
+        minute: slot.endMinute,
       );
       rows.add({
         'assignee_name': item.name,
         'title': item.title,
         'starts_at': start.toIso8601String(),
-        'ends_at': start.add(const Duration(hours: 2)).toIso8601String(),
+        'ends_at': end.toIso8601String(),
         'location': '71동 종합체육관',
         'memo': 'IB 리그 운영 · ${item.date.month}월 ${item.date.day}일',
         'source_sheet': layout.sheetName,
@@ -325,10 +306,12 @@ class IbOperationImportService {
     required int minute,
   }) => DateTime.utc(date.year, date.month, date.day, hour - 9, minute);
 
-  ({int hour, int minute}) _defaultTime(String title) => switch (title[0]) {
-    '1' => (hour: 11, minute: 0),
-    '2' => (hour: 13, minute: 0),
-    _ => (hour: 15, minute: 0),
+  ({int startHour, int startMinute, int endHour, int endMinute}) _fixedGameSlot(
+    String title,
+  ) => switch (title[0]) {
+    '1' => (startHour: 13, startMinute: 0, endHour: 14, endMinute: 0),
+    '2' => (startHour: 14, startMinute: 10, endHour: 15, endMinute: 10),
+    _ => (startHour: 15, startMinute: 20, endHour: 16, endMinute: 20),
   };
 
   String _normalizeTitle(String value) =>

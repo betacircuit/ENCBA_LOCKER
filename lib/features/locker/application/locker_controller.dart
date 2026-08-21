@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:encba_locker/core/storage/local_store.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
+import 'package:encba_locker/features/locker/application/locker_state.dart';
 import 'package:encba_locker/features/locker/data/supabase_locker_repository.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/services/notification_category_prefs.dart';
@@ -11,333 +12,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class LockerUiState {
-  const LockerUiState({
-    this.isReady = false,
-    this.gameSegment = 1,
-    this.gameSubSegment = 0,
-    this.videoSegment = 0,
-    this.memberSegment = 0,
-    this.unreadNotifications = 0,
-    this.isOfflineCache = false,
-    this.error,
-  });
-
-  final bool isReady;
-  final int gameSegment;
-  final int gameSubSegment;
-  final int videoSegment;
-  final int memberSegment;
-  final int unreadNotifications;
-  final bool isOfflineCache;
-  final String? error;
-}
-
-class LockerEventsState {
-  const LockerEventsState({
-    this.attendance = const {},
-    this.events = const [],
-    this.eventRosters = const {},
-    this.eventAttendance = const {},
-    this.eventStrategies = const {},
-    this.attendanceRates = const AttendanceRates(),
-    this.hasMoreEvents = false,
-    this.isLoadingMoreEvents = false,
-  });
-
-  final Map<String, String> attendance;
-  final List<LockerEvent> events;
-  final Map<String, List<EventRosterMember>> eventRosters;
-  final Map<String, List<AttendanceResponse>> eventAttendance;
-  final Map<String, EventStrategy> eventStrategies;
-  final AttendanceRates attendanceRates;
-  final bool hasMoreEvents;
-  final bool isLoadingMoreEvents;
-
-  List<LockerEvent> plannerEventsWith(LockerOperationsState operationsState) {
-    final merged = <LockerEvent>[
-      ...events,
-      ...operationsState.operations.map(
-        (assignment) => assignment.toPlannerEvent(),
-      ),
-    ]..sort((a, b) => a.start.compareTo(b.start));
-    return merged;
-  }
-}
-
-class LockerVideosState {
-  const LockerVideosState({
-    this.videos = const [],
-    this.likedVideoIds = const {},
-    this.videoComments = const {},
-  });
-
-  final List<VideoItem> videos;
-  final Set<String> likedVideoIds;
-  final Map<String, List<VideoCommentItem>> videoComments;
-}
-
-class LockerMembersState {
-  const LockerMembersState({this.members = const []});
-
-  final List<MemberProfile> members;
-}
-
-class LockerOperationsState {
-  const LockerOperationsState({
-    this.announcements = const [],
-    this.operations = const [],
-    this.homecomingContacts = const [],
-    this.homecomingCampaign,
-    this.operationExchangeBoard = const [],
-    this.operationSwapRequests = const [],
-    this.auditEntries = const [],
-  });
-
-  final List<AnnouncementItem> announcements;
-  final List<OperationAssignment> operations;
-  final List<HomecomingContact> homecomingContacts;
-  final HomecomingCampaign? homecomingCampaign;
-  final List<OperationAssignment> operationExchangeBoard;
-  final List<OperationSwapRequest> operationSwapRequests;
-  final List<AuditEntry> auditEntries;
-}
-
-class LockerState {
-  LockerState({
-    bool isReady = false,
-    int gameSegment = 1,
-    int gameSubSegment = 0,
-    int videoSegment = 0,
-    int memberSegment = 0,
-    int unreadNotifications = 0,
-    Map<String, String> attendance = const {},
-    List<LockerEvent> events = const [],
-    List<VideoItem> videos = const [],
-    Set<String> likedVideoIds = const {},
-    Map<String, List<VideoCommentItem>> videoComments = const {},
-    List<MemberProfile> members = const [],
-    List<AnnouncementItem> announcements = const [],
-    List<OperationAssignment> operations = const [],
-    List<HomecomingContact> homecomingContacts = const [],
-    HomecomingCampaign? homecomingCampaign,
-    Map<String, List<EventRosterMember>> eventRosters = const {},
-    Map<String, List<AttendanceResponse>> eventAttendance = const {},
-    Map<String, EventStrategy> eventStrategies = const {},
-    List<OperationAssignment> operationExchangeBoard = const [],
-    List<OperationSwapRequest> operationSwapRequests = const [],
-    List<AuditEntry> auditEntries = const [],
-    AttendanceRates attendanceRates = const AttendanceRates(),
-    bool hasMoreEvents = false,
-    bool isLoadingMoreEvents = false,
-    bool isOfflineCache = false,
-    String? error,
-  }) : ui = LockerUiState(
-         isReady: isReady,
-         gameSegment: gameSegment,
-         gameSubSegment: gameSubSegment,
-         videoSegment: videoSegment,
-         memberSegment: memberSegment,
-         unreadNotifications: unreadNotifications,
-         isOfflineCache: isOfflineCache,
-         error: error,
-       ),
-       eventsState = LockerEventsState(
-         attendance: attendance,
-         events: events,
-         eventRosters: eventRosters,
-         eventAttendance: eventAttendance,
-         eventStrategies: eventStrategies,
-         attendanceRates: attendanceRates,
-         hasMoreEvents: hasMoreEvents,
-         isLoadingMoreEvents: isLoadingMoreEvents,
-       ),
-       videosState = LockerVideosState(
-         videos: videos,
-         likedVideoIds: likedVideoIds,
-         videoComments: videoComments,
-       ),
-       membersState = LockerMembersState(members: members),
-       operationsState = LockerOperationsState(
-         announcements: announcements,
-         operations: operations,
-         homecomingContacts: homecomingContacts,
-         homecomingCampaign: homecomingCampaign,
-         operationExchangeBoard: operationExchangeBoard,
-         operationSwapRequests: operationSwapRequests,
-         auditEntries: auditEntries,
-       );
-
-  LockerState._({
-    required this.ui,
-    required this.eventsState,
-    required this.videosState,
-    required this.membersState,
-    required this.operationsState,
-  });
-
-  final LockerUiState ui;
-  final LockerEventsState eventsState;
-  final LockerVideosState videosState;
-  final LockerMembersState membersState;
-  final LockerOperationsState operationsState;
-
-  bool get isReady => ui.isReady;
-  int get gameSegment => ui.gameSegment;
-  int get gameSubSegment => ui.gameSubSegment;
-  int get videoSegment => ui.videoSegment;
-  int get memberSegment => ui.memberSegment;
-  int get unreadNotifications => ui.unreadNotifications;
-  bool get isOfflineCache => ui.isOfflineCache;
-  String? get error => ui.error;
-  Map<String, String> get attendance => eventsState.attendance;
-  List<LockerEvent> get events => eventsState.events;
-  Map<String, List<EventRosterMember>> get eventRosters =>
-      eventsState.eventRosters;
-  Map<String, List<AttendanceResponse>> get eventAttendance =>
-      eventsState.eventAttendance;
-  Map<String, EventStrategy> get eventStrategies => eventsState.eventStrategies;
-  AttendanceRates get attendanceRates => eventsState.attendanceRates;
-  bool get hasMoreEvents => eventsState.hasMoreEvents;
-  bool get isLoadingMoreEvents => eventsState.isLoadingMoreEvents;
-  List<VideoItem> get videos => videosState.videos;
-  Set<String> get likedVideoIds => videosState.likedVideoIds;
-  Map<String, List<VideoCommentItem>> get videoComments =>
-      videosState.videoComments;
-  List<MemberProfile> get members => membersState.members;
-  List<AnnouncementItem> get announcements => operationsState.announcements;
-  List<OperationAssignment> get operations => operationsState.operations;
-  List<HomecomingContact> get homecomingContacts =>
-      operationsState.homecomingContacts;
-  HomecomingCampaign? get homecomingCampaign =>
-      operationsState.homecomingCampaign;
-  List<OperationAssignment> get operationExchangeBoard =>
-      operationsState.operationExchangeBoard;
-  List<OperationSwapRequest> get operationSwapRequests =>
-      operationsState.operationSwapRequests;
-  List<AuditEntry> get auditEntries => operationsState.auditEntries;
-
-  List<LockerEvent> get plannerEvents =>
-      eventsState.plannerEventsWith(operationsState);
-
-  LockerState copyWith({
-    bool? isReady,
-    int? gameSegment,
-    int? gameSubSegment,
-    int? videoSegment,
-    int? memberSegment,
-    int? unreadNotifications,
-    Map<String, String>? attendance,
-    List<LockerEvent>? events,
-    List<VideoItem>? videos,
-    Set<String>? likedVideoIds,
-    Map<String, List<VideoCommentItem>>? videoComments,
-    List<MemberProfile>? members,
-    List<AnnouncementItem>? announcements,
-    List<OperationAssignment>? operations,
-    List<HomecomingContact>? homecomingContacts,
-    HomecomingCampaign? homecomingCampaign,
-    bool clearHomecomingCampaign = false,
-    Map<String, List<EventRosterMember>>? eventRosters,
-    Map<String, List<AttendanceResponse>>? eventAttendance,
-    Map<String, EventStrategy>? eventStrategies,
-    List<OperationAssignment>? operationExchangeBoard,
-    List<OperationSwapRequest>? operationSwapRequests,
-    List<AuditEntry>? auditEntries,
-    AttendanceRates? attendanceRates,
-    bool? hasMoreEvents,
-    bool? isLoadingMoreEvents,
-    bool? isOfflineCache,
-    String? error,
-    bool clearError = false,
-  }) {
-    final uiChanged =
-        isReady != null ||
-        gameSegment != null ||
-        gameSubSegment != null ||
-        videoSegment != null ||
-        memberSegment != null ||
-        unreadNotifications != null ||
-        isOfflineCache != null ||
-        error != null ||
-        clearError;
-    final eventsChanged =
-        attendance != null ||
-        events != null ||
-        eventRosters != null ||
-        eventAttendance != null ||
-        eventStrategies != null ||
-        attendanceRates != null ||
-        hasMoreEvents != null ||
-        isLoadingMoreEvents != null;
-    final videosChanged =
-        videos != null || likedVideoIds != null || videoComments != null;
-    final membersChanged = members != null;
-    final operationsChanged =
-        announcements != null ||
-        operations != null ||
-        homecomingContacts != null ||
-        homecomingCampaign != null ||
-        clearHomecomingCampaign ||
-        operationExchangeBoard != null ||
-        operationSwapRequests != null ||
-        auditEntries != null;
-
-    return LockerState._(
-      ui: uiChanged
-          ? LockerUiState(
-              isReady: isReady ?? this.isReady,
-              gameSegment: gameSegment ?? this.gameSegment,
-              gameSubSegment: gameSubSegment ?? this.gameSubSegment,
-              videoSegment: videoSegment ?? this.videoSegment,
-              memberSegment: memberSegment ?? this.memberSegment,
-              unreadNotifications:
-                  unreadNotifications ?? this.unreadNotifications,
-              isOfflineCache: isOfflineCache ?? this.isOfflineCache,
-              error: clearError ? null : error ?? this.error,
-            )
-          : ui,
-      eventsState: eventsChanged
-          ? LockerEventsState(
-              attendance: attendance ?? this.attendance,
-              events: events ?? this.events,
-              eventRosters: eventRosters ?? this.eventRosters,
-              eventAttendance: eventAttendance ?? this.eventAttendance,
-              eventStrategies: eventStrategies ?? this.eventStrategies,
-              attendanceRates: attendanceRates ?? this.attendanceRates,
-              hasMoreEvents: hasMoreEvents ?? this.hasMoreEvents,
-              isLoadingMoreEvents:
-                  isLoadingMoreEvents ?? this.isLoadingMoreEvents,
-            )
-          : eventsState,
-      videosState: videosChanged
-          ? LockerVideosState(
-              videos: videos ?? this.videos,
-              likedVideoIds: likedVideoIds ?? this.likedVideoIds,
-              videoComments: videoComments ?? this.videoComments,
-            )
-          : videosState,
-      membersState: membersChanged
-          ? LockerMembersState(members: members)
-          : membersState,
-      operationsState: operationsChanged
-          ? LockerOperationsState(
-              announcements: announcements ?? this.announcements,
-              operations: operations ?? this.operations,
-              homecomingContacts: homecomingContacts ?? this.homecomingContacts,
-              homecomingCampaign: clearHomecomingCampaign
-                  ? null
-                  : homecomingCampaign ?? this.homecomingCampaign,
-              operationExchangeBoard:
-                  operationExchangeBoard ?? this.operationExchangeBoard,
-              operationSwapRequests:
-                  operationSwapRequests ?? this.operationSwapRequests,
-              auditEntries: auditEntries ?? this.auditEntries,
-            )
-          : operationsState,
-    );
-  }
-}
+export 'package:encba_locker/features/locker/application/locker_state.dart';
 
 class LockerController extends StateNotifier<LockerState> {
   LockerController(this._repository) : super(LockerState()) {
@@ -364,6 +39,8 @@ class LockerController extends StateNotifier<LockerState> {
   final _notificationPrefs = NotificationCategoryPrefs();
   Timer? _undecidedReminderTimer;
   Future<void>? _loadInFlight;
+  Future<void>? _homecomingContactsLoadInFlight;
+  Future<void>? _auditEntriesLoadInFlight;
   final Map<String, int> _voteRevisions = {};
   final Map<String, Future<void>> _voteWriteTails = {};
 
@@ -403,14 +80,6 @@ class LockerController extends StateNotifier<LockerState> {
         repository.loadOperations(),
         const <OperationAssignment>[],
       );
-      final contactsFuture = _orDefault(
-        repository.loadHomecomingContacts(),
-        const <HomecomingContact>[],
-      );
-      final auditFuture = _orDefault(
-        repository.loadAuditLogs(),
-        const <AuditEntry>[],
-      );
       final campaignFuture = _orDefault<HomecomingCampaign?>(
         repository.loadActiveHomecomingCampaign(),
         null,
@@ -431,8 +100,6 @@ class LockerController extends StateNotifier<LockerState> {
         members: await membersFuture,
         announcements: await announcementsFuture,
         operations: await operationsFuture,
-        homecomingContacts: await contactsFuture,
-        auditEntries: await auditFuture,
         homecomingCampaign: await campaignFuture,
         attendanceRates: await ratesFuture,
         operationExchangeBoard: await exchangeBoardFuture,
@@ -440,29 +107,7 @@ class LockerController extends StateNotifier<LockerState> {
       );
       unawaited(_scheduleUndecidedReminder());
       _announcementChannel ??= repository.subscribeToAnnouncements((record) {
-        final announcement = AnnouncementItem(
-          id: record['id'] as String,
-          title: record['title'] as String,
-          body: record['body'] as String,
-          author: '운영진',
-          publishedAt: DateTime.parse(
-            record['published_at'] as String,
-          ).toLocal(),
-        );
-        if (state.announcements.any((item) => item.id == announcement.id)) {
-          return;
-        }
-        state = state.copyWith(
-          announcements: [announcement, ...state.announcements],
-          unreadNotifications: state.unreadNotifications + 1,
-        );
-        unawaited(
-          _notifyIfEnabled(
-            NotificationCategory.announcements,
-            announcement.title,
-            announcement.body,
-          ),
-        );
+        unawaited(_mergeRealtimeAnnouncement(repository, record));
       });
       _eventChannel ??= repository.subscribeToEvents((record) {
         state = state.copyWith(
@@ -519,6 +164,43 @@ class LockerController extends StateNotifier<LockerState> {
     await WebNotificationService().show(title, body);
   }
 
+  Future<void> _mergeRealtimeAnnouncement(
+    SupabaseLockerRepository repository,
+    Map<String, dynamic> record,
+  ) async {
+    final id = record['id'] as String?;
+    if (id == null || state.announcements.any((item) => item.id == id)) return;
+    final loaded = await _orDefault(repository.loadAnnouncement(id), null);
+    final announcement =
+        loaded ??
+        AnnouncementItem(
+          id: id,
+          title: record['title'] as String? ?? '새 공지',
+          body: record['body'] as String? ?? '',
+          author: '운영진',
+          publishedAt:
+              DateTime.tryParse(
+                record['published_at'] as String? ?? '',
+              )?.toLocal() ??
+              DateTime.now(),
+          pinned: record['pinned'] as bool? ?? false,
+          isUrgent: record['is_urgent'] as bool? ?? false,
+          imageUrl: record['image_url'] as String?,
+          pollOptions:
+              (record['poll_options'] as List?)?.cast<String>() ?? const [],
+        );
+    if (state.announcements.any((item) => item.id == id)) return;
+    state = state.copyWith(
+      announcements: [announcement, ...state.announcements],
+      unreadNotifications: state.unreadNotifications + 1,
+    );
+    await _notifyIfEnabled(
+      NotificationCategory.announcements,
+      announcement.title,
+      announcement.body,
+    );
+  }
+
   void _applySnapshot(LockerSnapshot snapshot) {
     state = state.copyWith(
       isReady: true,
@@ -555,6 +237,59 @@ class LockerController extends StateNotifier<LockerState> {
       debugPrint('ENCBA secondary sync failed: $error\n$stackTrace');
       return fallback;
     }
+  }
+
+  void clearError() {
+    if (state.error != null) state = state.copyWith(clearError: true);
+  }
+
+  /// 홈커밍 연락망은 전용 화면에 들어올 때만 불러와 초기 동기화를 가볍게 유지한다.
+  Future<void> loadHomecomingContacts() {
+    final inFlight = _homecomingContactsLoadInFlight;
+    if (inFlight != null) return inFlight;
+    if (_repository == null) return Future<void>.value();
+    final next = _repository
+        .loadHomecomingContacts()
+        .then((contacts) {
+          state = state.copyWith(
+            homecomingContacts: contacts,
+            clearError: true,
+          );
+        })
+        .catchError((Object error, StackTrace stackTrace) {
+          debugPrint(
+            'ENCBA homecoming contacts load failed: $error\n$stackTrace',
+          );
+          state = state.copyWith(error: '홈커밍 연락망을 불러오지 못했습니다.');
+        });
+    _homecomingContactsLoadInFlight = next;
+    return next.whenComplete(() {
+      if (identical(_homecomingContactsLoadInFlight, next)) {
+        _homecomingContactsLoadInFlight = null;
+      }
+    });
+  }
+
+  /// 감사 로그는 감사 화면에서만 필요하므로 진입 시점까지 네트워크 요청을 미룬다.
+  Future<void> loadAuditEntries() {
+    final inFlight = _auditEntriesLoadInFlight;
+    if (inFlight != null) return inFlight;
+    if (_repository == null) return Future<void>.value();
+    final next = _repository
+        .loadAuditLogs()
+        .then((entries) {
+          state = state.copyWith(auditEntries: entries, clearError: true);
+        })
+        .catchError((Object error, StackTrace stackTrace) {
+          debugPrint('ENCBA audit log load failed: $error\n$stackTrace');
+          state = state.copyWith(error: '수정 이력을 불러오지 못했습니다.');
+        });
+    _auditEntriesLoadInFlight = next;
+    return next.whenComplete(() {
+      if (identical(_auditEntriesLoadInFlight, next)) {
+        _auditEntriesLoadInFlight = null;
+      }
+    });
   }
 
   void selectGameSegment(int index) =>
@@ -810,6 +545,21 @@ class LockerController extends StateNotifier<LockerState> {
       return campaign != null;
     } on Object {
       state = state.copyWith(error: '홈커밍 캠페인을 열지 못했습니다.');
+      return false;
+    }
+  }
+
+  Future<bool> deactivateHomecomingCampaign(String campaignId) async {
+    try {
+      await _repository?.deactivateHomecomingCampaign(campaignId);
+      state = state.copyWith(
+        clearHomecomingCampaign: true,
+        homecomingContacts: const [],
+        clearError: true,
+      );
+      return true;
+    } on Object {
+      state = state.copyWith(error: '홈커밍 캠페인을 다시 잠그지 못했습니다.');
       return false;
     }
   }
@@ -1132,7 +882,7 @@ class LockerController extends StateNotifier<LockerState> {
       return false;
     } on Object catch (error, stackTrace) {
       debugPrint('ENCBA event save failed: $error\n$stackTrace');
-      state = state.copyWith(error: '일정을 저장하지 못했습니다: $error');
+      state = state.copyWith(error: '일정을 저장하지 못했습니다.');
       return false;
     }
   }
@@ -1225,21 +975,31 @@ class LockerController extends StateNotifier<LockerState> {
     required String title,
     required String body,
     required bool pinned,
+    bool isUrgent = false,
     List<String> linkedEventIds = const [],
+    String? imageBase64,
+    String? imageName,
+    List<String> pollOptions = const [],
   }) async {
     try {
       final saved = await _repository?.addAnnouncement(
         title: title,
         body: body,
         pinned: pinned,
+        isUrgent: isUrgent,
         linkedEventIds: linkedEventIds,
+        imageBase64: imageBase64,
+        imageName: imageName,
+        pollOptions: pollOptions,
       );
       if (saved != null) {
         state = state.copyWith(announcements: [saved, ...state.announcements]);
       }
       return saved != null;
-    } on Object {
-      state = state.copyWith(error: '공지를 저장하지 못했습니다.');
+    } on Object catch (error) {
+      state = state.copyWith(
+        error: _announcementError(error, '공지를 저장하지 못했습니다.'),
+      );
       return false;
     }
   }
@@ -1249,7 +1009,12 @@ class LockerController extends StateNotifier<LockerState> {
     required String title,
     required String body,
     required bool pinned,
+    bool? isUrgent,
     List<String> linkedEventIds = const [],
+    String? imageBase64,
+    String? imageName,
+    bool removeImage = false,
+    List<String> pollOptions = const [],
   }) async {
     try {
       final saved = await _repository?.updateAnnouncement(
@@ -1257,7 +1022,13 @@ class LockerController extends StateNotifier<LockerState> {
         title: title,
         body: body,
         pinned: pinned,
+        isUrgent: isUrgent ?? announcement.isUrgent,
         linkedEventIds: linkedEventIds,
+        existingImageUrl: announcement.imageUrl,
+        imageBase64: imageBase64,
+        imageName: imageName,
+        removeImage: removeImage,
+        pollOptions: pollOptions,
       );
       if (saved == null) return false;
       state = state.copyWith(
@@ -1267,15 +1038,21 @@ class LockerController extends StateNotifier<LockerState> {
         clearError: true,
       );
       return true;
-    } on Object {
-      state = state.copyWith(error: '공지를 수정하지 못했습니다.');
+    } on Object catch (error) {
+      state = state.copyWith(
+        error: _announcementError(error, '공지를 수정하지 못했습니다.'),
+      );
       return false;
     }
   }
 
   Future<bool> deleteAnnouncement(String id) async {
     try {
-      await _repository?.deleteAnnouncement(id);
+      final imageUrl = state.announcements
+          .where((item) => item.id == id)
+          .firstOrNull
+          ?.imageUrl;
+      await _repository?.deleteAnnouncement(id, imageUrl: imageUrl);
       state = state.copyWith(
         announcements: state.announcements
             .where((item) => item.id != id)
@@ -1288,6 +1065,53 @@ class LockerController extends StateNotifier<LockerState> {
       return false;
     }
   }
+
+  Future<bool> voteAnnouncement(
+    AnnouncementItem announcement,
+    int optionIndex,
+  ) async {
+    if (optionIndex < 0 || optionIndex >= announcement.pollOptions.length) {
+      return false;
+    }
+    final previousOption = announcement.myPollOption;
+    final counts = Map<int, int>.from(announcement.pollVotes);
+    if (previousOption != null && previousOption != optionIndex) {
+      final previousCount = counts[previousOption] ?? 0;
+      if (previousCount <= 1) {
+        counts.remove(previousOption);
+      } else {
+        counts[previousOption] = previousCount - 1;
+      }
+    }
+    if (previousOption != optionIndex) {
+      counts.update(optionIndex, (count) => count + 1, ifAbsent: () => 1);
+    }
+    final optimistic = announcement.copyWith(
+      pollVotes: counts,
+      myPollOption: optionIndex,
+    );
+    state = state.copyWith(
+      announcements: state.announcements
+          .map((item) => item.id == announcement.id ? optimistic : item)
+          .toList(),
+    );
+    try {
+      await _repository?.voteAnnouncement(announcement.id, optionIndex);
+      state = state.copyWith(clearError: true);
+      return true;
+    } on Object {
+      state = state.copyWith(
+        announcements: state.announcements
+            .map((item) => item.id == announcement.id ? announcement : item)
+            .toList(),
+        error: '공지 투표를 저장하지 못했습니다.',
+      );
+      return false;
+    }
+  }
+
+  String _announcementError(Object error, String fallback) =>
+      error is LockerRepositoryException ? error.message : fallback;
 
   Future<bool> deleteEvent(String id) async {
     try {

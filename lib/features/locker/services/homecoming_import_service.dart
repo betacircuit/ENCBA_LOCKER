@@ -50,6 +50,7 @@ class HomecomingImportService {
 
     final rows = <Map<String, dynamic>>[];
     final nameCounts = <String, int>{};
+    final generationWarnings = <String>[];
     var missingPhoneCount = 0;
     // 연락 담당은 여러 줄을 합쳐 한 번만 적는다. 엑셀은 합친 칸의 첫 줄에만
     // 값을 두므로, 아래 줄들이 담당자 없는 사람으로 보이지 않게 이어 붙인다.
@@ -89,11 +90,24 @@ class HomecomingImportService {
           .where((value) => value.isNotEmpty)
           .toSet()
           .join(' · ');
-      final generationText = _valueAt(
+      final rawGeneration = _valueAt(
         row,
         layout.columns[_HomecomingColumn.generation],
-      ).replaceAll(RegExp(r'[^0-9]'), '');
-      final generation = int.tryParse(generationText);
+      ).trim();
+      final generationText = rawGeneration.replaceAll(RegExp(r'[^0-9]'), '');
+      final parsedGeneration = int.tryParse(generationText);
+      final generation =
+          parsedGeneration != null &&
+              parsedGeneration >= 1 &&
+              parsedGeneration <= 200
+          ? parsedGeneration
+          : null;
+      if (parsedGeneration != null && generation == null) {
+        generationWarnings.add(
+          '${rowIndex + 1}행 기수 "$rawGeneration"은(는) 1~200 범위를 벗어나 비워 두었습니다. '
+          '원본 파일에서 기수를 확인해 주세요.',
+        );
+      }
       final assignedTo = carriedAssignee;
 
       nameCounts.update(name, (count) => count + 1, ifAbsent: () => 1);
@@ -101,7 +115,7 @@ class HomecomingImportService {
         'source_row': rowIndex + 1,
         'source_reference': '${layout.sheetName}!${rowIndex + 1}',
         'senior_name': name,
-        'generation': generation == null || generation == 0 ? null : generation,
+        'generation': generation,
         'home_or_office_phone': alternatePhone.isEmpty ? null : alternatePhone,
         // 휴대폰이 없어도 카카오톡 조사·추후 확인 대상인 사람 자체는 보존한다.
         'phone': mobilePhone,
@@ -122,6 +136,7 @@ class HomecomingImportService {
         .where((count) => count > 1)
         .length;
     final warnings = <String>[
+      ...generationWarnings,
       if (missingPhoneCount > 0)
         '휴대폰과 집/회사 번호가 모두 없는 $missingPhoneCount명도 명단에 포함됩니다.',
       if (duplicateNameCount > 0)

@@ -5,18 +5,23 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final eventsState = ref.watch(
-      lockerControllerProvider.select((state) => state.eventsState),
-    );
-    final operationsState = ref.watch(
-      lockerControllerProvider.select((state) => state.operationsState),
+    final homeState = ref.watch(
+      lockerControllerProvider.select(
+        (state) => (
+          events: state.eventsState.events,
+          operations: state.operationsState.operations,
+          announcements: state.operationsState.announcements,
+        ),
+      ),
     );
     final unreadNotifications = ref.watch(
       lockerControllerProvider.select((state) => state.unreadNotifications),
     );
     final user = ref.watch(authControllerProvider).user!;
-    final events = [...eventsState.plannerEventsWith(operationsState)]
-      ..sort((a, b) => a.start.compareTo(b.start));
+    final events = <LockerEvent>[
+      ...homeState.events,
+      ...homeState.operations.map((item) => item.toPlannerEvent()),
+    ]..sort((a, b) => a.start.compareTo(b.start));
     final upcoming = events
         .where((event) => event.end.isAfter(DateTime.now()))
         .toList();
@@ -41,7 +46,7 @@ class HomeScreen extends ConsumerWidget {
                 _showNotifications(
                   context,
                   ref,
-                  operationsState.announcements,
+                  homeState.announcements,
                   canManage: user.canAdminister,
                   user: user,
                 );
@@ -81,13 +86,13 @@ class HomeScreen extends ConsumerWidget {
               : null,
         ),
         const SizedBox(height: 10),
-        if (operationsState.announcements.isEmpty)
+        if (homeState.announcements.isEmpty)
           const _EmptyState(
             icon: Icons.campaign_outlined,
             title: '등록된 공지가 없습니다',
           )
         else
-          ...operationsState.announcements
+          ...homeState.announcements
               .take(5)
               .map(
                 (notice) => Padding(
@@ -251,6 +256,24 @@ class _AnnouncementDetailView extends ConsumerWidget {
           ),
           const SizedBox(height: 22),
           _Linkified(notice.body, style: const TextStyle(height: 1.75)),
+          if (notice.imageUrl case final imageUrl?) ...[
+            const SizedBox(height: 20),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const _EmptyState(
+                  icon: Icons.broken_image_outlined,
+                  title: '첨부 사진을 불러오지 못했습니다',
+                ),
+              ),
+            ),
+          ],
+          if (notice.pollOptions.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _AnnouncementPollCard(notice: notice),
+          ],
           if (notice.linkedEventIds.isNotEmpty) ...[
             const SizedBox(height: 24),
             const Text('연결 일정', style: TextStyle(fontWeight: FontWeight.w800)),
@@ -508,6 +531,9 @@ Future<void> _showAnnouncementEditor(
             body: draft.body,
             pinned: draft.pinned,
             linkedEventIds: draft.linkedEventIds,
+            imageBase64: draft.imageBase64,
+            imageName: draft.imageName,
+            pollOptions: draft.pollOptions,
           )
         : await controller.updateAnnouncement(
             announcement: existing,
@@ -515,6 +541,10 @@ Future<void> _showAnnouncementEditor(
             body: draft.body,
             pinned: draft.pinned,
             linkedEventIds: draft.linkedEventIds,
+            imageBase64: draft.imageBase64,
+            imageName: draft.imageName,
+            removeImage: draft.removeImage,
+            pollOptions: draft.pollOptions,
           );
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -536,11 +566,19 @@ class _AnnouncementDraft {
     required this.body,
     required this.pinned,
     required this.linkedEventIds,
+    required this.pollOptions,
+    this.imageBase64,
+    this.imageName,
+    this.removeImage = false,
   });
   final String title;
   final String body;
   final bool pinned;
   final List<String> linkedEventIds;
+  final List<String> pollOptions;
+  final String? imageBase64;
+  final String? imageName;
+  final bool removeImage;
 }
 
 class _AnnouncementEditorScreen extends StatefulWidget {
@@ -558,6 +596,11 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
   late final TextEditingController _body;
   late bool _pinned;
   late Set<String> _linkedEventIds;
+  late bool _pollEnabled;
+  late List<TextEditingController> _pollOptions;
+  String? _imageBase64;
+  String? _imageName;
+  bool _removeExistingImage = false;
 
   @override
   void initState() {
@@ -568,6 +611,14 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
       ..addListener(_refresh);
     _pinned = widget.existing?.pinned ?? false;
     _linkedEventIds = widget.existing?.linkedEventIds.toSet() ?? <String>{};
+    final existingPoll = widget.existing?.pollOptions ?? const <String>[];
+    _pollEnabled = existingPoll.isNotEmpty;
+    _pollOptions = (existingPoll.isEmpty ? const ['찬성', '반대'] : existingPoll)
+        .map((option) => TextEditingController(text: option))
+        .toList();
+    for (final controller in _pollOptions) {
+      controller.addListener(_refresh);
+    }
   }
 
   @override
@@ -578,6 +629,11 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
     _body
       ..removeListener(_refresh)
       ..dispose();
+    for (final controller in _pollOptions) {
+      controller
+        ..removeListener(_refresh)
+        ..dispose();
+    }
     super.dispose();
   }
 
@@ -586,7 +642,13 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
   @override
   Widget build(BuildContext context) {
     final canSave =
-        _title.text.trim().isNotEmpty && _body.text.trim().isNotEmpty;
+        _title.text.trim().isNotEmpty &&
+        _body.text.trim().isNotEmpty &&
+        (!_pollEnabled ||
+            (_pollOptions.length >= 2 &&
+                _pollOptions.every((item) => item.text.trim().isNotEmpty) &&
+                _pollOptions.map((item) => item.text.trim()).toSet().length ==
+                    _pollOptions.length));
     return Scaffold(
       resizeToAvoidBottomInset: true,
       appBar: AppBar(title: Text(widget.existing == null ? '새 공지' : '공지 수정')),
@@ -623,6 +685,106 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
               hintText: '일시, 장소, 준비물처럼 부원이 바로 알아야 할 내용을 적어 주세요.',
             ),
           ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    '사진 첨부',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  if (_imageBase64 != null ||
+                      (widget.existing?.imageUrl != null &&
+                          !_removeExistingImage)) ...[
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: _imageBase64 != null
+                          ? Image.memory(
+                              base64Decode(_imageBase64!),
+                              height: 180,
+                              fit: BoxFit.cover,
+                            )
+                          : Image.network(
+                              widget.existing!.imageUrl!,
+                              height: 180,
+                              fit: BoxFit.cover,
+                            ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _pickAnnouncementImage,
+                          icon: const Icon(Icons.add_photo_alternate_outlined),
+                          label: const Text('사진 선택'),
+                        ),
+                      ),
+                      if (_imageBase64 != null ||
+                          (widget.existing?.imageUrl != null &&
+                              !_removeExistingImage)) ...[
+                        const SizedBox(width: 8),
+                        IconButton(
+                          tooltip: '첨부 사진 지우기',
+                          onPressed: () => setState(() {
+                            _imageBase64 = null;
+                            _imageName = null;
+                            _removeExistingImage = true;
+                          }),
+                          icon: const Icon(Icons.delete_outline_rounded),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: _pollEnabled,
+            title: const Text('투표 첨부'),
+            subtitle: const Text('부원은 공지에서 한 항목을 선택할 수 있습니다.'),
+            onChanged: (value) => setState(() => _pollEnabled = value),
+          ),
+          if (_pollEnabled) ...[
+            for (final (index, controller) in _pollOptions.indexed) ...[
+              Row(
+                key: ObjectKey(controller),
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      maxLength: 60,
+                      decoration: InputDecoration(
+                        labelText: '투표 항목 ${index + 1}',
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '항목 삭제',
+                    onPressed: _pollOptions.length <= 2
+                        ? null
+                        : () => _removePollOption(index),
+                    icon: const Icon(Icons.remove_circle_outline_rounded),
+                  ),
+                ],
+              ),
+            ],
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _pollOptions.length >= 8 ? null : _addPollOption,
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('투표 항목 추가'),
+              ),
+            ),
+          ],
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
             value: _pinned,
@@ -691,12 +853,112 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
                       body: _body.text.trim(),
                       pinned: _pinned,
                       linkedEventIds: _linkedEventIds.toList(),
+                      pollOptions: _pollEnabled
+                          ? _pollOptions
+                                .map((item) => item.text.trim())
+                                .toList()
+                          : const [],
+                      imageBase64: _imageBase64,
+                      imageName: _imageName,
+                      removeImage: _removeExistingImage,
                     ),
                   )
                 : null,
             child: Text(widget.existing == null ? '공지 등록' : '변경 내용 저장'),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _pickAnnouncementImage() async {
+    final image = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      imageQuality: 82,
+    );
+    if (image == null) return;
+    final bytes = await image.readAsBytes();
+    if (!mounted) return;
+    if (bytes.length > 8 * 1024 * 1024) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('사진은 8MB 이하로 첨부해 주세요.')));
+      return;
+    }
+    setState(() {
+      _imageBase64 = base64Encode(bytes);
+      _imageName = image.name;
+      _removeExistingImage = false;
+    });
+  }
+
+  void _addPollOption() {
+    final controller = TextEditingController()..addListener(_refresh);
+    setState(() => _pollOptions.add(controller));
+  }
+
+  void _removePollOption(int index) {
+    final controller = _pollOptions.removeAt(index);
+    controller
+      ..removeListener(_refresh)
+      ..dispose();
+    setState(() {});
+  }
+}
+
+class _AnnouncementPollCard extends ConsumerWidget {
+  const _AnnouncementPollCard({required this.notice});
+
+  final AnnouncementItem notice;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final total = notice.pollVotes.values.fold<int>(
+      0,
+      (sum, count) => sum + count,
+    );
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 16, 14, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '투표',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                Text(
+                  '$total명 참여',
+                  style: const TextStyle(color: EncbaColors.muted),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            for (final (index, option) in notice.pollOptions.indexed)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  notice.myPollOption == index
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_off_rounded,
+                  color: notice.myPollOption == index
+                      ? EncbaColors.snuBlue
+                      : EncbaColors.muted,
+                ),
+                title: Text(option),
+                trailing: Text('${notice.pollVotes[index] ?? 0}표'),
+                onTap: () => ref
+                    .read(lockerControllerProvider.notifier)
+                    .voteAnnouncement(notice, index),
+              ),
+          ],
+        ),
       ),
     );
   }

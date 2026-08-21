@@ -48,7 +48,54 @@ void main() {
     final choi = result.rows.singleWhere(
       (row) => row['assignee_name'] == '최재원',
     );
-    expect(choi['starts_at'], contains('02:30:00.000Z'));
+    expect(choi['starts_at'], '2026-03-14T04:00:00.000Z');
+    expect(choi['ends_at'], '2026-03-14T05:00:00.000Z');
+    expect(result.explicitTimeCount, 0);
+  });
+
+  test('엑셀의 원래 시간과 무관하게 1·2·3경기를 고정 슬롯으로 저장한다', () {
+    final workbook = Excel.createExcel();
+    final sheet = workbook[workbook.getDefaultSheet()!];
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 0)).value =
+        TextCellValue('3월 14일 (토)');
+    const assignees = ['김민수', '이민섭', '최재원'];
+    for (final (index, game) in [1, 2, 3].indexed) {
+      final row = 1 + index * 2;
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: row))
+          .value = TextCellValue(
+        '$game경기 운영 A',
+      );
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: row))
+          .value = TextCellValue(
+        assignees[index],
+      );
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: row + 1))
+          .value = TextCellValue(
+        '09:0$game 원본 시간',
+      );
+    }
+
+    final result = IbOperationImportService().parseBytes(
+      fileName: '26-1 IB리그 운영표.xlsx',
+      bytes: workbook.encode()!,
+    );
+
+    expect(result.rows, hasLength(3));
+    expect(
+      {
+        for (final row in result.rows)
+          row['title']: [row['starts_at'], row['ends_at']],
+      },
+      {
+        '1경기 운영 A': ['2026-03-14T04:00:00.000Z', '2026-03-14T05:00:00.000Z'],
+        '2경기 운영 A': ['2026-03-14T05:10:00.000Z', '2026-03-14T06:10:00.000Z'],
+        '3경기 운영 A': ['2026-03-14T06:20:00.000Z', '2026-03-14T07:20:00.000Z'],
+      },
+    );
+    expect(result.explicitTimeCount, 0);
   });
 
   test('제공된 실제 IB 운영표 양식을 읽는다', () {
@@ -89,7 +136,10 @@ void main() {
     );
     expect(june22ThirdGameA, isNotEmpty);
     expect(june22ThirdGameA.map((row) => row['starts_at']).toSet(), {
-      '2026-06-22T05:00:00.000Z',
+      '2026-06-22T06:20:00.000Z',
+    });
+    expect(june22ThirdGameA.map((row) => row['ends_at']).toSet(), {
+      '2026-06-22T07:20:00.000Z',
     });
   });
 

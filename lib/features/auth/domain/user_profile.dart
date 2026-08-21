@@ -170,8 +170,8 @@ class UserProfile {
     isReservationManager: row['is_reservation_manager'] as bool? ?? false,
   );
 
-  String get visibleName =>
-      (displayName?.trim().isNotEmpty ?? false) ? displayName!.trim() : name;
+  /// 다른 부원에게 노출되는 이름은 가입 명단에서 확인한 실명만 사용한다.
+  String get visibleName => name;
 
   bool get canAdminister => isAdmin || leadershipRole == 'captain';
 

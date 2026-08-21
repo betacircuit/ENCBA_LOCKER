@@ -85,6 +85,40 @@ void main() {
     expect(result.rows.single['phone'], '010-1234-5678');
   });
 
+  test('범위를 벗어난 숫자 기수는 행과 원문 경고를 남기고 비워 둔다', () {
+    final workbook = Excel.createExcel();
+    final sheet = workbook[workbook.getDefaultSheet()!];
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0)).value =
+        TextCellValue('이름');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 0)).value =
+        TextCellValue('기수');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: 0)).value =
+        TextCellValue('휴대폰');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 1)).value =
+        TextCellValue('범위초과');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 1)).value =
+        TextCellValue('2022학번');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: 1)).value =
+        TextCellValue('010-1111-2222');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 2)).value =
+        TextCellValue('비숫자');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 2)).value =
+        TextCellValue('OB');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: 2)).value =
+        TextCellValue('010-3333-4444');
+
+    final result = HomecomingImportService().parseBytes(
+      fileName: '홈커밍.xlsx',
+      bytes: workbook.encode()!,
+    );
+
+    expect(result.rows.map((row) => row['generation']), [null, null]);
+    expect(result.warnings, hasLength(1));
+    expect(result.warnings.single, contains('2행'));
+    expect(result.warnings.single, contains('2022학번'));
+    expect(result.warnings.single, contains('원본 파일에서 기수를 확인'));
+  });
+
   test('제공된 실제 홈커밍 연락망의 모든 이름을 보존한다', () {
     const path = r'C:\Users\Jaewon\Downloads\2026-2 홈커밍 연락의 사본.xlsx';
     final file = File(path);

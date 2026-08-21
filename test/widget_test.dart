@@ -279,7 +279,55 @@ void main() {
     );
     expect(find.text('네이버 지도'), findsOneWidget);
     expect(find.text('캘린더에 추가'), findsOneWidget);
+    expect(
+      find.ancestor(
+        of: find.text('캘린더에 추가'),
+        matching: find.byType(FilledButton),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('참석 여부'), findsNothing);
+  });
+
+  testWidgets('공지 편집기는 사진과 투표를 첨부할 수 있다', (tester) async {
+    await tester.pumpWidget(
+      _signedInApp(
+        const LockerShell(),
+        lockerState: LockerState(isReady: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('새 공지'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('사진 첨부'), findsOneWidget);
+    expect(find.text('사진 선택'), findsOneWidget);
+    expect(find.text('투표 첨부'), findsOneWidget);
+  });
+
+  testWidgets('활성 홈커밍은 관리자에게 다시 잠그기를 제공한다', (tester) async {
+    final campaign = HomecomingCampaign(
+      id: 'homecoming-2026-2',
+      title: '2026년 2학기 홈커밍',
+      academicYear: 2026,
+      term: 2,
+      eventDate: DateTime(2026, 11, 7),
+      startsAt: '14:00:00',
+      endsAt: '18:00:00',
+      venue: '서울대학교 기숙사체육관',
+      isActive: true,
+    );
+    await tester.pumpWidget(
+      _signedInApp(
+        const HomecomingScreen(),
+        user: testUser.copyWith(leadershipRole: 'admin'),
+        lockerState: LockerState(isReady: true, homecomingCampaign: campaign),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('다시 잠그기'), findsOneWidget);
   });
 
   testWidgets('일정 출결은 응답 전에는 어떤 항목도 선택되지 않는다', (tester) async {
@@ -556,6 +604,25 @@ void main() {
     );
     expect(find.text('정각'), findsOneWidget);
     expect(find.text('분 설정'), findsOneWidget);
+  });
+
+  testWidgets('IB 일정은 1·2·3경기 고정 시간만 선택한다', (tester) async {
+    await tester.pumpWidget(_signedInApp(const EventEditorScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('훈련').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('IB 1부').last);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('경기 시간 *'),
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('1경기 · 13:00–14:00'), findsOneWidget);
+    expect(find.text('정각'), findsNothing);
+    expect(find.text('분 설정'), findsNothing);
   });
 
   testWidgets('외부 경기 등록은 주전 선택을 노출한다', (tester) async {
@@ -1211,6 +1278,27 @@ void main() {
     expect(find.text('미정'), findsOneWidget);
     expect(find.text('경기 날짜'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('농구 영상 공유에는 경기 날짜를 표시하지 않는다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _signedInApp(
+        const LockerShell(),
+        lockerState: LockerState(isReady: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('영상').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('공유').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('유튜브 영상 공유'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('농구 영상 공유'), findsOneWidget);
+    expect(find.text('경기 날짜'), findsNothing);
   });
 }
 

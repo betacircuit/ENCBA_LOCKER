@@ -23,14 +23,20 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final eventsState = ref.watch(
-      lockerControllerProvider.select((state) => state.eventsState),
+    final plannerState = ref.watch(
+      lockerControllerProvider.select(
+        (state) => (
+          events: state.eventsState.events,
+          operations: state.operationsState.operations,
+          hasMore: state.eventsState.hasMoreEvents,
+          isLoadingMore: state.eventsState.isLoadingMoreEvents,
+        ),
+      ),
     );
-    final operationsState = ref.watch(
-      lockerControllerProvider.select((state) => state.operationsState),
-    );
-    final allEvents = [...eventsState.plannerEventsWith(operationsState)]
-      ..sort((a, b) => a.start.compareTo(b.start));
+    final allEvents = <LockerEvent>[
+      ...plannerState.events,
+      ...plannerState.operations.map((item) => item.toPlannerEvent()),
+    ]..sort((a, b) => a.start.compareTo(b.start));
     final user = ref.watch(authControllerProvider).user!;
     final today = DateUtils.dateOnly(DateTime.now());
     final futureEvents = allEvents
@@ -38,7 +44,7 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
         .toList();
     final visible = futureEvents.take(_visibleCount).toList();
     final canRevealMore = visible.length < futureEvents.length;
-    final canLoadMore = canRevealMore || eventsState.hasMoreEvents;
+    final canLoadMore = canRevealMore || plannerState.hasMore;
 
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
@@ -75,7 +81,10 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                 IconButton(
                   tooltip: '일정 추가',
                   onPressed: () => _openEditor(context),
-                  icon: const Icon(Icons.add_circle_outline_rounded),
+                  icon: const Icon(
+                    Icons.add_circle_outline_rounded,
+                    color: EncbaColors.snuBlue,
+                  ),
                 ),
             ],
           ),
@@ -141,7 +150,7 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                 ),
               ];
             }),
-          if (eventsState.isLoadingMoreEvents)
+          if (plannerState.isLoadingMore)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 18),
               child: Row(

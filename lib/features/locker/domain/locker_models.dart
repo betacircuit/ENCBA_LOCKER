@@ -348,7 +348,12 @@ class AnnouncementItem {
     required this.author,
     required this.publishedAt,
     this.pinned = false,
+    this.isUrgent = false,
     this.linkedEventIds = const [],
+    this.imageUrl,
+    this.pollOptions = const [],
+    this.pollVotes = const {},
+    this.myPollOption,
   });
   final String id;
   final String title;
@@ -356,7 +361,34 @@ class AnnouncementItem {
   final String author;
   final DateTime publishedAt;
   final bool pinned;
+  final bool isUrgent;
   final List<String> linkedEventIds;
+  final String? imageUrl;
+  final List<String> pollOptions;
+  final Map<int, int> pollVotes;
+  final int? myPollOption;
+
+  AnnouncementItem copyWith({
+    String? imageUrl,
+    bool clearImage = false,
+    List<String>? pollOptions,
+    Map<int, int>? pollVotes,
+    int? myPollOption,
+    bool clearMyPollOption = false,
+  }) => AnnouncementItem(
+    id: id,
+    title: title,
+    body: body,
+    author: author,
+    publishedAt: publishedAt,
+    pinned: pinned,
+    isUrgent: isUrgent,
+    linkedEventIds: linkedEventIds,
+    imageUrl: clearImage ? null : imageUrl ?? this.imageUrl,
+    pollOptions: pollOptions ?? this.pollOptions,
+    pollVotes: pollVotes ?? this.pollVotes,
+    myPollOption: clearMyPollOption ? null : myPollOption ?? this.myPollOption,
+  );
 }
 
 class AttendanceReportRow {
@@ -509,6 +541,17 @@ class HomecomingContact {
 
   bool get contacted => status == 'contacted' || status == 'confirmed';
   bool get handled => status != 'pending';
+  bool get canRequestParking => status == 'confirmed';
+  String get generationCode => generation?.toString().padLeft(2, '0') ?? '';
+  String get generationLabel =>
+      generation == null ? '학번 미상' : '$generationCode학번';
+  String get statusLabel => switch (status) {
+    'contacted' => '미정 · 재연락',
+    'confirmed' => '참석',
+    'declined' => '불참',
+    _ => '미연락',
+  };
+
   HomecomingContact copyWith({
     String? status,
     bool? parkingRequired,
@@ -844,6 +887,7 @@ class VideoCommentItem {
     required this.createdAt,
     this.quarterNumber,
     this.linkId,
+    this.endTimestampSeconds,
     this.targetPlayers = const [],
   });
 
@@ -858,5 +902,6 @@ class VideoCommentItem {
   /// 코멘트가 달린 링크. 쿼터 미정 링크가 여러 개일 수 있어 쿼터 번호만으로는
   /// 어느 영상의 코멘트인지 가려지지 않는다.
   final int? linkId;
+  final int? endTimestampSeconds;
   final List<VideoTaggedMember> targetPlayers;
 }

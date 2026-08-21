@@ -1,4 +1,5 @@
 import 'package:encba_locker/features/auth/data/supabase_auth_repository.dart';
+import 'package:encba_locker/features/auth/domain/user_profile.dart';
 import 'package:encba_locker/features/auth/presentation/auth_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -74,5 +75,22 @@ void main() {
       internalLoginEmailForName('가나다라마바사아자차카타파하').split('@').first.length,
       lessThanOrEqualTo(64),
     );
+  });
+
+  test('다른 부원에게 보이는 이름은 별칭이 있어도 실명이다', () {
+    const profile = UserProfile(
+      email: 'member@snu.ac.kr',
+      name: '김실명',
+      displayName: '별명',
+      studentId: '24학번',
+      generation: 43,
+      phone: '010-0000-0000',
+      position: 'PG',
+      jerseyNumber: 1,
+      status: 'YB',
+      teams: ['ENCBA'],
+    );
+
+    expect(profile.visibleName, '김실명');
   });
 }

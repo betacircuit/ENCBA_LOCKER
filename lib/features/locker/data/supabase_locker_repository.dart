@@ -6,6 +6,23 @@ import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+const _encbaUtcOffset = Duration(hours: 9);
+
+/// Returns the UTC instant at which the current ENCBA business day started.
+///
+/// Schedules are operated in Korea even when a member opens the app while the
+/// device is set to another time zone. Keeping this calculation independent of
+/// the device locale also makes the server query boundary deterministic.
+@visibleForTesting
+DateTime encbaDayStartsAtUtc(DateTime now) {
+  final koreaNow = now.toUtc().add(_encbaUtcOffset);
+  return DateTime.utc(
+    koreaNow.year,
+    koreaNow.month,
+    koreaNow.day,
+  ).subtract(_encbaUtcOffset);
+}
+
 class LockerRepositoryException implements Exception {
   const LockerRepositoryException(this.message);
   final String message;
@@ -40,6 +57,15 @@ class SupabaseLockerRepository {
   final LocalStore _store;
   static const int eventPageSize = 20;
   static const int videoPageSize = 30;
+  static const _announcementSelection =
+      'id,title,body,pinned,is_urgent,published_at,image_url,poll_options,'
+      'profiles!announcements_created_by_fkey(name,display_name),'
+      'announcement_event_links(event_id),'
+      'announcement_poll_votes(profile_id,option_index)';
+  static const _legacyAnnouncementSelection =
+      'id,title,body,pinned,published_at,'
+      'profiles!announcements_created_by_fkey(name,display_name),'
+      'announcement_event_links(event_id)';
   static const _eventSelection =
       'id,title,starts_at,ends_at,place_label,court,kind,memo,'
       'uniform_colors,capacity,attending_count,target_team,updated_at,'
@@ -67,12 +93,7 @@ class SupabaseLockerRepository {
   Future<LockerSnapshot?> loadCached() => _readCache();
 
   Future<LockerSnapshot> load({LockerSnapshot? fallback}) async {
-    final now = DateTime.now();
-    final todayStartsAt = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    ).toUtc().toIso8601String();
+    final todayStartsAt = encbaDayStartsAtUtc(DateTime.now()).toIso8601String();
     final cached = fallback ?? await _readCache();
     final eventFuture = _orFallback<({List<LockerEvent> events, bool hasMore})>(
       _loadEventPage(
@@ -181,13 +202,8 @@ class SupabaseLockerRepository {
   Future<({List<LockerEvent> events, bool hasMore})> loadMoreEvents({
     required int offset,
   }) {
-    final now = DateTime.now();
     return _loadEventPage(
-      todayStartsAt: DateTime(
-        now.year,
-        now.month,
-        now.day,
-      ).toUtc().toIso8601String(),
+      todayStartsAt: encbaDayStartsAtUtc(DateTime.now()).toIso8601String(),
       offset: offset,
       limit: eventPageSize,
       includeLocked: false,
@@ -243,7 +259,7 @@ class SupabaseLockerRepository {
     final normalFuture = _client
         .from('events')
         .select(_eventSelection)
-        .gte('starts_at', todayStartsAt)
+        .gte('ends_at', todayStartsAt)
         .isFilter('cancelled_at', null)
         .order('starts_at')
         .order('id')
@@ -445,87 +461,84 @@ class SupabaseLockerRepository {
   }
 
   Future<List<AnnouncementItem>> loadAnnouncements() async {
-    final rows = await _client
-        .from('announcements')
-        .select(
-          'id,title,body,pinned,published_at,profiles!announcements_created_by_fkey(name),'
-          'announcement_event_links(event_id)',
-        )
-        .order('pinned', ascending: false)
-        .order('published_at', ascending: false)
-        .limit(50);
-    return rows.map((row) {
-      final author = row['profiles'] as Map?;
-      return AnnouncementItem(
-        id: row['id'] as String,
-        title: row['title'] as String,
-        body: row['body'] as String,
-        author: author?['name'] as String? ?? '운영진',
-        publishedAt: DateTime.parse(row['published_at'] as String).toLocal(),
-        pinned: row['pinned'] as bool? ?? false,
-        linkedEventIds: (row['announcement_event_links'] as List? ?? const [])
-            .map((item) => (item as Map)['event_id'] as String)
-            .toList(growable: false),
-      );
-    }).toList();
+    final rows = await _selectAnnouncementRows(
+      (selection) => _client
+          .from('announcements')
+          .select(selection)
+          .order('pinned', ascending: false)
+          .order('published_at', ascending: false)
+          .limit(50),
+    );
+    return rows.map(_announcementFromRow).toList();
   }
 
   Future<AnnouncementItem?> loadAnnouncement(String id) async {
-    final rows = await _client
-        .from('announcements')
-        .select(
-          'id,title,body,pinned,published_at,profiles!announcements_created_by_fkey(name),'
-          'announcement_event_links(event_id)',
-        )
-        .eq('id', id)
-        .limit(1);
-    if (rows.isEmpty) return null;
-    final row = rows.first;
-    final author = row['profiles'] as Map?;
-    return AnnouncementItem(
-      id: row['id'] as String,
-      title: row['title'] as String,
-      body: row['body'] as String,
-      author: author?['name'] as String? ?? '운영진',
-      publishedAt: DateTime.parse(row['published_at'] as String).toLocal(),
-      pinned: row['pinned'] as bool? ?? false,
-      linkedEventIds: (row['announcement_event_links'] as List? ?? const [])
-          .map((item) => (item as Map)['event_id'] as String)
-          .toList(growable: false),
+    final rows = await _selectAnnouncementRows(
+      (selection) =>
+          _client.from('announcements').select(selection).eq('id', id).limit(1),
     );
+    if (rows.isEmpty) return null;
+    return _announcementFromRow(rows.first);
   }
 
   Future<AnnouncementItem> addAnnouncement({
     required String title,
     required String body,
     required bool pinned,
+    required bool isUrgent,
     List<String> linkedEventIds = const [],
+    String? imageBase64,
+    String? imageName,
+    List<String> pollOptions = const [],
   }) async {
-    final row = await _client
-        .from('announcements')
-        .insert({
-          'title': title,
-          'body': body,
-          'pinned': pinned,
-          'created_by': _userId,
-          'updated_by': _userId,
-        })
-        .select(
-          'id,title,body,published_at,profiles!announcements_created_by_fkey(name,display_name)',
-        )
-        .single();
-    final profile = row['profiles'] as Map?;
-    final saved = AnnouncementItem(
-      id: row['id'] as String,
-      title: row['title'] as String,
-      body: row['body'] as String,
-      author:
-          profile?['display_name'] as String? ??
-          profile?['name'] as String? ??
-          '운영진',
-      publishedAt: DateTime.parse(row['published_at'] as String).toLocal(),
-      pinned: row['pinned'] as bool? ?? false,
-      linkedEventIds: linkedEventIds,
+    String? uploadedPath;
+    String? imageUrl;
+    if (imageBase64 != null) {
+      final uploaded = await _uploadAnnouncementImage(imageBase64, imageName);
+      uploadedPath = uploaded.path;
+      imageUrl = uploaded.url;
+    }
+    final payload = <String, dynamic>{
+      'title': title,
+      'body': body,
+      'pinned': pinned,
+      'is_urgent': isUrgent,
+      'image_url': imageUrl,
+      'poll_options': pollOptions,
+      'created_by': _userId,
+      'updated_by': _userId,
+    };
+    final Map<String, dynamic> row;
+    try {
+      row = await _writeAnnouncement(
+        () => _client
+            .from('announcements')
+            .insert(payload)
+            .select(_announcementSelection)
+            .single(),
+        () => _client
+            .from('announcements')
+            .insert(
+              Map<String, dynamic>.from(payload)
+                ..remove('is_urgent')
+                ..remove('image_url')
+                ..remove('poll_options'),
+            )
+            .select(_legacyAnnouncementSelection)
+            .single(),
+        requiresCurrentSchema: imageBase64 != null || pollOptions.isNotEmpty,
+      );
+    } on Object {
+      if (uploadedPath != null) {
+        await _tryRemoveUploadedAnnouncementImage(uploadedPath);
+      }
+      rethrow;
+    }
+    final saved = _announcementFromRow(
+      Map<String, dynamic>.from(row)
+        ..['announcement_event_links'] = [
+          for (final eventId in linkedEventIds) {'event_id': eventId},
+        ],
     );
     await _replaceAnnouncementEvents(
       announcementId: saved.id,
@@ -539,39 +552,199 @@ class SupabaseLockerRepository {
     required String title,
     required String body,
     required bool pinned,
+    required bool isUrgent,
     List<String> linkedEventIds = const [],
+    String? existingImageUrl,
+    String? imageBase64,
+    String? imageName,
+    bool removeImage = false,
+    List<String> pollOptions = const [],
   }) async {
-    final row = await _client
-        .from('announcements')
-        .update({
-          'title': title,
-          'body': body,
-          'pinned': pinned,
-          'updated_by': _userId,
-        })
-        .eq('id', id)
-        .select(
-          'id,title,body,published_at,profiles!announcements_created_by_fkey(name,display_name)',
-        )
-        .single();
-    final profile = row['profiles'] as Map?;
-    final saved = AnnouncementItem(
-      id: row['id'] as String,
-      title: row['title'] as String,
-      body: row['body'] as String,
-      author:
-          profile?['display_name'] as String? ??
-          profile?['name'] as String? ??
-          '운영진',
-      publishedAt: DateTime.parse(row['published_at'] as String).toLocal(),
-      pinned: row['pinned'] as bool? ?? false,
-      linkedEventIds: linkedEventIds,
+    String? uploadedPath;
+    var imageUrl = removeImage ? null : existingImageUrl;
+    if (imageBase64 != null) {
+      final uploaded = await _uploadAnnouncementImage(imageBase64, imageName);
+      uploadedPath = uploaded.path;
+      imageUrl = uploaded.url;
+    }
+    final payload = <String, dynamic>{
+      'title': title,
+      'body': body,
+      'pinned': pinned,
+      'is_urgent': isUrgent,
+      'image_url': imageUrl,
+      'poll_options': pollOptions,
+      'updated_by': _userId,
+    };
+    final Map<String, dynamic> row;
+    try {
+      row = await _writeAnnouncement(
+        () => _client
+            .from('announcements')
+            .update(payload)
+            .eq('id', id)
+            .select(_announcementSelection)
+            .single(),
+        () => _client
+            .from('announcements')
+            .update(
+              Map<String, dynamic>.from(payload)
+                ..remove('is_urgent')
+                ..remove('image_url')
+                ..remove('poll_options'),
+            )
+            .eq('id', id)
+            .select(_legacyAnnouncementSelection)
+            .single(),
+        requiresCurrentSchema:
+            existingImageUrl != null ||
+            imageBase64 != null ||
+            removeImage ||
+            pollOptions.isNotEmpty,
+      );
+    } on Object {
+      if (uploadedPath != null) {
+        await _tryRemoveUploadedAnnouncementImage(uploadedPath);
+      }
+      rethrow;
+    }
+    final saved = _announcementFromRow(
+      Map<String, dynamic>.from(row)
+        ..['announcement_event_links'] = [
+          for (final eventId in linkedEventIds) {'event_id': eventId},
+        ],
     );
     await _replaceAnnouncementEvents(
       announcementId: saved.id,
       eventIds: linkedEventIds,
     );
+    if ((removeImage || imageBase64 != null) && existingImageUrl != null) {
+      await _tryRemoveAnnouncementImage(existingImageUrl);
+    }
     return saved;
+  }
+
+  Future<List<Map<String, dynamic>>> _selectAnnouncementRows(
+    Future<List<Map<String, dynamic>>> Function(String selection) query,
+  ) async {
+    try {
+      return await query(_announcementSelection);
+    } on PostgrestException catch (error) {
+      if (!_isMissingAnnouncementFeature(error)) rethrow;
+      return query(_legacyAnnouncementSelection);
+    }
+  }
+
+  Future<Map<String, dynamic>> _writeAnnouncement(
+    Future<Map<String, dynamic>> Function() current,
+    Future<Map<String, dynamic>> Function() legacy, {
+    bool requiresCurrentSchema = false,
+  }) async {
+    try {
+      return await current();
+    } on PostgrestException catch (error) {
+      if (!_isMissingAnnouncementFeature(error)) rethrow;
+      if (requiresCurrentSchema) {
+        throw const LockerRepositoryException(
+          '서버에 공지 사진·투표 마이그레이션을 먼저 적용해 주세요.',
+        );
+      }
+      return legacy();
+    }
+  }
+
+  AnnouncementItem _announcementFromRow(Map<String, dynamic> row) {
+    final author = row['profiles'] as Map?;
+    final votes = (row['announcement_poll_votes'] as List? ?? const [])
+        .cast<Map>();
+    final counts = <int, int>{};
+    int? myPollOption;
+    for (final vote in votes) {
+      final option = vote['option_index'] as int?;
+      if (option == null) continue;
+      counts.update(option, (count) => count + 1, ifAbsent: () => 1);
+      if (vote['profile_id'] == _client.auth.currentUser?.id) {
+        myPollOption = option;
+      }
+    }
+    return AnnouncementItem(
+      id: row['id'] as String,
+      title: row['title'] as String,
+      body: row['body'] as String,
+      author:
+          author?['name'] as String? ??
+          author?['display_name'] as String? ??
+          '운영진',
+      publishedAt: DateTime.parse(row['published_at'] as String).toLocal(),
+      pinned: row['pinned'] as bool? ?? false,
+      isUrgent: row['is_urgent'] as bool? ?? false,
+      linkedEventIds: (row['announcement_event_links'] as List? ?? const [])
+          .map((item) => (item as Map)['event_id'] as String)
+          .toList(growable: false),
+      imageUrl: row['image_url'] as String?,
+      pollOptions: (row['poll_options'] as List?)?.cast<String>() ?? const [],
+      pollVotes: counts,
+      myPollOption: myPollOption,
+    );
+  }
+
+  Future<({String path, String url})> _uploadAnnouncementImage(
+    String imageBase64,
+    String? imageName,
+  ) async {
+    final lowerName = imageName?.toLowerCase() ?? '';
+    final extension = lowerName.endsWith('.png')
+        ? 'png'
+        : lowerName.endsWith('.webp')
+        ? 'webp'
+        : 'jpg';
+    final contentType = switch (extension) {
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      _ => 'image/jpeg',
+    };
+    final path = '$_userId/${DateTime.now().microsecondsSinceEpoch}.$extension';
+    await _client.storage
+        .from('announcement-media')
+        .uploadBinary(
+          path,
+          base64Decode(imageBase64),
+          fileOptions: FileOptions(contentType: contentType),
+        );
+    return (
+      path: path,
+      url: _client.storage.from('announcement-media').getPublicUrl(path),
+    );
+  }
+
+  Future<void> _removeAnnouncementImage(String imageUrl) async {
+    const marker = '/object/public/announcement-media/';
+    final index = imageUrl.indexOf(marker);
+    if (index < 0) return;
+    final path = Uri.decodeComponent(imageUrl.substring(index + marker.length));
+    if (path.isNotEmpty) {
+      await _client.storage.from('announcement-media').remove([path]);
+    }
+  }
+
+  Future<void> _tryRemoveAnnouncementImage(String imageUrl) async {
+    try {
+      await _removeAnnouncementImage(imageUrl);
+    } on Object catch (error, stackTrace) {
+      debugPrint(
+        'ENCBA announcement image cleanup failed: $error\n$stackTrace',
+      );
+    }
+  }
+
+  Future<void> _tryRemoveUploadedAnnouncementImage(String path) async {
+    try {
+      await _client.storage.from('announcement-media').remove([path]);
+    } on Object catch (error, stackTrace) {
+      debugPrint(
+        'ENCBA uploaded announcement cleanup failed: $error\n$stackTrace',
+      );
+    }
   }
 
   Future<void> _replaceAnnouncementEvents({
@@ -585,8 +758,18 @@ class SupabaseLockerRepository {
     },
   );
 
-  Future<void> deleteAnnouncement(String id) =>
-      _client.from('announcements').delete().eq('id', id);
+  Future<void> deleteAnnouncement(String id, {String? imageUrl}) async {
+    await _client.from('announcements').delete().eq('id', id);
+    if (imageUrl != null) await _tryRemoveAnnouncementImage(imageUrl);
+  }
+
+  Future<void> voteAnnouncement(String announcementId, int optionIndex) =>
+      _client.from('announcement_poll_votes').upsert({
+        'announcement_id': announcementId,
+        'profile_id': _userId,
+        'option_index': optionIndex,
+        'voted_at': DateTime.now().toUtc().toIso8601String(),
+      });
 
   RealtimeChannel subscribeToAnnouncements(
     void Function(Map<String, dynamic> record) onInsert,
@@ -875,6 +1058,11 @@ class SupabaseLockerRepository {
     return (await loadActiveHomecomingCampaign())!;
   }
 
+  Future<void> deactivateHomecomingCampaign(String campaignId) => _client
+      .from('homecoming_campaigns')
+      .update({'is_active': false})
+      .eq('id', campaignId);
+
   Future<void> importHomecomingContacts({
     required String campaignId,
     required String fileName,
@@ -918,8 +1106,8 @@ class SupabaseLockerRepository {
           return AttendanceResponse(
             profileId: row['profile_id'] as String,
             name:
-                profile?['display_name'] as String? ??
                 profile?['name'] as String? ??
+                profile?['display_name'] as String? ??
                 '부원',
             choice: row['choice'] as String,
             absenceReason: row['absence_reason'] as String?,
@@ -1047,8 +1235,8 @@ class SupabaseLockerRepository {
       defense: row['defense'] as String? ?? '',
       notes: row['notes'] as String? ?? '',
       updatedBy:
-          profile?['display_name'] as String? ??
           profile?['name'] as String? ??
+          profile?['display_name'] as String? ??
           '',
       updatedAt: DateTime.parse(row['updated_at'] as String).toLocal(),
     );
@@ -1075,8 +1263,8 @@ class SupabaseLockerRepository {
       defense: row['defense'] as String? ?? '',
       notes: row['notes'] as String? ?? '',
       updatedBy:
-          profile?['display_name'] as String? ??
           profile?['name'] as String? ??
+          profile?['display_name'] as String? ??
           '',
       updatedAt: DateTime.parse(row['updated_at'] as String).toLocal(),
     );
@@ -1189,6 +1377,10 @@ class SupabaseLockerRepository {
       _client.from('videos').delete().eq('id', id);
 
   static const _commentSelection =
+      'id,video_id,quarter_number,link_id,timestamp_seconds,'
+      'end_timestamp_seconds,body,created_at,'
+      'profiles!video_comments_profile_id_fkey(name)';
+  static const _commentSelectionWithoutRange =
       'id,video_id,quarter_number,link_id,timestamp_seconds,body,created_at,'
       'profiles!video_comments_profile_id_fkey(name)';
   static const _legacyCommentSelection =
@@ -1206,12 +1398,26 @@ class SupabaseLockerRepository {
       return rows.map(Map<String, dynamic>.from).toList(growable: false);
     }
 
+    Future<List<Map<String, dynamic>>> queryWithoutRange() async {
+      try {
+        return await query(_commentSelectionWithoutRange);
+      } on PostgrestException catch (error) {
+        if (!_isMissingVideoLinkFeature(error)) rethrow;
+        return query(_legacyCommentSelection);
+      }
+    }
+
     List<Map<String, dynamic>> rows;
     try {
       rows = await query(_commentSelection);
     } on PostgrestException catch (error) {
-      if (!_isMissingVideoLinkFeature(error)) rethrow;
-      rows = await query(_legacyCommentSelection);
+      if (_isMissingVideoCommentRangeFeature(error)) {
+        rows = await queryWithoutRange();
+      } else if (_isMissingVideoLinkFeature(error)) {
+        rows = await query(_legacyCommentSelection);
+      } else {
+        rethrow;
+      }
     }
     final comments = rows.map(_videoCommentFromRow).toList(growable: false);
     return _attachCommentTargets(videoId, comments);
@@ -1222,6 +1428,7 @@ class SupabaseLockerRepository {
     required int? quarterNumber,
     required int? linkId,
     required int timestampSeconds,
+    int? endTimestampSeconds,
     required String body,
     List<VideoTaggedMember> targetPlayers = const [],
   }) async {
@@ -1231,22 +1438,46 @@ class SupabaseLockerRepository {
       'quarter_number': quarterNumber,
       'link_id': linkId,
       'timestamp_seconds': timestampSeconds,
+      'end_timestamp_seconds': endTimestampSeconds,
       'body': body,
     };
+    Future<Map<String, dynamic>> insert(
+      Map<String, dynamic> insertPayload,
+      String selection,
+    ) => _client
+        .from('video_comments')
+        .insert(insertPayload)
+        .select(selection)
+        .single();
+
+    Future<Map<String, dynamic>> insertWithoutRange() async {
+      final fallbackPayload = Map<String, dynamic>.from(payload)
+        ..remove('end_timestamp_seconds');
+      try {
+        return await insert(fallbackPayload, _commentSelectionWithoutRange);
+      } on PostgrestException catch (error) {
+        if (!_isMissingVideoLinkFeature(error)) rethrow;
+        fallbackPayload.remove('link_id');
+        return insert(fallbackPayload, _legacyCommentSelection);
+      }
+    }
+
     Map<String, dynamic> row;
     try {
-      row = await _client
-          .from('video_comments')
-          .insert(payload)
-          .select(_commentSelection)
-          .single();
+      row = await insert(payload, _commentSelection);
     } on PostgrestException catch (error) {
-      if (!_isMissingVideoLinkFeature(error)) rethrow;
-      row = await _client
-          .from('video_comments')
-          .insert(Map<String, dynamic>.from(payload)..remove('link_id'))
-          .select(_legacyCommentSelection)
-          .single();
+      if (_isMissingVideoCommentRangeFeature(error)) {
+        row = await insertWithoutRange();
+      } else if (_isMissingVideoLinkFeature(error)) {
+        row = await insert(
+          Map<String, dynamic>.from(payload)
+            ..remove('end_timestamp_seconds')
+            ..remove('link_id'),
+          _legacyCommentSelection,
+        );
+      } else {
+        rethrow;
+      }
     }
     final saved = _videoCommentFromRow(Map<String, dynamic>.from(row));
     await _syncCommentTargets(saved.id, targetPlayers);
@@ -1259,6 +1490,7 @@ class SupabaseLockerRepository {
       createdAt: saved.createdAt,
       quarterNumber: saved.quarterNumber,
       linkId: saved.linkId ?? linkId,
+      endTimestampSeconds: saved.endTimestampSeconds ?? endTimestampSeconds,
       targetPlayers: targetPlayers,
     );
   }
@@ -1339,6 +1571,7 @@ class SupabaseLockerRepository {
             createdAt: comment.createdAt,
             quarterNumber: comment.quarterNumber,
             linkId: comment.linkId,
+            endTimestampSeconds: comment.endTimestampSeconds,
             targetPlayers:
                 targetsByComment[comment.id] ?? const <VideoTaggedMember>[],
           ),
@@ -1404,8 +1637,8 @@ class SupabaseLockerRepository {
       return EventRosterMember(
         profileId: row['profile_id'] as String,
         name:
-            profile?['display_name'] as String? ??
             profile?['name'] as String? ??
+            profile?['display_name'] as String? ??
             '부원',
         status: row['status'] as String,
       );
@@ -1430,6 +1663,7 @@ class SupabaseLockerRepository {
       quarterNumber: row['quarter_number'] as int?,
       linkId: _databaseInt(row['link_id']),
       timestampSeconds: row['timestamp_seconds'] as int? ?? 0,
+      endTimestampSeconds: _databaseInt(row['end_timestamp_seconds']),
       body: row['body'] as String,
       author: profile?['name'] as String? ?? 'ENCBA',
       createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
@@ -1516,8 +1750,8 @@ class SupabaseLockerRepository {
       youtubeId: row['youtube_id'] as String? ?? '',
       uploadedAt: DateTime.parse(row['created_at'] as String).toLocal(),
       uploader:
-          uploader?['display_name'] as String? ??
           uploader?['name'] as String? ??
+          uploader?['display_name'] as String? ??
           'ENCBA',
       accent: 0xFF00539B,
       likeCount: _databaseInt(row['like_count']) ?? 0,
@@ -1637,6 +1871,23 @@ int? _durationToSeconds(String value) {
 bool _isMissingVideoPlayerFeature(PostgrestException error) =>
     error.code == 'PGRST202' || error.code == '42883';
 
+bool _isMissingVideoCommentRangeFeature(PostgrestException error) {
+  if (error.code != 'PGRST204' && error.code != '42703') return false;
+  final context = '${error.message} ${error.details ?? ''}'.toLowerCase();
+  return context.contains('end_timestamp_seconds');
+}
+
+bool _isMissingAnnouncementFeature(PostgrestException error) {
+  if (!const {'PGRST200', 'PGRST204', '42703'}.contains(error.code)) {
+    return false;
+  }
+  final context = '${error.message} ${error.details ?? ''}'.toLowerCase();
+  return context.contains('is_urgent') ||
+      context.contains('image_url') ||
+      context.contains('poll_options') ||
+      context.contains('announcement_poll_votes');
+}
+
 /// 링크 테이블·recorded_on 마이그레이션이 아직 안 올라간 서버의 응답들.
 /// PGRST200은 없는 관계, PGRST204는 스키마 캐시에 없는 컬럼,
 /// 42703은 없는 컬럼, PGRST202/42883은 없는 함수다.
@@ -1668,10 +1919,7 @@ String _friendlyPostgrestMessage(PostgrestException error) {
     '23514' => '일정 유형에 필요한 값이 빠졌거나 입력 형식이 맞지 않습니다.',
     '22023' => detail.isEmpty ? '입력값을 확인해 주세요.' : detail,
     'PGRST202' || 'PGRST204' => '서버 DB가 최신 앱 구조와 맞지 않습니다. DB 마이그레이션을 적용해 주세요.',
-    _ =>
-      detail.isEmpty
-          ? '서버가 일정 저장 요청을 처리하지 못했습니다.'
-          : '서버 오류 ${error.code ?? ''}: $detail',
+    _ => '서버가 일정 저장 요청을 처리하지 못했습니다. 잠시 뒤 다시 시도해 주세요.',
   };
 }
 

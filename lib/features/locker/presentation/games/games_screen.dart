@@ -10,8 +10,8 @@ class GamesScreen extends ConsumerWidget {
         (state) => (state.gameSegment, state.gameSubSegment),
       ),
     );
-    final eventsState = ref.watch(
-      lockerControllerProvider.select((state) => state.eventsState),
+    final events = ref.watch(
+      lockerControllerProvider.select((state) => state.eventsState.events),
     );
     final gameUser = ref.watch(authControllerProvider).user!;
     final isAdmin = gameUser.canAdminister;
@@ -30,7 +30,7 @@ class GamesScreen extends ConsumerWidget {
         ('외부 경기', EventKind.external),
       ],
     };
-    final filtered = eventsState.events.where((event) {
+    final filtered = events.where((event) {
       return event.kind == categories[selectedSub].$2 &&
           !event.end.isBefore(DateTime.now());
     }).toList();

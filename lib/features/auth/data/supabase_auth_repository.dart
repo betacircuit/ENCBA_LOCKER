@@ -219,12 +219,7 @@ class SupabaseAuthRepository {
   Future<UserProfile> signIn(String loginName, String password) async {
     try {
       final value = loginName.trim();
-      final candidates = value.contains('@')
-          ? await _emailLoginCandidates(value)
-          : <String>[
-              internalLoginEmailForName(value),
-              legacyInternalLoginEmailForName(value),
-            ];
+      final candidates = await _loginCandidates(value);
       for (var index = 0; index < candidates.length; index++) {
         try {
           final response = await _client.auth.signInWithPassword(
@@ -252,22 +247,48 @@ class SupabaseAuthRepository {
     }
   }
 
-  Future<List<String>> _emailLoginCandidates(String value) async {
-    final email = value.toLowerCase();
+  Future<List<String>> _loginCandidates(String value) async {
+    final normalized = value.toLowerCase();
+    final candidates = <String>[];
+    void add(String? candidate) {
+      final trimmed = candidate?.trim().toLowerCase();
+      if (trimmed != null &&
+          trimmed.isNotEmpty &&
+          !candidates.contains(trimmed)) {
+        candidates.add(trimmed);
+      }
+    }
+
+    // 학교 이메일 전체 주소는 기존 Edge Function과 DB RPC 양쪽에서 찾고,
+    // @ 앞 아이디만 입력한 경우에는 DB RPC가 보존된 학교 이메일로 계정을 찾는다.
     try {
       final response = await _client.functions.invoke(
         'resolve-login-email',
-        body: {'email': email},
+        body: {'identifier': normalized, 'email': normalized},
       );
       final data = response.data;
       final resolved = data is Map ? data['login_email'] as String? : null;
-      if (resolved != null && resolved.trim().isNotEmpty && resolved != email) {
-        return [resolved.trim().toLowerCase(), email];
-      }
+      add(resolved);
     } on Object {
-      // 일반 이메일 계정은 Edge Function 장애 중에도 기존 방식으로 로그인한다.
+      // DB RPC 폴백이 있으므로 배포 시점이 다른 Edge Function 장애를 숨기지 않는다.
     }
-    return [email];
+    try {
+      final resolved = await _client.rpc(
+        'resolve_login_email',
+        params: {'requested_identifier': normalized},
+      );
+      if (resolved is String) add(resolved);
+    } on Object {
+      // 이전 DB에서도 실명 로그인과 일반 이메일 직접 로그인은 계속 동작한다.
+    }
+
+    if (value.contains('@')) {
+      add(normalized);
+    } else {
+      add(internalLoginEmailForName(value));
+      add(legacyInternalLoginEmailForName(value));
+    }
+    return candidates;
   }
 
   Future<UserProfile> refreshProfile() async {
@@ -313,7 +334,6 @@ class SupabaseAuthRepository {
             );
       }
       final updates = <String, dynamic>{
-        'display_name': profile.displayName ?? profile.name,
         'student_year': _studentYear(profile.studentId),
         'joined_year': profile.joinedYear,
         'phone': profile.phone,

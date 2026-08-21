@@ -18,6 +18,7 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
   <meta name="description" content="서울대학교 공대 농구 동아리 ENCBA 운영 앱">
 
   <!-- iOS meta tags & icons -->
@@ -32,7 +33,25 @@
   <title>ENCBA LOCKER</title>
   <link rel="manifest" href="manifest.json">
   <style>
-    html, body { margin: 0; min-height: 100%; background: #e9eef5; }
+    :root {
+      --encba-visual-viewport-height: 100dvh;
+      --encba-keyboard-inset: 0px;
+    }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      min-height: 100dvh;
+      background: #e9eef5;
+    }
+    flutter-view {
+      box-sizing: border-box;
+      height: var(--encba-visual-viewport-height, 100dvh);
+      min-height: 0;
+      padding-bottom: calc(
+        var(--encba-keyboard-inset, 0px) + env(safe-area-inset-bottom, 0px)
+      );
+    }
     #encba-boot {
       position: fixed; inset: 0; display: grid; place-items: center;
       color: #0b2347; font: 700 14px/1.4 system-ui, sans-serif;
@@ -56,6 +75,80 @@
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
   <script>
+    (function () {
+      const root = document.documentElement;
+
+      // Flutter Web의 부트스트랩 엔진은 초기화할 때마다 <meta name="viewport">를
+      // 무조건 지우고 자기 태그(`interactive-widget` 없이 width/initial-scale만)로
+      // 바꿔치기한다. 그러면 위 태그에 넣은 interactive-widget=resizes-content가
+      // 매번 사라져 키보드가 레이아웃을 밀어내지 않는다. 엔진이 새 태그를 넣을
+      // 때마다 다시 붙여 준다.
+      function patchViewportMeta(meta) {
+        if (!meta || meta.dataset.encbaPatched) return;
+        const content = meta.getAttribute('content') || '';
+        if (content.indexOf('interactive-widget') === -1) {
+          meta.setAttribute(
+            'content',
+            content ? `${content}, interactive-widget=resizes-content` : 'interactive-widget=resizes-content'
+          );
+        }
+        meta.dataset.encbaPatched = 'true';
+      }
+
+      patchViewportMeta(document.querySelector('meta[name="viewport"]'));
+      new MutationObserver(function () {
+        patchViewportMeta(document.querySelector('meta[name="viewport"]'));
+      }).observe(document.head, { childList: true });
+
+      function isTextInput(element) {
+        return element instanceof HTMLElement && (
+          element.matches('input, textarea, [contenteditable="true"]') ||
+          element.closest('input, textarea, [contenteditable="true"]')
+        );
+      }
+
+      function centerInput(element) {
+        if (!isTextInput(element)) return;
+        requestAnimationFrame(function () {
+          window.setTimeout(function () {
+            if (document.activeElement !== element && !element.contains(document.activeElement)) {
+              return;
+            }
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 120);
+        });
+      }
+
+      function updateVisualViewport() {
+        const viewport = window.visualViewport;
+        if (!viewport) return;
+        const layoutHeight = document.documentElement.clientHeight;
+        const keyboardHeight = Math.max(
+          0,
+          layoutHeight - viewport.height - viewport.offsetTop
+        );
+        root.style.setProperty(
+          '--encba-visual-viewport-height',
+          `${Math.round(viewport.height)}px`
+        );
+        root.style.setProperty(
+          '--encba-keyboard-inset',
+          `${Math.round(keyboardHeight)}px`
+        );
+        if (keyboardHeight > 0) centerInput(document.activeElement);
+      }
+
+      document.addEventListener('focusin', function (event) {
+        centerInput(event.target);
+      }, true);
+
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', updateVisualViewport);
+        window.visualViewport.addEventListener('scroll', updateVisualViewport);
+        updateVisualViewport();
+      }
+    })();
+
     window.addEventListener('flutter-first-frame', function () {
       document.getElementById('encba-boot')?.remove();
     });

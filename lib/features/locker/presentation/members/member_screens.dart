@@ -219,7 +219,11 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text('출결표를 만들지 못했습니다: $error')));
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('출결표를 만들지 못했습니다. 파일 형식과 저장 권한을 확인해 주세요.'),
+          ),
+        );
     } finally {
       if (mounted) setState(() => _exporting = false);
     }

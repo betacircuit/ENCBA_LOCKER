@@ -8,6 +8,7 @@ import 'package:encba_locker/features/auth/domain/user_profile.dart';
 import 'package:encba_locker/features/locker/application/locker_controller.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/presentation/event_screens.dart';
+import 'package:encba_locker/features/locker/services/homecoming_export_service.dart';
 import 'package:encba_locker/features/locker/services/homecoming_import_service.dart';
 import 'package:encba_locker/features/locker/services/ib_operation_import_service.dart';
 import 'package:encba_locker/features/locker/services/error_report_service.dart';
@@ -23,6 +24,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
@@ -42,6 +44,24 @@ class LockerShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen<String?>(
+      lockerControllerProvider.select((state) => state.error),
+      (previous, next) {
+        if (next == null || next == previous) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context)
+            ..clearSnackBars()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(next),
+                action: SnackBarAction(label: '확인', onPressed: () {}),
+              ),
+            );
+          ref.read(lockerControllerProvider.notifier).clearError();
+        });
+      },
+    );
     if (ref.watch(authControllerProvider).user == null) {
       // 세션 복원 중. 주소는 그대로 두고 기다렸다가 라우터가 정리하게 한다.
       return const Scaffold(
