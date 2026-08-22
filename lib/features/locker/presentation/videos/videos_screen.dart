@@ -671,12 +671,12 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
     }
     final query = upToCursor.substring(at + 1);
     final members = ref.read(lockerControllerProvider).membersState.members;
-    final matches =
-        (query.isEmpty
-                ? members
-                : members.where((member) => member.name.contains(query)))
-            .take(6)
-            .toList(growable: false);
+    // 이름 앞 6명만 자르던 예전 방식은 이름 가나다순 정렬 특성상 흔한 성(김 등)을
+    // 가진 사람만 보이는 것처럼 느껴졌다. 후보 목록은 스크롤되므로 자르지 않는다.
+    final matches = (query.isEmpty
+            ? members
+            : members.where((member) => member.name.contains(query)))
+        .toList(growable: false);
     _mentionStart = at;
     _updateMentionMatches(matches);
   }

@@ -254,8 +254,10 @@ class _AnnouncementDetailView extends ConsumerWidget {
             '${notice.author} · ${_relativeTime(notice.publishedAt)}',
             style: const TextStyle(color: EncbaColors.muted, fontSize: 12),
           ),
-          const SizedBox(height: 22),
-          _Linkified(notice.body, style: const TextStyle(height: 1.75)),
+          if (notice.body.trim().isNotEmpty) ...[
+            const SizedBox(height: 22),
+            _Linkified(notice.body, style: const TextStyle(height: 1.75)),
+          ],
           if (notice.imageUrl case final imageUrl?) ...[
             const SizedBox(height: 20),
             ClipRRect(
@@ -602,6 +604,12 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
   late bool _pollEnabled;
   late List<TextEditingController> _pollOptions;
   String? _imageBase64;
+
+  /// 미리보기용으로 디코딩해 둔 사진 바이트. build()마다 base64Decode를
+  /// 새로 부르면 매번 새 객체가 생겨 Image.memory가 다른 이미지로 보고
+  /// 다시 디코딩해, 제목/본문 타이핑처럼 사소한 리렌더에도 사진이
+  /// 번쩍거렸다.
+  Uint8List? _imageBytes;
   String? _imageName;
   bool _removeExistingImage = false;
 
@@ -646,7 +654,6 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
   Widget build(BuildContext context) {
     final canSave =
         _title.text.trim().isNotEmpty &&
-        _body.text.trim().isNotEmpty &&
         (!_pollEnabled ||
             (_pollOptions.length >= 2 &&
                 _pollOptions.every((item) => item.text.trim().isNotEmpty) &&
@@ -705,9 +712,9 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
                     const SizedBox(height: 10),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: _imageBase64 != null
+                      child: _imageBytes != null
                           ? Image.memory(
-                              base64Decode(_imageBase64!),
+                              _imageBytes!,
                               height: 180,
                               fit: BoxFit.cover,
                             )
@@ -736,6 +743,7 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
                           tooltip: '첨부 사진 지우기',
                           onPressed: () => setState(() {
                             _imageBase64 = null;
+                            _imageBytes = null;
                             _imageName = null;
                             _removeExistingImage = true;
                           }),
@@ -891,6 +899,7 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
       return;
     }
     setState(() {
+      _imageBytes = bytes;
       _imageBase64 = base64Encode(bytes);
       _imageName = image.name;
       _removeExistingImage = false;

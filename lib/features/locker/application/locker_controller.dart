@@ -1021,7 +1021,17 @@ class LockerController extends StateNotifier<LockerState> {
         pollOptions: pollOptions,
       );
       if (saved != null) {
-        state = state.copyWith(announcements: [saved, ...state.announcements]);
+        // Realtime 구독이 같은 INSERT를 이 응답보다 먼저 받아 이미 추가해
+        // 뒀을 수 있다. 그 경우 낙관적 추가를 또 하면 같은 공지가 두 번
+        // 보인다.
+        final alreadyMerged = state.announcements.any(
+          (item) => item.id == saved.id,
+        );
+        if (!alreadyMerged) {
+          state = state.copyWith(
+            announcements: [saved, ...state.announcements],
+          );
+        }
       }
       return saved != null;
     } on Object catch (error) {
