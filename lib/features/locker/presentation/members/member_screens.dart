@@ -1086,9 +1086,7 @@ class _MemberTile extends StatelessWidget {
           ],
         ],
       ),
-      subtitle: Text(
-        '${member.isFreshman ? '신입생 · ' : ''}${member.department.isEmpty ? _statusLabel(member.status) : member.department} · ${member.teamLabel}${member.joinedYear == null ? '' : ' · ${member.joinedYear} 가입'}',
-      ),
+      subtitle: Text('${member.teamLabel} · ${member.position} · ${member.studentId}'),
       trailing: const Icon(Icons.chevron_right_rounded),
     ),
   );
