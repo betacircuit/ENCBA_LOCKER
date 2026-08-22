@@ -666,7 +666,7 @@ class _MemberDetailView extends ConsumerWidget {
                   ListTile(
                     leading: const Icon(Icons.verified_user_outlined),
                     title: const Text('직책'),
-                    trailing: _SmallBadge(member.leadershipLabel!),
+                    trailing: _LeadershipBadge(member.leadershipRole),
                   ),
                 if (member.titles.isNotEmpty)
                   ListTile(
@@ -1140,96 +1140,111 @@ class _MemberTile extends StatelessWidget {
   final MemberProfile member;
   final VoidCallback onTap;
   @override
+  Widget build(BuildContext context) => Card(
+    child: ListTile(
+      onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      leading: _Avatar(name: member.name, size: 48, isActive: member.isActive),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              member.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          if (member.leadershipLabel != null) ...[
+            const SizedBox(width: 6),
+            _LeadershipBadge(member.leadershipRole),
+          ] else if (member.badge != null) ...[
+            const SizedBox(width: 6),
+            _SmallBadge(member.badge!),
+          ],
+        ],
+      ),
+      subtitle: Text('${member.teamLabel} · ${member.position} · ${member.studentId}'),
+      trailing: const Icon(Icons.chevron_right_rounded),
+    ),
+  );
+}
+
+/// 관리자·주장·매니저 직책을 역할별 색으로 눈에 띄게 보여주는 뱃지.
+/// 카드 배경은 손대지 않고 이 뱃지만 꾸며서, 목록이 온통 색으로 뒤덮이지
+/// 않으면서도 직책은 한눈에 들어오게 한다.
+class _LeadershipBadge extends StatelessWidget {
+  const _LeadershipBadge(this.role);
+  final String role;
+
+  @override
   Widget build(BuildContext context) {
-    final style = _roleCardStyle(member.leadershipRole);
-    final foreground = style.foreground;
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      color: style.gradient == null
-          ? (style.background ?? EncbaColors.paper)
-          : Colors.transparent,
-      child: Container(
-        decoration: BoxDecoration(gradient: style.gradient),
-        child: ListTile(
-          onTap: onTap,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 8,
+    final style = switch (role) {
+      'admin' => const _LeadershipBadgeStyle(
+        colors: [Color(0xFF3A3D45), Color(0xFF0E0F12)],
+        foreground: Colors.white,
+        icon: Icons.shield_rounded,
+        label: '관리자',
+      ),
+      'captain' => const _LeadershipBadgeStyle(
+        colors: [Color(0xFFFCE7AE), Color(0xFFC98F26)],
+        foreground: EncbaColors.navy,
+        icon: Icons.emoji_events_rounded,
+        label: '주장',
+      ),
+      'manager' => const _LeadershipBadgeStyle(
+        colors: [Color(0xFFFF9BC2), Color(0xFFE0417F)],
+        foreground: Colors.white,
+        icon: Icons.workspace_premium_rounded,
+        label: '매니저',
+      ),
+      _ => null,
+    };
+    if (style == null) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: style.colors),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: style.colors.last.withValues(alpha: .35),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
           ),
-          leading: _Avatar(
-            name: member.name,
-            size: 48,
-            isActive: member.isActive,
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(style.icon, size: 11, color: style.foreground),
+          const SizedBox(width: 3),
+          Text(
+            style.label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: style.foreground,
+            ),
           ),
-          title: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  member.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: foreground,
-                  ),
-                ),
-              ),
-              if (member.leadershipLabel != null) ...[
-                const SizedBox(width: 6),
-                _SmallBadge(member.leadershipLabel!),
-              ] else if (member.badge != null) ...[
-                const SizedBox(width: 6),
-                _SmallBadge(member.badge!),
-              ],
-            ],
-          ),
-          subtitle: Text(
-            '${member.teamLabel} · ${member.position} · ${member.studentId}',
-            style: foreground == null
-                ? null
-                : TextStyle(color: foreground.withValues(alpha: .8)),
-          ),
-          trailing: Icon(Icons.chevron_right_rounded, color: foreground),
-        ),
+        ],
       ),
     );
   }
 }
 
-/// 직책에 따라 멤버 카드 배경을 다르게 칠한다. 일반 부원은 기본 카드
-/// 테마를 그대로 쓴다.
-class _RoleCardStyle {
-  const _RoleCardStyle({this.background, this.gradient, this.foreground});
-  final Color? background;
-  final Gradient? gradient;
-  final Color? foreground;
+class _LeadershipBadgeStyle {
+  const _LeadershipBadgeStyle({
+    required this.colors,
+    required this.foreground,
+    required this.icon,
+    required this.label,
+  });
+  final List<Color> colors;
+  final Color foreground;
+  final IconData icon;
+  final String label;
 }
-
-_RoleCardStyle _roleCardStyle(String leadershipRole) => switch (leadershipRole) {
-  'admin' => const _RoleCardStyle(
-    background: Color(0xFF16171B),
-    foreground: Colors.white,
-  ),
-  'manager' => const _RoleCardStyle(
-    background: Color(0xFFEA5C97),
-    foreground: Colors.white,
-  ),
-  'captain' => const _RoleCardStyle(
-    gradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        Color(0xFFFDE7AE),
-        Color(0xFFE3A93B),
-        Color(0xFFFDE7AE),
-        Color(0xFFC98F26),
-      ],
-      stops: [0, .38, .62, 1],
-    ),
-    foreground: EncbaColors.navy,
-  ),
-  _ => const _RoleCardStyle(),
-};
 
 class _Avatar extends StatelessWidget {
   const _Avatar({
