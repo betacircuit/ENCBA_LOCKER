@@ -7,8 +7,6 @@ class HomecomingScreen extends ConsumerStatefulWidget {
 }
 
 class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
-  bool _importing = false;
-  bool _exporting = false;
   int _assigneeIndex = 0;
 
   @override
@@ -78,11 +76,11 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
               textAlign: TextAlign.center,
             ),
             if (isAdmin) ...[
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _activateCampaign,
-                icon: const Icon(Icons.lock_open_rounded),
-                label: const Text('이번 학기 홈커밍 열기'),
+              const SizedBox(height: 12),
+              const Text(
+                '개인 탭의 관리자 섹션에서 열 수 있습니다.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: EncbaColors.muted, fontSize: 12),
               ),
             ],
           ] else ...[
@@ -101,54 +99,16 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
               value: contacts.isEmpty ? 0 : complete / contacts.length,
             ),
             const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _showManuals,
-                    icon: const Icon(Icons.menu_book_outlined),
-                    label: const Text('연락 매뉴얼'),
-                  ),
-                ),
-                if (isAdmin) ...[
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _importing ? null : _importExcel,
-                      icon: const Icon(Icons.upload_file_outlined),
-                      label: Text(_importing ? '가져오는 중…' : '엑셀 가져오기'),
-                    ),
-                  ),
-                ],
-              ],
+            OutlinedButton.icon(
+              onPressed: _showManuals,
+              icon: const Icon(Icons.menu_book_outlined),
+              label: const Text('연락 매뉴얼'),
             ),
             if (isAdmin) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _exporting || contacts.isEmpty
-                          ? null
-                          : () => _exportExcel(campaign, contacts),
-                      icon: _exporting
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.download_outlined),
-                      label: Text(_exporting ? '만드는 중…' : '응답 엑셀'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _lockCampaign(campaign),
-                      icon: const Icon(Icons.lock_outline_rounded),
-                      label: const Text('다시 잠그기'),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 6),
+              const Text(
+                '엑셀 가져오기·응답 엑셀·다시 잠그기는 개인 탭의 관리자 섹션에 있습니다.',
+                style: TextStyle(color: EncbaColors.muted, fontSize: 12),
               ),
             ],
             const SizedBox(height: 18),
@@ -210,267 +170,6 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
       campaign: campaign,
       isAdmin: isAdmin,
       onSendSms: _sendSms,
-    ),
-  );
-
-  Future<void> _exportExcel(
-    HomecomingCampaign campaign,
-    List<HomecomingContact> contacts,
-  ) async {
-    setState(() => _exporting = true);
-    try {
-      final saved = await HomecomingExportService().export(
-        campaign: campaign,
-        contacts: contacts,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(
-          SnackBar(
-            content: Text(saved ? '홈커밍 응답 엑셀을 저장했습니다.' : '파일 저장을 취소했습니다.'),
-          ),
-        );
-    } on Object catch (error, stackTrace) {
-      debugPrint('ENCBA homecoming export failed: $error\n$stackTrace');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(const SnackBar(content: Text('홈커밍 응답 엑셀을 만들지 못했습니다.')));
-    } finally {
-      if (mounted) setState(() => _exporting = false);
-    }
-  }
-
-  Future<void> _activateCampaign() async {
-    final now = DateTime.now();
-    final term = now.month >= 9 ? 2 : 1;
-    final eventDate = await showDatePicker(
-      context: context,
-      initialDate: now.add(const Duration(days: 14)),
-      firstDate: now,
-      lastDate: DateTime(now.year + 1),
-    );
-    if (eventDate == null || !mounted) return;
-    await ref
-        .read(lockerControllerProvider.notifier)
-        .activateHomecomingCampaign(
-          academicYear: now.year,
-          term: term,
-          eventDate: eventDate,
-          startsAt: '14:00',
-          endsAt: '18:00',
-          venue: '서울대학교 기숙사체육관',
-        );
-  }
-
-  Future<void> _lockCampaign(HomecomingCampaign campaign) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('홈커밍을 다시 잠글까요?'),
-        content: const Text('연락 기록은 삭제되지 않으며, 관리자가 다시 열기 전까지 연락 보드가 숨겨집니다.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('잠그기'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    final locked = await ref
-        .read(lockerControllerProvider.notifier)
-        .deactivateHomecomingCampaign(campaign.id);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(content: Text(locked ? '홈커밍 연락 보드를 잠갔습니다.' : '홈커밍을 잠그지 못했습니다.')),
-      );
-  }
-
-  Future<void> _importExcel() async {
-    setState(() => _importing = true);
-    try {
-      final parsed = await HomecomingImportService().pickAndParse();
-      if (parsed == null || !mounted) return;
-      final selectedAssignees = await _selectHomecomingAssignees(
-        parsed.rows,
-        parsed.sheetName,
-        parsed.warnings,
-      );
-      if (!mounted || selectedAssignees == null) return;
-      final selectedRows = parsed.rows
-          .where(
-            (row) => selectedAssignees.contains(
-              (row['assigned_to_name'] as String?)?.trim() ?? '담당 미지정',
-            ),
-          )
-          .toList(growable: false);
-      final ok = await ref
-          .read(lockerControllerProvider.notifier)
-          .importHomecomingContacts(
-            fileName: parsed.fileName,
-            contacts: selectedRows,
-          );
-      if (mounted) {
-        if (ok) {
-          _assigneeIndex = 0;
-        } else {
-          await _showImportError('홈커밍 연락망을 가져오지 못했습니다.');
-        }
-      }
-    } on FormatException catch (error) {
-      if (mounted) {
-        await _showImportError(error.message);
-      }
-    } on Object catch (error) {
-      if (mounted) {
-        await _showImportError(
-          kDebugMode ? '엑셀 오류: $error' : '엑셀 파일을 읽지 못했습니다.',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _importing = false);
-    }
-  }
-
-  Future<Set<String>?> _selectHomecomingAssignees(
-    List<Map<String, dynamic>> rows,
-    String sheetName,
-    List<String> warnings,
-  ) async {
-    final members = await ref
-        .read(lockerControllerProvider.notifier)
-        .loadAllMembersForAccountCheck();
-    if (!mounted) return null;
-    final memberByName = {for (final member in members) member.name: member};
-    final counts = <String, int>{};
-    for (final row in rows) {
-      final name = (row['assigned_to_name'] as String?)?.trim();
-      final key = name == null || name.isEmpty ? '담당 미지정' : name;
-      counts.update(key, (value) => value + 1, ifAbsent: () => 1);
-    }
-    final names = counts.keys.toList()..sort();
-    final selected = names.toSet();
-    return showDialog<Set<String>>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text('$sheetName · 담당자 선택 등록'),
-          content: SizedBox(
-            width: 520,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('${rows.length}명의 선배 연락처를 읽었습니다.'),
-                if (warnings.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    warnings.join('\n'),
-                    style: const TextStyle(
-                      color: EncbaColors.late,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    TextButton(
-                      onPressed: () => setDialogState(() {
-                        selected
-                          ..clear()
-                          ..addAll(names);
-                      }),
-                      child: const Text('전체 선택'),
-                    ),
-                    TextButton(
-                      onPressed: () => setDialogState(() {
-                        selected
-                          ..clear()
-                          ..addAll(
-                            names.where((name) {
-                              final member = memberByName[name];
-                              return member?.hasRegisteredAccount == true &&
-                                  member?.isActive == true;
-                            }),
-                          );
-                      }),
-                      child: const Text('활성 계정만'),
-                    ),
-                  ],
-                ),
-                SizedBox(
-                  height: 300,
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: names
-                        .map((name) {
-                          final member = memberByName[name];
-                          final status =
-                              member == null || !member.hasRegisteredAccount
-                              ? '계정 미등록'
-                              : member.isActive
-                              ? '활성 계정'
-                              : '비활성 계정';
-                          return CheckboxListTile(
-                            dense: true,
-                            value: selected.contains(name),
-                            title: Text('$name · ${counts[name]}명'),
-                            subtitle: Text(status),
-                            onChanged: (checked) => setDialogState(() {
-                              checked == true
-                                  ? selected.add(name)
-                                  : selected.remove(name);
-                            }),
-                          );
-                        })
-                        .toList(growable: false),
-                  ),
-                ),
-                const Text(
-                  '선택한 담당자 그룹만 새 연락망으로 등록됩니다. 비활성·미등록 계정은 앱으로 배정이 전달되지 않을 수 있습니다.',
-                  style: TextStyle(color: EncbaColors.muted, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('취소'),
-            ),
-            FilledButton(
-              onPressed: selected.isEmpty
-                  ? null
-                  : () => Navigator.pop(dialogContext, Set.of(selected)),
-              child: Text('${selected.length}개 그룹 등록'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showImportError(String message) => showDialog<void>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('가져오기 실패'),
-      content: Text(message),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('확인'),
-        ),
-      ],
     ),
   );
 

@@ -307,6 +307,8 @@ void main() {
   });
 
   testWidgets('활성 홈커밍은 관리자에게 다시 잠그기를 제공한다', (tester) async {
+    // 관리 동작(엑셀 가져오기·응답 엑셀·다시 잠그기)은 개인 탭의 관리자
+    // 섹션으로 옮겨져, 부원이 보는 홈커밍 화면에는 더 이상 나오지 않는다.
     final campaign = HomecomingCampaign(
       id: 'homecoming-2026-2',
       title: '2026년 2학기 홈커밍',
@@ -320,11 +322,28 @@ void main() {
     );
     await tester.pumpWidget(
       _signedInApp(
-        const HomecomingScreen(),
-        user: testUser.copyWith(leadershipRole: 'admin'),
+        const ProfileScreen(),
+        // canAdminister는 leadershipRole이 아니라 isAdmin 필드(또는
+        // captain)로 판정한다. 실제 서버는 이 둘을 항상 함께 맞춘다.
+        user: testUser.copyWith(leadershipRole: 'admin', isAdmin: true),
         lockerState: LockerState(isReady: true, homecomingCampaign: campaign),
       ),
     );
+    await tester.pumpAndSettle();
+
+    // 관리자 섹션은 개인 탭 스크롤 맨 아래에 있어 기본 테스트 화면
+    // 높이로는 지연 빌드되지 않는다. scrollUntilVisible는 위젯이 만들어질
+    // 만큼만 스크롤해 화면 밖에 걸쳐 있을 수 있어, ensureVisible로 탭 가능한
+    // 위치까지 마저 스크롤한다.
+    await tester.scrollUntilVisible(
+      find.text('홈커밍 캠페인 관리'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(find.text('홈커밍 캠페인 관리'));
+    await tester.pumpAndSettle();
+    expect(find.text('홈커밍 캠페인 관리'), findsOneWidget);
+    await tester.tap(find.text('홈커밍 캠페인 관리'));
     await tester.pumpAndSettle();
 
     expect(find.text('다시 잠그기'), findsOneWidget);
