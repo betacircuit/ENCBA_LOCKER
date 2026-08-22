@@ -37,8 +37,12 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
     final isAdmin =
         ref.watch(authControllerProvider).user?.canAdminister ?? false;
     final list = membersState.members.where((member) {
-      if (!_showMilitary && member.status == 'MILITARY_LEAVE') return false;
-      if (!_showInactive && !member.isActive) return false;
+      // "군대"/"비활성" 칩은 켜졌을 때 해당 조건에 맞는 사람만 남기는
+      // 배타적 필터다(켰다고 다른 사람까지 같이 보이면 안 된다). 꺼져 있을 때는
+      // 평소처럼 군휴학·비활성 인원을 목록에서 뺀다.
+      final isMilitary = member.status == 'MILITARY_LEAVE';
+      if (_showMilitary != isMilitary) return false;
+      if (_showInactive == member.isActive) return false;
       if (_reservationOnly && !member.isReservationManager) return false;
       if (_freshmenOnly && !member.isFreshman) return false;
       return true;
@@ -303,9 +307,9 @@ class _AttendanceReportScreenState
     } on Object catch (error, stackTrace) {
       debugPrint('ENCBA attendance sheet export failed: $error\n$stackTrace');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('출결 관리표를 저장하지 못했습니다.')));
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(const SnackBar(content: Text('출결 관리표를 저장하지 못했습니다.')));
       }
     } finally {
       if (mounted) setState(() => _exporting = false);
@@ -700,7 +704,8 @@ class _MemberDetailView extends ConsumerWidget {
                   ),
                   onTap: member.phone.trim().isEmpty
                       ? null
-                      : () => _launch('tel:${_dialableNumber(member.phone)}'),
+                      : () =>
+                            _launch(context, 'tel:${_dialableNumber(member.phone)}'),
                 ),
                 if (member.isReservationManager)
                   const ListTile(

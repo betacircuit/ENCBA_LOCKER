@@ -368,7 +368,8 @@ class _Linkified extends StatelessWidget {
             color: EncbaColors.snuBlue,
             decoration: TextDecoration.underline,
           ),
-          recognizer: TapGestureRecognizer()..onTap = () => _launch(target),
+          recognizer: TapGestureRecognizer()
+            ..onTap = () => _launch(context, target),
         ),
       );
       cursor = end;
@@ -547,7 +548,9 @@ Future<void> _showAnnouncementEditor(
             pollOptions: draft.pollOptions,
           );
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
         SnackBar(
           content: Text(
             saved
@@ -882,9 +885,9 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
     final bytes = await image.readAsBytes();
     if (!mounted) return;
     if (bytes.length > 8 * 1024 * 1024) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('사진은 8MB 이하로 첨부해 주세요.')));
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('사진은 8MB 이하로 첨부해 주세요.')));
       return;
     }
     setState(() {

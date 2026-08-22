@@ -88,7 +88,7 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
           else
             ...operations.map(
               (item) => _TaskTile(
-                date: '${item.start.month}.${item.start.day}',
+                date: '${item.start.month}/${item.start.day}',
                 title: item.title,
                 place: '${time(item.start)} · ${item.location}',
                 onTap: () => _showTask(context, item.memo),
@@ -132,7 +132,7 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
                 .take(40)
                 .map(
                   (item) => _TaskTile(
-                    date: '${item.start.month}.${item.start.day}',
+                    date: '${item.start.month}/${item.start.day}',
                     title: '${item.title} · ${item.assigneeName}',
                     place: '${time(item.start)} · ${item.location}',
                     onTap: () => _requestSwap(item),
@@ -196,9 +196,9 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
   Future<void> _requestSwap(OperationAssignment target) async {
     final own = ref.read(lockerControllerProvider).operations;
     if (own.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('교환할 내 운영 일정이 없습니다.')));
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('교환할 내 운영 일정이 없습니다.')));
       return;
     }
     var selectedId = own.first.id;
@@ -213,7 +213,7 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  '${target.assigneeName} · ${target.start.month}.${target.start.day} ${time(target.start)}',
+                  '${target.assigneeName} · ${target.start.month}/${target.start.day} ${time(target.start)}',
                 ),
                 const SizedBox(height: 14),
                 DropdownButtonFormField<String>(
@@ -225,7 +225,7 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
                         (item) => DropdownMenuItem(
                           value: item.id,
                           child: Text(
-                            '${item.start.month}.${item.start.day} ${time(item.start)} · ${item.title}',
+                            '${item.start.month}/${item.start.day} ${time(item.start)} · ${item.title}',
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -276,11 +276,13 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
           message: typedMessage,
         );
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(saved ? 'IB 운영 교환 신청을 보냈습니다.' : '교환 신청을 보내지 못했습니다.'),
-      ),
-    );
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(saved ? 'IB 운영 교환 신청을 보냈습니다.' : '교환 신청을 보내지 못했습니다.'),
+        ),
+      );
   }
 
   Future<void> _respondSwap(OperationSwapRequest request, bool accept) async {
@@ -288,15 +290,17 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
         .read(lockerControllerProvider.notifier)
         .respondOperationSwap(requestId: request.id, accept: accept);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          saved
-              ? accept
-                    ? 'IB 운영 일정이 교환되었습니다.'
-                    : '교환 요청을 거절했습니다.'
-              : '교환 응답을 저장하지 못했습니다.',
-        ),
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            saved
+                ? accept
+                      ? 'IB 운영 일정이 교환되었습니다.'
+                      : '교환 요청을 거절했습니다.'
+                : '교환 응답을 저장하지 못했습니다.',
+          ),
       ),
     );
   }

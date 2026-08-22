@@ -830,9 +830,9 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
       pickedTime.minute,
     );
     if (value.isAfter(_start)) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('응답 마감은 일정 시작 전이어야 합니다.')));
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('응답 마감은 일정 시작 전이어야 합니다.')));
       return;
     }
     setState(() {
@@ -868,9 +868,9 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
     controller.dispose();
     if (!mounted || edited == null || edited.isEmpty) return;
     if (_pollOptions.contains(edited) && edited != option) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('이미 같은 투표 항목이 있습니다.')));
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('이미 같은 투표 항목이 있습니다.')));
       return;
     }
     setState(() {
@@ -883,24 +883,24 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
     if (!_formKey.currentState!.validate()) return;
     if (_isIbKind(_kind)) _applyIbGameSlot(_ibGameNumber);
     if (!_end.isAfter(_start)) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('종료 시간은 시작 시간보다 늦어야 합니다.')));
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('종료 시간은 시작 시간보다 늦어야 합니다.')));
       return;
     }
     if (_responseDeadline.isAfter(_start)) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('응답 마감은 일정 시작 전이어야 합니다.')));
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('응답 마감은 일정 시작 전이어야 합니다.')));
       return;
     }
     if (_kind != EventKind.training &&
         _kind != EventKind.morning &&
         _kind != EventKind.freeOpen &&
         _uniforms.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('경기 유니폼 색을 하나 이상 선택해 주세요.')));
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('경기 유니폼 색을 하나 이상 선택해 주세요.')));
       return;
     }
     setState(() => _saving = true);
@@ -968,12 +968,14 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
     } else {
       setState(() => _saving = false);
       final reason = ref.read(lockerControllerProvider).error;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(reason ?? '일정 저장에 실패했습니다. 입력값과 연결 상태를 확인해 주세요.'),
-          action: SnackBarAction(label: '확인', onPressed: () {}),
-        ),
-      );
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(reason ?? '일정 저장에 실패했습니다. 입력값과 연결 상태를 확인해 주세요.'),
+            action: SnackBarAction(label: '확인', onPressed: () {}),
+          ),
+        );
     }
   }
 

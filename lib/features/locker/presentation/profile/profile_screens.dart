@@ -169,9 +169,9 @@ class _BugReportScreenState extends ConsumerState<BugReportScreen> {
   Future<void> _openMail() async {
     final report = _controller.text.trim();
     if (report.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('오류 내용을 입력해 주세요.')));
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('오류 내용을 입력해 주세요.')));
       return;
     }
     setState(() => _opening = true);
@@ -189,9 +189,9 @@ $report''';
       if (!mounted) return;
       setState(() => _opening = false);
       _controller.clear();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('오류 제보를 전송했습니다.')));
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('오류 제보를 전송했습니다.')));
       return;
     } on Object {
       // 서버 메일 설정 전이거나 일시 장애면 작성 내용이 사라지지 않도록 메일 앱으로 넘긴다.
@@ -211,7 +211,9 @@ $report''';
     }
     if (!mounted) return;
     setState(() => _opening = false);
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
       SnackBar(
         content: Text(
           opened

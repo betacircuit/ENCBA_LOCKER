@@ -194,7 +194,7 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
     });
     if (targetIndex < 0) {
       ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
+        ..clearSnackBars()
         ..showSnackBar(const SnackBar(content: Text('이 날짜에는 일정이 없습니다.')));
       return;
     }

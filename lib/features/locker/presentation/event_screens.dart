@@ -446,13 +446,15 @@ class _EventDetailViewState extends ConsumerState<_EventDetailView> {
                         .read(lockerControllerProvider.notifier)
                         .applyExternalEvent(event.id);
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            ok ? '참여 신청을 보냈습니다.' : '신청을 저장하지 못했습니다.',
+                      ScaffoldMessenger.of(context)
+                        ..clearSnackBars()
+                        ..showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              ok ? '참여 신청을 보냈습니다.' : '신청을 저장하지 못했습니다.',
+                            ),
                           ),
-                        ),
-                      );
+                        );
                     }
                   },
                   child: const Text('참여 신청'),
@@ -971,9 +973,11 @@ class _StrategyCard extends ConsumerWidget {
         .read(lockerControllerProvider.notifier)
         .saveEventStrategy(result);
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(saved ? '전술을 저장했습니다.' : '전술 저장에 실패했습니다.')),
-      );
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(content: Text(saved ? '전술을 저장했습니다.' : '전술 저장에 실패했습니다.')),
+        );
     }
   }
 }
@@ -1730,18 +1734,20 @@ Future<void> _openMap(BuildContext context, LockerEvent event) async {
   final uri = Uri.parse(target);
   if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
       context.mounted) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('네이버 지도를 열 수 없습니다.')));
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(const SnackBar(content: Text('네이버 지도를 열 수 없습니다.')));
   }
 }
 
 Future<void> _addCalendar(BuildContext context, LockerEvent event) async {
   final success = await addEventToCalendar(event);
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(success ? '캘린더 추가 화면을 열었습니다.' : '이 기기에서는 캘린더를 열 수 없습니다.'),
-    ),
-  );
+  ScaffoldMessenger.of(context)
+    ..clearSnackBars()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(success ? '캘린더 추가 화면을 열었습니다.' : '이 기기에서는 캘린더를 열 수 없습니다.'),
+      ),
+    );
 }

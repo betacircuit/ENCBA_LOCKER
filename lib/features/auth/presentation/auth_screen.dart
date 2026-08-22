@@ -399,11 +399,13 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     if (registration != null) {
       final name = registration.suggestedName.trim();
       if (name.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('학교 계정에서 실명을 확인하지 못했습니다. 관리자에게 문의해 주세요.'),
-          ),
-        );
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('학교 계정에서 실명을 확인하지 못했습니다. 관리자에게 문의해 주세요.'),
+            ),
+          );
         return;
       }
       await controller.completeGoogleRegistration(

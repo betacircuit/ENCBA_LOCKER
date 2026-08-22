@@ -1181,6 +1181,73 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('군대·비활성 칩은 배타적으로 작동해 해당 인원만 남긴다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const members = [
+      MemberProfile(
+        id: 'member-active',
+        name: '김철수',
+        studentId: '22학번',
+        generation: 2022,
+        status: 'YB',
+        position: 'PG',
+        teams: ['ENCBA'],
+        note: '',
+      ),
+      MemberProfile(
+        id: 'member-military',
+        name: '박군인',
+        studentId: '21학번',
+        generation: 2021,
+        status: 'MILITARY_LEAVE',
+        position: 'SF',
+        teams: ['ENCBA'],
+        note: '',
+      ),
+      MemberProfile(
+        id: 'member-inactive',
+        name: '이비활',
+        studentId: '20학번',
+        generation: 2020,
+        status: 'YB',
+        position: 'C',
+        teams: ['ENCBA'],
+        note: '',
+        isActive: false,
+      ),
+    ];
+    await tester.pumpWidget(
+      _signedInApp(
+        const MemberDirectoryScreen(),
+        lockerState: LockerState(isReady: true, members: members),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 기본 상태: 군휴학·비활성 인원은 목록에서 빠진다.
+    expect(find.text('김철수'), findsOneWidget);
+    expect(find.text('박군인'), findsNothing);
+    expect(find.text('이비활'), findsNothing);
+
+    // "군대" 칩을 켜면 군휴학 인원만 남아야 한다(다른 사람이 같이 보이면 안 된다).
+    // 첫 탭은 칩의 선택 애니메이션 레이어 때문에 히트테스트 경고가 나올 수 있어 무시한다.
+    await tester.tap(find.text('군대'), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(find.text('박군인'), findsOneWidget);
+    expect(find.text('김철수'), findsNothing);
+    expect(find.text('이비활'), findsNothing);
+
+    // 다시 끄고 "비활성" 칩을 켜면 비활성 인원만 남아야 한다.
+    await tester.tap(find.text('군대'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('비활성'));
+    await tester.pumpAndSettle();
+    expect(find.text('이비활'), findsOneWidget);
+    expect(find.text('김철수'), findsNothing);
+    expect(find.text('박군인'), findsNothing);
+  });
+
   testWidgets('영상 정렬 메뉴는 좋아요순을 제공한다', (tester) async {
     await tester.pumpWidget(_signedInApp(const LockerShell()));
     await tester.pumpAndSettle();

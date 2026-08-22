@@ -287,9 +287,11 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
         .read(lockerControllerProvider.notifier)
         .deactivateHomecomingCampaign(campaign.id);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(locked ? '홈커밍 연락 보드를 잠갔습니다.' : '홈커밍을 잠그지 못했습니다.')),
-    );
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(content: Text(locked ? '홈커밍 연락 보드를 잠갔습니다.' : '홈커밍을 잠그지 못했습니다.')),
+      );
   }
 
   Future<void> _importExcel() async {
@@ -482,10 +484,14 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
         '${contact.name} 선배님 안녕하십니까? 서울대학교 공대농구동아리 엔크바 $studentYear학번 ${user.name}입니다.\n'
         '다름이 아니라, 이번 ${campaign.term}학기 엔크바 홈커밍 데이가 ${campaign.eventDate.month}월 ${campaign.eventDate.day}일에 예정되어 있습니다. 참석 확인 차 전화드렸는데 연락이 안되셔서 문자 드립니다.\n'
         '혹시 홈커밍 데이 때 참석 가능하실까요?\n\n감사합니다.';
-    final uri = Uri(
-      scheme: 'sms',
-      path: contact.phone,
-      queryParameters: {'body': body},
+    // `Uri(queryParameters: ...)` percent-encodes using
+    // application/x-www-form-urlencoded rules, which turns every space into
+    // a literal `+`. SMS bodies aren't form data, so that leaves "+" signs
+    // in the text message instead of spaces/line breaks. Build the query
+    // string manually with `Uri.encodeComponent`, which encodes spaces as
+    // `%20` and newlines as `%0A`, so the Messages app renders real spaces.
+    final uri = Uri.parse(
+      'sms:${Uri.encodeComponent(contact.phone)}?body=${Uri.encodeComponent(body)}',
     );
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
@@ -662,7 +668,7 @@ class _HomecomingContactDetailSheet extends ConsumerWidget {
                       child: OutlinedButton.icon(
                         onPressed: callPhone.isEmpty
                             ? null
-                            : () => _launch('tel:$callPhone'),
+                            : () => _launch(context, 'tel:$callPhone'),
                         icon: const Icon(Icons.phone_outlined),
                         label: const Text('전화'),
                       ),

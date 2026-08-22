@@ -346,8 +346,13 @@ class SupabaseLockerRepository {
     return (rows as List<dynamic>)
         .map<MemberProfile>((row) {
           final map = Map<String, dynamic>.from(row);
+          final directoryId = map['directory_id'] as String;
+          // 아직 구글 계정으로 가입하지 않은 명단(allowlist) 전용 항목은
+          // DB의 is_active 값(명단 등록 시 기본값)과 무관하게 항상 비활성으로
+          // 취급한다. 실제로 로그인해 profiles 행이 생겨야 활성일 수 있다.
+          final hasRegisteredAccount = !directoryId.startsWith('allowlist:');
           return MemberProfile(
-            id: map['directory_id'] as String,
+            id: directoryId,
             name: map['name'] as String,
             studentId: map['student_year'] == null
                 ? '학번 미등록'
@@ -360,7 +365,8 @@ class SupabaseLockerRepository {
                 (map['team_codes'] as List?)?.cast<String>() ?? const ['ENCBA'],
             note: '',
             badge: map['membership_status'] == 'military_leave' ? '군복무' : null,
-            isActive: map['is_active'] as bool? ?? true,
+            isActive:
+                hasRegisteredAccount && (map['is_active'] as bool? ?? true),
             phone: map['phone'] as String? ?? '',
             jerseyNumber: map['jersey_number'] as int? ?? 0,
             leadershipRole: map['leadership_role'] as String? ?? 'member',

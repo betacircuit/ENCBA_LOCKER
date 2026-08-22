@@ -424,19 +424,17 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
 
   /// "@"를 입력하는 중일 때만 채워지는 멤버 자동완성 후보.
   ///
-  /// 오버레이로 따로 그려서 값이 바뀔 때마다 화면 전체(영상 플레이어 포함)를
-  /// 다시 그리지 않는다. 댓글 입력창 위에 목록을 끼워 넣던 예전 방식은 입력
-  /// 중 레이아웃이 밀리면서 모바일 키보드가 닫히는 문제가 있었다.
+  /// [ValueNotifier]로 들고 있어 값이 바뀔 때 댓글 입력창 아래 후보 목록만
+  /// 다시 그리고, 화면 전체(영상 플레이어 포함)는 다시 그리지 않는다. 후보
+  /// 목록은 입력창 "아래"에만 붙으므로 나타나거나 사라져도 입력창 자체의
+  /// 위치는 움직이지 않는다. (입력창 "위"에 끼워 넣던 예전 방식은 입력 중
+  /// 레이아웃이 밀리면서 모바일 키보드가 닫히는 문제가 있었다.)
   final ValueNotifier<List<MemberProfile>> _mentionMatches = ValueNotifier(
     const [],
   );
 
   /// 지금 완성 중인 "@" 토큰이 코멘트 텍스트에서 시작하는 위치.
   int? _mentionStart;
-
-  final _mentionLayerLink = LayerLink();
-  final _mentionFieldKey = GlobalKey();
-  OverlayEntry? _mentionOverlay;
 
   /// 플레이어에서 주기적으로 읽어오는 실시간 재생 위치(초).
   /// 상세 화면 전체를 초당 한 번씩 다시 그리지 않도록 버튼만 이 값을 구독한다.
@@ -516,7 +514,6 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
   void dispose() {
     _positionTimer?.cancel();
     _playbackSeconds.dispose();
-    _mentionOverlay?.remove();
     _mentionMatches.dispose();
     _comment.dispose();
     _commentFocus.dispose();
@@ -684,75 +681,11 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
     _updateMentionMatches(matches);
   }
 
-  /// 멘션 후보를 오버레이에만 반영한다. 댓글 입력창을 담은 화면 전체를
+  /// 멘션 후보를 알림자에만 반영한다. 댓글 입력창을 담은 화면 전체를
   /// setState로 다시 그리지 않으므로 영상 플레이어가 흔들리거나 입력창이
   /// 밀리는 일이 없다.
   void _updateMentionMatches(List<MemberProfile> matches) {
     _mentionMatches.value = matches;
-    if (matches.isNotEmpty) {
-      _ensureMentionOverlay();
-    } else {
-      _mentionOverlay?.remove();
-      _mentionOverlay = null;
-    }
-  }
-
-  void _ensureMentionOverlay() {
-    if (_mentionOverlay != null) return;
-    final entry = OverlayEntry(builder: _buildMentionOverlay);
-    _mentionOverlay = entry;
-    Overlay.of(context).insert(entry);
-  }
-
-  /// 댓글 입력창 바로 위에 겹쳐 그리는 멘션 후보 목록.
-  /// [CompositedTransformFollower]로 입력창 위치만 따라가므로 목록이
-  /// 나타나거나 사라져도 입력창 자체는 움직이지 않는다.
-  Widget _buildMentionOverlay(BuildContext context) {
-    final box =
-        _mentionFieldKey.currentContext?.findRenderObject() as RenderBox?;
-    final width = box?.size.width ?? 280.0;
-    return CompositedTransformFollower(
-      link: _mentionLayerLink,
-      showWhenUnlinked: false,
-      targetAnchor: Alignment.topLeft,
-      followerAnchor: Alignment.bottomLeft,
-      child: Material(
-        color: Colors.transparent,
-        child: SizedBox(
-          width: width,
-          child: ValueListenableBuilder<List<MemberProfile>>(
-            valueListenable: _mentionMatches,
-            builder: (context, matches, _) {
-              if (matches.isEmpty) return const SizedBox.shrink();
-              return Container(
-                constraints: const BoxConstraints(maxHeight: 176),
-                decoration: BoxDecoration(
-                  color: EncbaColors.highlight,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: EncbaColors.line),
-                ),
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  itemCount: matches.length,
-                  itemBuilder: (context, index) {
-                    final member = matches[index];
-                    return ListTile(
-                      dense: true,
-                      leading: _Avatar(name: member.name, size: 30),
-                      title: Text(member.name),
-                      subtitle: Text(member.studentId),
-                      onTap: () => _applyMention(member),
-                    );
-                  },
-                ),
-              );
-            },
-          ),
-        ),
-      ),
-    );
   }
 
   /// 선택한 멤버로 "@토큰"을 "@이름 "으로 완성하고, 커서를 그 뒤로 옮긴다.
@@ -901,7 +834,7 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
             )
           else
             InkWell(
-              onTap: () => _launch(displayed.url),
+              onTap: () => _launch(context, displayed.url),
               borderRadius: BorderRadius.circular(16),
               child: AspectRatio(
                 aspectRatio: 16 / 9,
@@ -1051,29 +984,55 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
               ],
               const SizedBox(height: 8),
             ],
-            CompositedTransformTarget(
-              key: _mentionFieldKey,
-              link: _mentionLayerLink,
-              child: TextField(
-                key: const ValueKey('video-comment-input'),
-                controller: _comment,
-                focusNode: _commentFocus,
-                onChanged: _onCommentChanged,
-                onSubmitted: (_) => _addComment(),
-                decoration: InputDecoration(
-                  hintText: '이 장면에 대한 코멘트 · "@"로 멤버 언급',
-                  suffixIcon: IconButton(
-                    tooltip: '코멘트 등록',
-                    onPressed: _addComment,
-                    icon: const Icon(Icons.send_rounded),
-                  ),
+            TextField(
+              key: const ValueKey('video-comment-input'),
+              controller: _comment,
+              focusNode: _commentFocus,
+              onChanged: _onCommentChanged,
+              onSubmitted: (_) => _addComment(),
+              decoration: InputDecoration(
+                hintText: '이 장면에 대한 코멘트 · "@"로 멤버 언급',
+                suffixIcon: IconButton(
+                  tooltip: '코멘트 등록',
+                  onPressed: _addComment,
+                  icon: const Icon(Icons.send_rounded),
                 ),
               ),
+            ),
+            ValueListenableBuilder<List<MemberProfile>>(
+              valueListenable: _mentionMatches,
+              builder: (context, matches, _) {
+                if (matches.isEmpty) return const SizedBox.shrink();
+                return Container(
+                  constraints: const BoxConstraints(maxHeight: 176),
+                  margin: const EdgeInsets.only(top: 8),
+                  decoration: BoxDecoration(
+                    color: EncbaColors.highlight,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: EncbaColors.line),
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemCount: matches.length,
+                    itemBuilder: (context, index) {
+                      final member = matches[index];
+                      return ListTile(
+                        dense: true,
+                        leading: _Avatar(name: member.name, size: 30),
+                        title: Text(member.name),
+                        subtitle: Text(member.studentId),
+                        onTap: () => _applyMention(member),
+                      );
+                    },
+                  ),
+                );
+              },
             ),
           ],
           const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: () => _launch(_activeVideoUrl(displayed)),
+            onPressed: () => _launch(context, _activeVideoUrl(displayed)),
             icon: const Icon(Icons.open_in_new_rounded),
             label: const Text('원본 영상 열기'),
           ),
@@ -1143,7 +1102,7 @@ Future<void> _shareVideo(
         ),
         action: SnackBarAction(
           label: '원본 열기',
-          onPressed: () => _launch(selected?.url ?? video.url),
+          onPressed: () => _launch(context, selected?.url ?? video.url),
         ),
       ),
     );
@@ -1525,9 +1484,11 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
         if (!used.contains(quarter)) quarter,
     ].firstOrNull;
     if (next == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('쿼터는 $_maxQuarter개까지 추가할 수 있습니다.')),
-      );
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(content: Text('쿼터는 $_maxQuarter개까지 추가할 수 있습니다.')),
+        );
       return;
     }
     setState(
@@ -1595,9 +1556,9 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
     if (widget.category == '공유' &&
         (_audienceType == 'position' || _audienceType == 'student_year') &&
         _audienceValues.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('추천 대상을 하나 이상 선택해 주세요.')));
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('추천 대상을 하나 이상 선택해 주세요.')));
       setState(() => _saving = false);
       return;
     }
@@ -2146,8 +2107,19 @@ const _bundledReelShortcodes = {
   'DTnGCB7E50t',
 };
 
+/// 사용자가 "https://" 없이 `instagram.com/reel/...`만 붙여넣어도 인식하도록
+/// 스킴을 보정한다. 스킴 없이 파싱하면 전체 문자열이 하나의 상대 경로로
+/// 취급돼 host가 비어 있어 정상적인 링크도 Reel로 인식되지 않았다.
+Uri? _normalizedInstagramUri(String input) {
+  final trimmed = input.trim();
+  final withScheme = RegExp(r'^https?://', caseSensitive: false).hasMatch(trimmed)
+      ? trimmed
+      : 'https://$trimmed';
+  return Uri.tryParse(withScheme);
+}
+
 String? _instagramShortcode(String input) {
-  final uri = Uri.tryParse(input);
+  final uri = _normalizedInstagramUri(input);
   if (uri == null) return null;
   final host = uri.host.toLowerCase();
   if (host != 'instagram.com' && host != 'www.instagram.com') return null;
@@ -2160,7 +2132,7 @@ String? _instagramShortcode(String input) {
 }
 
 bool _isInstagramReel(String input) {
-  final uri = Uri.tryParse(input);
+  final uri = _normalizedInstagramUri(input);
   return uri != null &&
       uri.pathSegments.isNotEmpty &&
       uri.pathSegments.first == 'reel' &&
