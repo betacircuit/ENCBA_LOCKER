@@ -53,6 +53,12 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
         actions: [
           if (isAdmin)
             IconButton(
+              tooltip: '새 멤버 등록',
+              onPressed: () => _showMemberEditor(context, ref, null),
+              icon: const Icon(Icons.person_add_alt_1_outlined),
+            ),
+          if (isAdmin)
+            IconButton(
               tooltip: '출결 정리 시트',
               onPressed: () => context.push('/members/report'),
               icon: const Icon(Icons.table_chart_outlined),
@@ -779,28 +785,44 @@ class _MemberDetailView extends ConsumerWidget {
 String _dialableNumber(String phone) =>
     phone.replaceAll(RegExp(r'[^0-9+]'), '');
 
+/// [member]가 null이면 구글 로그인 대조용 가입 명단에 아직 없는 사람을
+/// 새로 등록하는 화면이 된다.
 Future<void> _showMemberEditor(
   BuildContext context,
   WidgetRef ref,
-  MemberProfile member,
+  MemberProfile? member,
 ) async {
-  final name = TextEditingController(text: member.name);
+  final isNew = member == null;
+  final base =
+      member ??
+      const MemberProfile(
+        name: '',
+        studentId: '',
+        generation: 1,
+        status: 'YB',
+        position: '미정',
+        teams: ['ENCBA'],
+        note: '',
+      );
+  final name = TextEditingController(text: base.name);
   final studentYear = TextEditingController(
-    text: member.studentId.replaceAll(RegExp(r'[^0-9]'), ''),
+    text: base.studentId.replaceAll(RegExp(r'[^0-9]'), ''),
   );
   final joinedYear = TextEditingController(
-    text: member.joinedYear?.toString() ?? '',
+    text: base.joinedYear?.toString() ?? '',
   );
-  final phone = TextEditingController(text: member.phone);
-  final department = TextEditingController(text: member.department);
-  final jersey = TextEditingController(text: member.jerseyNumber.toString());
-  var position = member.position;
-  var status = member.status;
-  var role = member.leadershipRole;
-  var isReservationManager = member.isReservationManager;
-  var isFreshman = member.isFreshman;
-  var isActive = member.isActive;
-  var teams = {...member.teams};
+  final phone = TextEditingController(text: base.phone);
+  final department = TextEditingController(text: base.department);
+  final jersey = TextEditingController(text: base.jerseyNumber.toString());
+  final newTitle = TextEditingController();
+  var position = base.position;
+  var status = base.status;
+  var role = base.leadershipRole;
+  var isReservationManager = base.isReservationManager;
+  var isFreshman = base.isFreshman;
+  var isActive = base.isActive;
+  var teams = {...base.teams};
+  var titles = List<String>.of(base.titles);
   String? validationError;
 
   final save = await showModalBottomSheet<bool>(
@@ -821,9 +843,17 @@ Future<void> _showMemberEditor(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  '멤버 정보 수정',
+                  isNew ? '새 멤버 등록' : '멤버 정보 수정',
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
+                if (isNew) ...[
+                  const SizedBox(height: 4),
+                  const Text(
+                    '구글 로그인 때 대조하는 가입 명단에 실명을 추가합니다. '
+                    '이후 본인이 같은 실명으로 학교 Google 계정을 인증하면 가입이 이어집니다.',
+                    style: TextStyle(color: EncbaColors.muted, fontSize: 12),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 TextField(
                   controller: name,
@@ -972,6 +1002,56 @@ Future<void> _showMemberEditor(
                   onChanged: (value) => setState(() => isFreshman = value),
                 ),
                 const SizedBox(height: 8),
+                const Text('직책(표시용, 여러 개 가능)'),
+                const SizedBox(height: 6),
+                if (titles.isNotEmpty) ...[
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: titles
+                        .map(
+                          (title) => InputChip(
+                            label: Text(title),
+                            onDeleted: () =>
+                                setState(() => titles.remove(title)),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 6),
+                ],
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: newTitle,
+                        decoration: const InputDecoration(
+                          labelText: '직책 추가',
+                          hintText: '예: 벤 감독',
+                        ),
+                        onSubmitted: (_) => setState(() {
+                          final value = newTitle.text.trim();
+                          if (value.isEmpty || titles.contains(value)) return;
+                          titles.add(value);
+                          newTitle.clear();
+                        }),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      tooltip: '추가',
+                      onPressed: () => setState(() {
+                        final value = newTitle.text.trim();
+                        if (value.isEmpty || titles.contains(value)) return;
+                        titles.add(value);
+                        newTitle.clear();
+                      }),
+                      icon: const Icon(Icons.add_circle_outline_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 FilledButton(
                   onPressed: () {
                     final joined = int.tryParse(joinedYear.text.trim());
@@ -989,7 +1069,7 @@ Future<void> _showMemberEditor(
                     }
                     Navigator.pop(sheetContext, true);
                   },
-                  child: const Text('변경 사항 저장'),
+                  child: Text(isNew ? '멤버 등록' : '변경 사항 저장'),
                 ),
                 if (validationError != null) ...[
                   const SizedBox(height: 8),
@@ -1010,7 +1090,7 @@ Future<void> _showMemberEditor(
   );
 
   if (save == true) {
-    final updated = member.copyWith(
+    final updated = base.copyWith(
       name: name.text.trim(),
       studentId: '${studentYear.text.trim()}학번',
       joinedYear: int.tryParse(joinedYear.text.trim()),
@@ -1024,15 +1104,17 @@ Future<void> _showMemberEditor(
       isReservationManager: isReservationManager,
       department: department.text.trim(),
       isFreshman: isFreshman,
+      titles: titles,
     );
-    final failure = await ref
-        .read(lockerControllerProvider.notifier)
-        .updateMember(updated);
+    final notifier = ref.read(lockerControllerProvider.notifier);
+    final failure = isNew
+        ? await notifier.addMember(updated)
+        : await notifier.updateMember(updated);
     if (context.mounted && failure != null) {
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('멤버 정보를 저장하지 못했습니다'),
+          title: Text(isNew ? '멤버를 등록하지 못했습니다' : '멤버 정보를 저장하지 못했습니다'),
           content: Text(failure),
           actions: [
             FilledButton(
@@ -1049,6 +1131,7 @@ Future<void> _showMemberEditor(
   joinedYear.dispose();
   phone.dispose();
   department.dispose();
+  newTitle.dispose();
   jersey.dispose();
 }
 
@@ -1057,40 +1140,96 @@ class _MemberTile extends StatelessWidget {
   final MemberProfile member;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => Card(
-    child: ListTile(
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      leading: _Avatar(name: member.name, size: 48, isActive: member.isActive),
-      title: Row(
-        children: [
-          Expanded(
-            child: Text(
-              member.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
+  Widget build(BuildContext context) {
+    final style = _roleCardStyle(member.leadershipRole);
+    final foreground = style.foreground;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      color: style.gradient == null
+          ? (style.background ?? EncbaColors.paper)
+          : Colors.transparent,
+      child: Container(
+        decoration: BoxDecoration(gradient: style.gradient),
+        child: ListTile(
+          onTap: onTap,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 8,
           ),
-          const SizedBox(width: 7),
-          Text(
-            member.studentId,
-            style: const TextStyle(color: EncbaColors.snuBlue, fontSize: 11),
+          leading: _Avatar(
+            name: member.name,
+            size: 48,
+            isActive: member.isActive,
           ),
-          if (member.leadershipLabel != null) ...[
-            const SizedBox(width: 6),
-            _SmallBadge(member.leadershipLabel!),
-          ] else if (member.badge != null) ...[
-            const SizedBox(width: 6),
-            _SmallBadge(member.badge!),
-          ],
-        ],
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  member.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: foreground,
+                  ),
+                ),
+              ),
+              if (member.leadershipLabel != null) ...[
+                const SizedBox(width: 6),
+                _SmallBadge(member.leadershipLabel!),
+              ] else if (member.badge != null) ...[
+                const SizedBox(width: 6),
+                _SmallBadge(member.badge!),
+              ],
+            ],
+          ),
+          subtitle: Text(
+            '${member.teamLabel} · ${member.position} · ${member.studentId}',
+            style: foreground == null
+                ? null
+                : TextStyle(color: foreground.withValues(alpha: .8)),
+          ),
+          trailing: Icon(Icons.chevron_right_rounded, color: foreground),
+        ),
       ),
-      subtitle: Text('${member.teamLabel} · ${member.position} · ${member.studentId}'),
-      trailing: const Icon(Icons.chevron_right_rounded),
-    ),
-  );
+    );
+  }
 }
+
+/// 직책에 따라 멤버 카드 배경을 다르게 칠한다. 일반 부원은 기본 카드
+/// 테마를 그대로 쓴다.
+class _RoleCardStyle {
+  const _RoleCardStyle({this.background, this.gradient, this.foreground});
+  final Color? background;
+  final Gradient? gradient;
+  final Color? foreground;
+}
+
+_RoleCardStyle _roleCardStyle(String leadershipRole) => switch (leadershipRole) {
+  'admin' => const _RoleCardStyle(
+    background: Color(0xFF16171B),
+    foreground: Colors.white,
+  ),
+  'manager' => const _RoleCardStyle(
+    background: Color(0xFFEA5C97),
+    foreground: Colors.white,
+  ),
+  'captain' => const _RoleCardStyle(
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Color(0xFFFDE7AE),
+        Color(0xFFE3A93B),
+        Color(0xFFFDE7AE),
+        Color(0xFFC98F26),
+      ],
+      stops: [0, .38, .62, 1],
+    ),
+    foreground: EncbaColors.navy,
+  ),
+  _ => const _RoleCardStyle(),
+};
 
 class _Avatar extends StatelessWidget {
   const _Avatar({

@@ -415,6 +415,30 @@ class SupabaseLockerRepository {
       'requested_department': member.department,
       'requested_reservation_manager': member.isReservationManager,
       'requested_freshman': member.isFreshman,
+      'requested_titles': member.titles,
+    },
+  );
+
+  /// 구글 로그인 대조용 가입 명단에 아직 아무 계정도 없는 신규 인원을 만든다.
+  Future<void> addAllowlistMember(MemberProfile member) => _client.rpc(
+    'admin_add_allowlist_member',
+    params: {
+      'requested_name': member.name,
+      'requested_student_year': int.tryParse(
+        member.studentId.replaceAll(RegExp(r'[^0-9]'), ''),
+      ),
+      'requested_joined_year': member.joinedYear,
+      'requested_phone': member.phone,
+      'requested_position': member.position,
+      'requested_jersey_number': member.jerseyNumber,
+      'requested_membership_status': member.status.toLowerCase(),
+      'requested_team_codes': member.teams,
+      'requested_leadership_role': member.leadershipRole,
+      'requested_department': member.department,
+      'requested_reservation_manager': member.isReservationManager,
+      'requested_freshman': member.isFreshman,
+      'requested_titles': member.titles,
+      'requested_active': member.isActive,
     },
   );
 

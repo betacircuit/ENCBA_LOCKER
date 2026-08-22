@@ -80,6 +80,23 @@ class ProfileScreen extends ConsumerWidget {
           subtitle: '공지와 일정의 변경 기록',
           onTap: () => context.push('/audit'),
         ),
+        if (user.canAdminister) ...[
+          const SizedBox(height: 24),
+          const _SectionHeader(title: '관리자'),
+          const SizedBox(height: 10),
+          _MenuTile(
+            icon: Icons.person_add_alt_1_outlined,
+            title: '새 멤버 등록',
+            subtitle: '구글 로그인 때 대조하는 가입 명단에 실명을 미리 추가',
+            onTap: () => _showMemberEditor(context, ref, null),
+          ),
+          _MenuTile(
+            icon: Icons.badge_outlined,
+            title: '멤버 직책 관리',
+            subtitle: '역할(관리자·주장·매니저), 벤 감독 같은 표시용 직책, 활성 상태를 수정',
+            onTap: () => context.push('/members'),
+          ),
+        ],
       ],
     );
   }

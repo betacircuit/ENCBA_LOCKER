@@ -483,10 +483,36 @@ class LockerController extends StateNotifier<LockerState> {
     return null;
   }
 
-  String _memberUpdateMessage(Object error) {
+  /// 구글 로그인 때 대조하는 가입 명단에 아직 계정이 없는 신규 인원을 추가한다.
+  /// 성공하면 null, 실패하면 화면에 그대로 띄울 사유를 돌려준다.
+  Future<String?> addMember(MemberProfile member) async {
+    if (_repository == null) return '멤버를 등록할 수 없는 상태입니다.';
+    try {
+      await _repository.addAllowlistMember(member);
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA member add failed: $error\n$stackTrace');
+      final message = _memberUpdateMessage(error, adding: true);
+      state = state.copyWith(error: message);
+      return message;
+    }
+    final members = await _orDefault(
+      _repository.loadMembers(
+        membership: _memberMembership,
+        query: _memberQuery,
+      ),
+      state.members,
+    );
+    state = state.copyWith(members: members, clearError: true);
+    return null;
+  }
+
+  String _memberUpdateMessage(Object error, {bool adding = false}) {
     final text = error is PostgrestException
         ? '${error.code ?? ''} ${error.message}'
         : error.toString();
+    if (error is PostgrestException && error.code == '23505') {
+      return '이미 등록된 이름입니다.';
+    }
     if (text.contains('ENCBA_RESERVATION_ROLE_ADMIN_ONLY')) {
       return '체육관 예약자 지정은 관리자만 바꿀 수 있습니다.';
     }
@@ -494,7 +520,9 @@ class LockerController extends StateNotifier<LockerState> {
       return '학과는 관리자만 바꿀 수 있습니다.';
     }
     if (text.contains('ENCBA_ADMIN_OR_CAPTAIN_REQUIRED')) {
-      return '관리자나 주장만 멤버 정보를 수정할 수 있습니다.';
+      return adding
+          ? '관리자나 주장만 멤버를 등록할 수 있습니다.'
+          : '관리자나 주장만 멤버 정보를 수정할 수 있습니다.';
     }
     if (text.contains('ENCBA_INVALID_MEMBER_PROFILE')) {
       return '학번·가입 연도·등번호·소속을 확인해 주세요.';
@@ -503,7 +531,7 @@ class LockerController extends StateNotifier<LockerState> {
         text.contains('Could not find the function')) {
       return '서버에 최신 마이그레이션이 적용되지 않았습니다. supabase db push가 필요합니다.';
     }
-    return '멤버 정보를 수정하지 못했습니다.';
+    return adding ? '멤버를 등록하지 못했습니다.' : '멤버 정보를 수정하지 못했습니다.';
   }
 
   Future<bool> updateHomecomingContact(HomecomingContact contact) async {
