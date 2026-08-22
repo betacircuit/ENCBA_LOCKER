@@ -27,6 +27,7 @@ class ProfileScreen extends ConsumerWidget {
         ),
       ),
       children: [
+        const _PwaInstallCard(),
         _ProfileCard(
           name: user.visibleName,
           meta:
@@ -53,6 +54,12 @@ class ProfileScreen extends ConsumerWidget {
           title: user.canAdminister ? '멤버' : '멤버 디렉토리',
           subtitle: user.canAdminister ? '계정 정보·직책·활성 상태 관리' : '재학·군 휴학 상태 확인',
           onTap: () => context.push('/members'),
+        ),
+        _MenuTile(
+          icon: Icons.fact_check_outlined,
+          title: '내 출결 통계',
+          subtitle: '내 참석·불참 응답 기록과 참석률',
+          onTap: () => _showMyAttendance(context, ref),
         ),
         _MenuTile(
           icon: Icons.bug_report_outlined,

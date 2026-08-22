@@ -1258,7 +1258,7 @@ void main() {
     expect(find.text('이비활'), findsNothing);
 
     // 다시 끄고 "비활성" 칩을 켜면 비활성 인원만 남아야 한다.
-    await tester.tap(find.text('군대'));
+    await tester.tap(find.text('군대'), warnIfMissed: false);
     await tester.pumpAndSettle();
     await tester.tap(find.text('비활성'));
     await tester.pumpAndSettle();

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:encba_locker/core/platform/app_environment.dart';
+import 'package:encba_locker/core/storage/local_store.dart';
 import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/domain/user_profile.dart';
@@ -34,6 +36,7 @@ part 'videos/videos_screen.dart';
 part 'games/games_screen.dart';
 part 'schedule/schedule_screens.dart';
 part 'profile/profile_screens.dart';
+part 'profile/personal_extras.dart';
 part 'members/member_screens.dart';
 part 'operations/operations_screens.dart';
 part 'homecoming/homecoming_screen.dart';

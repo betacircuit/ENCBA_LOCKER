@@ -24,7 +24,9 @@
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="ENCBA LOCKER">
+  <!-- iOS 홈 화면에 추가할 때 아이콘 아래 붙는 이름. manifest의 short_name과
+       같은 "LOCKER"로 맞춰 어느 경로로 설치해도 같은 이름이 되게 한다. -->
+  <meta name="apple-mobile-web-app-title" content="LOCKER">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
@@ -152,6 +154,19 @@
     window.addEventListener('flutter-first-frame', function () {
       document.getElementById('encba-boot')?.remove();
     });
+
+    // 백그라운드 푸시 알림 서비스 워커. Vercel 빌드가 Firebase 설정 값을
+    // 넣어 생성한 파일이 배포에 있을 때만 등록한다(없으면 조용히 건너뛴다).
+    if ('serviceWorker' in navigator) {
+      fetch('firebase-messaging-sw.js', { method: 'HEAD' })
+        .then(function (response) {
+          if (!response.ok) return;
+          return navigator.serviceWorker.register('firebase-messaging-sw.js');
+        })
+        .catch(function () {
+          /* 파일이 없거나 등록에 실패해도 로컬 알림은 그대로 동작한다. */
+        });
+    }
   </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>

@@ -260,14 +260,31 @@ class _AnnouncementDetailView extends ConsumerWidget {
           ],
           if (notice.imageUrl case final imageUrl?) ...[
             const SizedBox(height: 20),
+            // 높이를 고정해 두면 느린 네트워크에서 사진이 도착할 때
+            // 본문·투표 카드가 위아래로 튀지 않는다.
             ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              child: Image.network(
-                imageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const _EmptyState(
-                  icon: Icons.broken_image_outlined,
-                  title: '첨부 사진을 불러오지 못했습니다',
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.cover,
+                  frameBuilder: (context, child, frame, wasSync) {
+                    if (wasSync || frame != null) return child;
+                    return const ColoredBox(
+                      color: EncbaColors.highlight,
+                      child: Center(
+                        child: SizedBox.square(
+                          dimension: 26,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        ),
+                      ),
+                    );
+                  },
+                  errorBuilder: (_, _, _) => const _EmptyState(
+                    icon: Icons.broken_image_outlined,
+                    title: '첨부 사진을 불러오지 못했습니다',
+                  ),
                 ),
               ),
             ),
@@ -1180,4 +1197,15 @@ String? _instagramThumbnailAsset(String sourceUrl) {
     return null;
   }
   return 'assets/images/reel_$shortcode.jpg';
+}
+
+/// 앱에 그림 파일을 넣어 두지 않은 릴스도 Instagram의 공개 미디어 주소로
+/// 썸네일을 자동으로 가져온다. 새 하이라이트를 올릴 때마다 에셋을 수동으로
+/// 빌드에 추가할 필요가 없어진다. 주소가 막히면 위젯이 그라디언트 폴백을
+/// 보여주므로 화면이 깨지지 않는다.
+String? _instagramThumbnailUrl(String sourceUrl) {
+  final shortcode = _instagramShortcode(sourceUrl);
+  return shortcode == null
+      ? null
+      : 'https://www.instagram.com/p/$shortcode/media/?size=l';
 }

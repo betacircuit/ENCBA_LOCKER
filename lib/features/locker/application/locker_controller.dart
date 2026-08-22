@@ -34,6 +34,7 @@ class LockerController extends StateNotifier<LockerState> {
   final SupabaseLockerRepository? _repository;
   RealtimeChannel? _announcementChannel;
   RealtimeChannel? _operationSwapChannel;
+  RealtimeChannel? _operationAssignmentChannel;
   RealtimeChannel? _eventChannel;
   RealtimeChannel? _videoFeedChannel;
   final _notificationPrefs = NotificationCategoryPrefs();
@@ -148,6 +149,13 @@ class LockerController extends StateNotifier<LockerState> {
         );
         unawaited(refreshOperationSwaps());
       });
+      // 관리자가 IB 운영표를 올리면 내 배정이 실시간으로 도착한다.
+      // 재접속 없이 홈·일정·운영 화면에 바로 반영되게 한다.
+      _operationAssignmentChannel ??= repository.subscribeToOperationAssignments(
+        (record) {
+          unawaited(_mergeRealtimeOperations(repository, record));
+        },
+      );
     } on Object catch (error, stackTrace) {
       debugPrint('ENCBA data sync failed: $error\n$stackTrace');
       state = state.copyWith(isReady: true, error: '서버 데이터를 불러오지 못했습니다.');
@@ -202,6 +210,27 @@ class LockerController extends StateNotifier<LockerState> {
     );
   }
 
+  /// 새로 등록된(또는 시간이 바뀐) 내 운영 배정을 목록에 합친다.
+  /// 서버에서 전체를 다시 읽어 오는 게 가장 단순하고 안전하다.
+  Future<void> _mergeRealtimeOperations(
+    SupabaseLockerRepository repository,
+    Map<String, dynamic> record,
+  ) async {
+    final operations = await _orDefault(
+      repository.loadOperations(),
+      const <OperationAssignment>[],
+    );
+    state = state.copyWith(operations: operations);
+    final title = record['title'] as String?;
+    await _notifyIfEnabled(
+      NotificationCategory.events,
+      'IB 운영 일정이 등록됐습니다',
+      title == null || title.isEmpty
+          ? '일정 탭에서 배정을 확인해 주세요.'
+          : '$title · 일정 탭에서 확인해 주세요.',
+    );
+  }
+
   void _applySnapshot(LockerSnapshot snapshot) {
     state = state.copyWith(
       isReady: true,
@@ -223,6 +252,10 @@ class LockerController extends StateNotifier<LockerState> {
     final operationSwapChannel = _operationSwapChannel;
     if (operationSwapChannel != null) {
       _repository?.unsubscribe(operationSwapChannel);
+    }
+    final operationAssignmentChannel = _operationAssignmentChannel;
+    if (operationAssignmentChannel != null) {
+      _repository?.unsubscribe(operationAssignmentChannel);
     }
     final eventChannel = _eventChannel;
     if (eventChannel != null) _repository?.unsubscribe(eventChannel);

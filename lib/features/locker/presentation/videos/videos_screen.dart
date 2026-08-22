@@ -234,6 +234,19 @@ class _VideoThumbnail extends StatelessWidget {
         filterQuality: FilterQuality.medium,
       );
     }
+    // 앱에 넣어 둔 그림이 없는 릴스는 Instagram 공개 주소로 썸네일을
+    // 자동으로 가져온다. 데이터 절약 모드면 네트워크를 쓰지 않고 폴백으로
+    // 넘어가 저사양 환경에서도 목록이 가볍게 열린다.
+    final reelUrl = video.sourceType == 'instagram'
+        ? _instagramThumbnailUrl(video.url)
+        : null;
+    if (reelUrl != null &&
+        !const AppEnvironmentImpl().prefersReducedData) {
+      return _InstagramThumbnailImage(
+        url: reelUrl,
+        fallbackBuilder: fallback,
+      );
+    }
     if (thumbnail == null) return fallback();
     return _YoutubeThumbnailImage(
       youtubeId: video.youtubeId,
@@ -289,6 +302,31 @@ class _YoutubeThumbnailImage extends StatelessWidget {
       },
     );
   }
+}
+
+/// Instagram 공개 미디어 주소에서 릴스 썸네일을 가져온다. 실패하면
+/// 기존의 그라디언트 폴백을 그대로 보여준다.
+class _InstagramThumbnailImage extends StatelessWidget {
+  const _InstagramThumbnailImage({
+    required this.url,
+    required this.fallbackBuilder,
+  });
+
+  final String url;
+  final Widget Function() fallbackBuilder;
+
+  @override
+  Widget build(BuildContext context) => Image.network(
+    url,
+    fit: BoxFit.cover,
+    filterQuality: FilterQuality.medium,
+    gaplessPlayback: true,
+    frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+      if (wasSynchronouslyLoaded || frame != null) return child;
+      return const _VideoLoadingState();
+    },
+    errorBuilder: (_, _, _) => fallbackBuilder(),
+  );
 }
 
 class _VideoLoadingState extends StatelessWidget {
@@ -497,7 +535,9 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
           },
         )
         .subscribe();
-    if (video.category == '복기') {
+    // 하이라이트(릴스)에도 댓글을 달 수 있게 했다. 복기처럼 시점 코멘트를
+    // 쓸 플레이어는 없지만, 감상·피드백을 남기는 용도로 같은 저장소를 쓴다.
+    if (video.category == '복기' || video.category == '하이라이트') {
       Future.microtask(
         () => ref
             .read(lockerControllerProvider.notifier)
@@ -705,8 +745,6 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
     _commentFocus.requestFocus();
   }
 
-  String _activeVideoUrl(VideoItem item) => _selectedLink?.url ?? item.url;
-
   /// 링크를 고르기 전이거나 코멘트가 어느 링크에도 묶이지 않았으면 모두 보여준다.
   /// 예전 코멘트는 link_id가 없으므로 쿼터 번호로 견준다.
   bool _commentBelongsToSelection(VideoCommentItem comment, VideoLink? link) {
@@ -838,32 +876,32 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
               borderRadius: BorderRadius.circular(16),
               child: AspectRatio(
                 aspectRatio: 16 / 9,
-                child: Ink(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF833AB4), Color(0xFFF77737)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: _VideoThumbnail(video: displayed),
                     ),
-                  ),
-                  child: const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.play_circle_fill_rounded,
-                          color: Colors.white,
-                          size: 52,
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          'Instagram에서 릴스 보기',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      ],
+                    const ColoredBox(color: Color(0x33000000)),
+                    const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.play_circle_fill_rounded,
+                            color: Colors.white,
+                            size: 52,
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            'Instagram에서 릴스 보기',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
@@ -908,7 +946,8 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          if (displayed.category == '복기') ...[
+          if (displayed.category == '복기' ||
+              displayed.category == '하이라이트') ...[
             if (displayed.reviewPlayers.isNotEmpty) ...[
               Text('출전 선수', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
@@ -934,16 +973,18 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
                     unawaited(_seekToComment(item.timestampSeconds)),
               ),
             ),
-            const SizedBox(height: 12),
-            ValueListenableBuilder<double>(
-              valueListenable: _playbackSeconds,
-              builder: (context, seconds, _) => PlaybackPositionButton(
-                seconds: _pinnedSeconds ?? seconds,
-                pinned: _pinnedSeconds != null,
-                onToggle: _player == null ? null : _togglePinnedTimestamp,
+            if (_player != null) ...[
+              const SizedBox(height: 12),
+              ValueListenableBuilder<double>(
+                valueListenable: _playbackSeconds,
+                builder: (context, seconds, _) => PlaybackPositionButton(
+                  seconds: _pinnedSeconds ?? seconds,
+                  pinned: _pinnedSeconds != null,
+                  onToggle: _togglePinnedTimestamp,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
+              const SizedBox(height: 8),
+            ],
             if (displayed.reviewPlayers.isNotEmpty) ...[
               _MemberChecklistButton(
                 label: '피드백 선수',
@@ -1030,12 +1071,6 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
               },
             ),
           ],
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: () => _launch(context, _activeVideoUrl(displayed)),
-            icon: const Icon(Icons.open_in_new_rounded),
-            label: const Text('원본 영상 열기'),
-          ),
         ],
       ),
     );
@@ -2070,7 +2105,12 @@ class _VideoLinkPreview extends StatelessWidget {
       sourceUrl: sourceUrl,
     );
     final asset = _instagramThumbnailAsset(sourceUrl);
-    if (thumbnail == null && asset == null) return const SizedBox.shrink();
+    final reelUrl = sourceType == 'instagram'
+        ? _instagramThumbnailUrl(sourceUrl)
+        : null;
+    if (thumbnail == null && asset == null && reelUrl == null) {
+      return const SizedBox.shrink();
+    }
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
       child: AspectRatio(
@@ -2080,6 +2120,19 @@ class _VideoLinkPreview extends StatelessWidget {
                 asset,
                 fit: BoxFit.cover,
                 filterQuality: FilterQuality.medium,
+              )
+            : reelUrl != null
+            ? _InstagramThumbnailImage(
+                url: reelUrl,
+                fallbackBuilder: () => const ColoredBox(
+                  color: EncbaColors.line,
+                  child: Center(
+                    child: Icon(
+                      Icons.image_not_supported_outlined,
+                      color: EncbaColors.muted,
+                    ),
+                  ),
+                ),
               )
             : _YoutubeThumbnailImage(
                 youtubeId: youtubeId ?? '',

@@ -51,4 +51,51 @@ for key in "${optional_client_keys[@]}"; do
   fi
 done
 
+# 백그라운드 웹 푸시용 서비스 워커를 Firebase 설정 값과 함께 생성한다.
+# 값이 없으면 파일을 만들지 않고, 페이지도 등록을 건너뛴다.
+if [[ -n "${FIREBASE_API_KEY:-}" && -n "${FIREBASE_PROJECT_ID:-}" ]]; then
+  cat > web/firebase-messaging-sw.js <<SW
+/* Vercel 빌드가 생성한 FCM 백그라운드 서비스 워커. 직접 수정하지 마세요. */
+importScripts("https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js");
+importScripts("https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js");
+
+firebase.initializeApp({
+  apiKey: "${FIREBASE_API_KEY}",
+  authDomain: "${FIREBASE_PROJECT_ID}.firebaseapp.com",
+  projectId: "${FIREBASE_PROJECT_ID}",
+  messagingSenderId: "${FIREBASE_MESSAGING_SENDER_ID:-}",
+  appId: "${FIREBASE_WEB_APP_ID:-}"
+});
+
+const messaging = firebase.messaging();
+
+messaging.onBackgroundMessage((payload) => {
+  const notification = payload.notification || {};
+  const title = notification.title || "ENCBA LOCKER";
+  const body = notification.body || "";
+  const data = payload.data || {};
+  self.registration.showNotification(title, {
+    body,
+    tag: data.id ? String(data.id) : undefined,
+    renotify: false,
+    data
+  });
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const path = event.notification.data && event.notification.data.path;
+  if (!path) return;
+  event.waitUntil((async () => {
+    const target = new URL(path, self.registration.scope).toString();
+    const windowClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of windowClients) {
+      if (client.url === target && "focus" in client) return client.focus();
+    }
+    return clients.openWindow(target);
+  })());
+});
+SW
+fi
+
 flutter build web --release --wasm --no-pub "${dart_defines[@]}"

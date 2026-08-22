@@ -51,3 +51,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# graphify knowledge graph output (regenerate with: graphify extract . --code-only)
+/graphify-out/
+
+# 백그라운드 푸시 서비스 워커는 tool/build_web.ps1이 빌드 때 생성한다.
+/web/encba-push-sw.js

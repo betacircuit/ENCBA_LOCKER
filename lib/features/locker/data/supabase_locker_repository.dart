@@ -966,6 +966,37 @@ class SupabaseLockerRepository {
     params: {'requested_swap_id': requestId, 'requested_accept': accept},
   );
 
+  /// 내 IB 운영 배정이 새로 등록되거나 바뀌면 알려 준다. 관리자가 학기 초
+  /// 엑셀을 올리는 즉시, 재접속 없이 내 일정에 반영되게 하기 위한 구독이다.
+  /// RLS 정책이 내 배정만 보내 주므로 필터만으로 충분하다.
+  RealtimeChannel subscribeToOperationAssignments(
+    void Function(Map<String, dynamic> record) onChange,
+  ) => _client
+      .channel('encba-operation-assignments-$_userId')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'operation_assignments',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'assignee_id',
+          value: _userId,
+        ),
+        callback: (payload) => onChange(payload.newRecord),
+      )
+      .onPostgresChanges(
+        event: PostgresChangeEvent.update,
+        schema: 'public',
+        table: 'operation_assignments',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'assignee_id',
+          value: _userId,
+        ),
+        callback: (payload) => onChange(payload.newRecord),
+      )
+      .subscribe();
+
   RealtimeChannel subscribeToOperationSwapRequests(
     void Function(Map<String, dynamic> record) onInsert,
   ) => _client
