@@ -59,6 +59,7 @@ class SupabaseLockerRepository {
   static const int videoPageSize = 30;
   static const _announcementSelection =
       'id,title,body,pinned,is_urgent,published_at,image_url,poll_options,'
+      'poll_question,'
       'profiles!announcements_created_by_fkey(name,display_name),'
       'announcement_event_links(event_id),'
       'announcement_poll_votes(profile_id,option_index)';
@@ -520,6 +521,7 @@ class SupabaseLockerRepository {
     String? imageBase64,
     String? imageName,
     List<String> pollOptions = const [],
+    String pollQuestion = '',
   }) async {
     String? uploadedPath;
     String? imageUrl;
@@ -535,6 +537,7 @@ class SupabaseLockerRepository {
       'is_urgent': isUrgent,
       'image_url': imageUrl,
       'poll_options': pollOptions,
+      'poll_question': pollQuestion,
       'created_by': _userId,
       'updated_by': _userId,
     };
@@ -552,11 +555,15 @@ class SupabaseLockerRepository {
               Map<String, dynamic>.from(payload)
                 ..remove('is_urgent')
                 ..remove('image_url')
-                ..remove('poll_options'),
+                ..remove('poll_options')
+                ..remove('poll_question'),
             )
             .select(_legacyAnnouncementSelection)
             .single(),
-        requiresCurrentSchema: imageBase64 != null || pollOptions.isNotEmpty,
+        requiresCurrentSchema:
+            imageBase64 != null ||
+            pollOptions.isNotEmpty ||
+            pollQuestion.trim().isNotEmpty,
       );
     } on Object {
       if (uploadedPath != null) {
@@ -589,6 +596,7 @@ class SupabaseLockerRepository {
     String? imageName,
     bool removeImage = false,
     List<String> pollOptions = const [],
+    String pollQuestion = '',
   }) async {
     String? uploadedPath;
     var imageUrl = removeImage ? null : existingImageUrl;
@@ -604,6 +612,7 @@ class SupabaseLockerRepository {
       'is_urgent': isUrgent,
       'image_url': imageUrl,
       'poll_options': pollOptions,
+      'poll_question': pollQuestion,
       'updated_by': _userId,
     };
     final Map<String, dynamic> row;
@@ -621,7 +630,8 @@ class SupabaseLockerRepository {
               Map<String, dynamic>.from(payload)
                 ..remove('is_urgent')
                 ..remove('image_url')
-                ..remove('poll_options'),
+                ..remove('poll_options')
+                ..remove('poll_question'),
             )
             .eq('id', id)
             .select(_legacyAnnouncementSelection)
@@ -630,7 +640,8 @@ class SupabaseLockerRepository {
             existingImageUrl != null ||
             imageBase64 != null ||
             removeImage ||
-            pollOptions.isNotEmpty,
+            pollOptions.isNotEmpty ||
+            pollQuestion.trim().isNotEmpty,
       );
     } on Object {
       if (uploadedPath != null) {
@@ -713,6 +724,7 @@ class SupabaseLockerRepository {
           .toList(growable: false),
       imageUrl: row['image_url'] as String?,
       pollOptions: (row['poll_options'] as List?)?.cast<String>() ?? const [],
+      pollQuestion: row['poll_question'] as String? ?? '',
       pollVotes: counts,
       myPollOption: myPollOption,
     );
@@ -800,6 +812,34 @@ class SupabaseLockerRepository {
         'option_index': optionIndex,
         'voted_at': DateTime.now().toUtc().toIso8601String(),
       });
+
+  /// 공지 투표 항목별로 "누가" 골랐는지 개별 응답자를 읽는다. 집계 카운트만
+  /// 담는 `_announcementSelection`과 달리 투표 현황 화면 전용으로 필요할
+  /// 때만 부른다. `announcement_poll_votes_read` 정책이 이미 전체 인증
+  /// 사용자에게 열려 있어 별도 RPC 없이 다른 조인 select들과 같은 방식으로
+  /// 읽는다.
+  Future<List<AnnouncementPollVoter>> loadAnnouncementPollVoters(
+    String announcementId,
+  ) async {
+    final rows = await _client
+        .from('announcement_poll_votes')
+        .select('profile_id,option_index,profiles(name,display_name)')
+        .eq('announcement_id', announcementId);
+    return (rows as List)
+        .map((row) {
+          final map = Map<String, dynamic>.from(row as Map);
+          final profile = map['profiles'] as Map?;
+          return AnnouncementPollVoter(
+            profileId: map['profile_id'] as String,
+            name:
+                profile?['name'] as String? ??
+                profile?['display_name'] as String? ??
+                '알 수 없음',
+            optionIndex: map['option_index'] as int,
+          );
+        })
+        .toList(growable: false);
+  }
 
   RealtimeChannel subscribeToAnnouncements(
     void Function(Map<String, dynamic> record) onInsert,
@@ -1915,6 +1955,7 @@ bool _isMissingAnnouncementFeature(PostgrestException error) {
   return context.contains('is_urgent') ||
       context.contains('image_url') ||
       context.contains('poll_options') ||
+      context.contains('poll_question') ||
       context.contains('announcement_poll_votes');
 }
 

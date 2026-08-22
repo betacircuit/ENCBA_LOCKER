@@ -537,6 +537,7 @@ Future<void> _showAnnouncementEditor(
             imageBase64: draft.imageBase64,
             imageName: draft.imageName,
             pollOptions: draft.pollOptions,
+            pollQuestion: draft.pollQuestion,
           )
         : await controller.updateAnnouncement(
             announcement: existing,
@@ -548,19 +549,20 @@ Future<void> _showAnnouncementEditor(
             imageName: draft.imageName,
             removeImage: draft.removeImage,
             pollOptions: draft.pollOptions,
+            pollQuestion: draft.pollQuestion,
           );
     if (context.mounted) {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(
-        SnackBar(
-          content: Text(
-            saved
-                ? (existing == null ? '공지를 등록했습니다.' : '공지를 수정했습니다.')
-                : '공지를 저장하지 못했습니다.',
+          SnackBar(
+            content: Text(
+              saved
+                  ? (existing == null ? '공지를 등록했습니다.' : '공지를 수정했습니다.')
+                  : '공지를 저장하지 못했습니다.',
+            ),
           ),
-        ),
-      );
+        );
     }
   }
 }
@@ -572,6 +574,7 @@ class _AnnouncementDraft {
     required this.pinned,
     required this.linkedEventIds,
     required this.pollOptions,
+    this.pollQuestion = '',
     this.imageBase64,
     this.imageName,
     this.removeImage = false,
@@ -581,6 +584,7 @@ class _AnnouncementDraft {
   final bool pinned;
   final List<String> linkedEventIds;
   final List<String> pollOptions;
+  final String pollQuestion;
   final String? imageBase64;
   final String? imageName;
   final bool removeImage;
@@ -602,6 +606,7 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
   late bool _pinned;
   late Set<String> _linkedEventIds;
   late bool _pollEnabled;
+  late final TextEditingController _pollQuestion;
   late List<TextEditingController> _pollOptions;
   String? _imageBase64;
 
@@ -624,6 +629,9 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
     _linkedEventIds = widget.existing?.linkedEventIds.toSet() ?? <String>{};
     final existingPoll = widget.existing?.pollOptions ?? const <String>[];
     _pollEnabled = existingPoll.isNotEmpty;
+    _pollQuestion = TextEditingController(
+      text: widget.existing?.pollQuestion ?? '',
+    )..addListener(_refresh);
     _pollOptions = (existingPoll.isEmpty ? const ['찬성', '반대'] : existingPoll)
         .map((option) => TextEditingController(text: option))
         .toList();
@@ -638,6 +646,9 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
       ..removeListener(_refresh)
       ..dispose();
     _body
+      ..removeListener(_refresh)
+      ..dispose();
+    _pollQuestion
       ..removeListener(_refresh)
       ..dispose();
     for (final controller in _pollOptions) {
@@ -655,7 +666,8 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
     final canSave =
         _title.text.trim().isNotEmpty &&
         (!_pollEnabled ||
-            (_pollOptions.length >= 2 &&
+            (_pollQuestion.text.trim().isNotEmpty &&
+                _pollOptions.length >= 2 &&
                 _pollOptions.every((item) => item.text.trim().isNotEmpty) &&
                 _pollOptions.map((item) => item.text.trim()).toSet().length ==
                     _pollOptions.length));
@@ -764,6 +776,15 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
             onChanged: (value) => setState(() => _pollEnabled = value),
           ),
           if (_pollEnabled) ...[
+            TextField(
+              controller: _pollQuestion,
+              maxLength: 200,
+              decoration: const InputDecoration(
+                labelText: '투표 질문 *',
+                hintText: '예: 메뉴를 골라주세요',
+              ),
+            ),
+            const SizedBox(height: 4),
             for (final (index, controller) in _pollOptions.indexed) ...[
               Row(
                 key: ObjectKey(controller),
@@ -869,6 +890,9 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
                                 .map((item) => item.text.trim())
                                 .toList()
                           : const [],
+                      pollQuestion: _pollEnabled
+                          ? _pollQuestion.text.trim()
+                          : '',
                       imageBase64: _imageBase64,
                       imageName: _imageName,
                       removeImage: _removeExistingImage,
@@ -939,10 +963,12 @@ class _AnnouncementPollCard extends ConsumerWidget {
           children: [
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
-                    '투표',
-                    style: TextStyle(fontWeight: FontWeight.w800),
+                    notice.pollQuestion.trim().isEmpty
+                        ? '투표'
+                        : notice.pollQuestion,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
                 Text(
@@ -969,9 +995,139 @@ class _AnnouncementPollCard extends ConsumerWidget {
                     .read(lockerControllerProvider.notifier)
                     .voteAnnouncement(notice, index),
               ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () =>
+                    _showAnnouncementPollVoters(context, ref, notice),
+                icon: const Icon(Icons.groups_outlined),
+                label: const Text('투표 현황 보기'),
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 투표 항목별 응답자 이름과, 활동 부원 중 아직 투표하지 않은 사람을
+/// 보여주는 시트. 집계 표만 보이던 기존 카드에서 한 단계 더 들어간
+/// 정보라 관리자 전용이 아니라 공지·투표 자체처럼 모두에게 열어 둔다.
+Future<void> _showAnnouncementPollVoters(
+  BuildContext context,
+  WidgetRef ref,
+  AnnouncementItem notice,
+) async {
+  final controller = ref.read(lockerControllerProvider.notifier);
+  final votersFuture = controller.loadAnnouncementPollVoters(notice.id);
+  final membersFuture = controller.loadAllMembersForAccountCheck();
+  final dataFuture = () async {
+    final voters = await votersFuture;
+    final members = await membersFuture;
+    return (voters: voters, members: members);
+  }();
+  if (!context.mounted) return;
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (sheetContext) => SafeArea(
+      child: FractionallySizedBox(
+        heightFactor: 0.85,
+        child:
+            FutureBuilder<
+              ({
+                List<AnnouncementPollVoter> voters,
+                List<MemberProfile> members,
+              })
+            >(
+              future: dataFuture,
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final voters = snapshot.data!.voters;
+                final votedIds = voters.map((item) => item.profileId).toSet();
+                final notVoted =
+                    snapshot.data!.members
+                        .where(
+                          (member) =>
+                              member.isActive &&
+                              member.id != null &&
+                              !votedIds.contains(member.id),
+                        )
+                        .toList()
+                      ..sort((a, b) => a.name.compareTo(b.name));
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  children: [
+                    const Text(
+                      '투표 현황',
+                      style: TextStyle(
+                        fontFamily: 'Jua',
+                        fontSize: 22,
+                        color: EncbaColors.navy,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    for (final (index, option)
+                        in notice.pollOptions.indexed) ...[
+                      Text(
+                        option,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 6),
+                      _PollVoterNames(
+                        names: voters
+                            .where((voter) => voter.optionIndex == index)
+                            .map((voter) => voter.name)
+                            .toList(),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Text(
+                      '아직 투표하지 않음 (${notVoted.length}명)',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 6),
+                    _PollVoterNames(
+                      names: notVoted.map((member) => member.name).toList(),
+                      emptyText: '모든 활동 부원이 투표했습니다.',
+                    ),
+                  ],
+                );
+              },
+            ),
+      ),
+    ),
+  );
+}
+
+class _PollVoterNames extends StatelessWidget {
+  const _PollVoterNames({required this.names, this.emptyText = '아직 없음'});
+
+  final List<String> names;
+  final String emptyText;
+
+  @override
+  Widget build(BuildContext context) {
+    if (names.isEmpty) {
+      return Text(emptyText, style: const TextStyle(color: EncbaColors.muted));
+    }
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final name in names)
+          Chip(
+            label: Text(name),
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+      ],
     );
   }
 }

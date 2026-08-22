@@ -188,6 +188,7 @@ class LockerController extends StateNotifier<LockerState> {
           imageUrl: record['image_url'] as String?,
           pollOptions:
               (record['poll_options'] as List?)?.cast<String>() ?? const [],
+          pollQuestion: record['poll_question'] as String? ?? '',
         );
     if (state.announcements.any((item) => item.id == id)) return;
     state = state.copyWith(
@@ -1008,6 +1009,7 @@ class LockerController extends StateNotifier<LockerState> {
     String? imageBase64,
     String? imageName,
     List<String> pollOptions = const [],
+    String pollQuestion = '',
   }) async {
     try {
       final saved = await _repository?.addAnnouncement(
@@ -1019,6 +1021,7 @@ class LockerController extends StateNotifier<LockerState> {
         imageBase64: imageBase64,
         imageName: imageName,
         pollOptions: pollOptions,
+        pollQuestion: pollQuestion,
       );
       if (saved != null) {
         // Realtime 구독이 같은 INSERT를 이 응답보다 먼저 받아 이미 추가해
@@ -1053,6 +1056,7 @@ class LockerController extends StateNotifier<LockerState> {
     String? imageName,
     bool removeImage = false,
     List<String> pollOptions = const [],
+    String pollQuestion = '',
   }) async {
     try {
       final saved = await _repository?.updateAnnouncement(
@@ -1067,6 +1071,7 @@ class LockerController extends StateNotifier<LockerState> {
         imageName: imageName,
         removeImage: removeImage,
         pollOptions: pollOptions,
+        pollQuestion: pollQuestion,
       );
       if (saved == null) return false;
       state = state.copyWith(
@@ -1150,6 +1155,19 @@ class LockerController extends StateNotifier<LockerState> {
 
   String _announcementError(Object error, String fallback) =>
       error is LockerRepositoryException ? error.message : fallback;
+
+  /// 투표 현황 시트를 열 때만 부르는 온디맨드 조회라 다른 보조 데이터처럼
+  /// 실패해도 전역 에러 상태를 건드리지 않고 빈 목록으로 조용히 넘어간다.
+  Future<List<AnnouncementPollVoter>> loadAnnouncementPollVoters(
+    String announcementId,
+  ) async {
+    final repository = _repository;
+    if (repository == null) return const [];
+    return _orDefault(
+      repository.loadAnnouncementPollVoters(announcementId),
+      const <AnnouncementPollVoter>[],
+    );
+  }
 
   Future<bool> deleteEvent(String id) async {
     try {

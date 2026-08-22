@@ -352,6 +352,7 @@ class AnnouncementItem {
     this.linkedEventIds = const [],
     this.imageUrl,
     this.pollOptions = const [],
+    this.pollQuestion = '',
     this.pollVotes = const {},
     this.myPollOption,
   });
@@ -365,6 +366,11 @@ class AnnouncementItem {
   final List<String> linkedEventIds;
   final String? imageUrl;
   final List<String> pollOptions;
+
+  /// 투표 항목과 별개로 "무엇을 묻는지"를 보여주는 문구. 공지 제목이 투표
+  /// 질문과 다를 때(예: 제목 "회식 안내" / 질문 "메뉴를 골라주세요")를 위해
+  /// 둔다. 투표가 없으면 빈 문자열이다.
+  final String pollQuestion;
   final Map<int, int> pollVotes;
   final int? myPollOption;
 
@@ -372,6 +378,7 @@ class AnnouncementItem {
     String? imageUrl,
     bool clearImage = false,
     List<String>? pollOptions,
+    String? pollQuestion,
     Map<int, int>? pollVotes,
     int? myPollOption,
     bool clearMyPollOption = false,
@@ -386,9 +393,25 @@ class AnnouncementItem {
     linkedEventIds: linkedEventIds,
     imageUrl: clearImage ? null : imageUrl ?? this.imageUrl,
     pollOptions: pollOptions ?? this.pollOptions,
+    pollQuestion: pollQuestion ?? this.pollQuestion,
     pollVotes: pollVotes ?? this.pollVotes,
     myPollOption: clearMyPollOption ? null : myPollOption ?? this.myPollOption,
   );
+}
+
+/// 공지 투표 항목 하나를 고른 사람 한 명. "누가 어떤 항목에 투표했는지"를
+/// 보여주는 화면 전용으로, 집계 카운트(`AnnouncementItem.pollVotes`)와
+/// 달리 개별 응답자를 담는다.
+class AnnouncementPollVoter {
+  const AnnouncementPollVoter({
+    required this.profileId,
+    required this.name,
+    required this.optionIndex,
+  });
+
+  final String profileId;
+  final String name;
+  final int optionIndex;
 }
 
 class AttendanceReportRow {
