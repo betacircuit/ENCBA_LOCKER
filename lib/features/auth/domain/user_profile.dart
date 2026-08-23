@@ -31,6 +31,7 @@ class UserProfile {
     required this.teams,
     this.badge,
     this.photoBase64,
+    this.avatarUrl,
     this.isAdmin = false,
     this.isScheduleManager = false,
     this.isActive = true,
@@ -52,6 +53,7 @@ class UserProfile {
   final List<String> teams;
   final String? badge;
   final String? photoBase64;
+  final String? avatarUrl;
   final bool isAdmin;
   final bool isScheduleManager;
   final bool isActive;
@@ -73,6 +75,8 @@ class UserProfile {
     String? badge,
     String? photoBase64,
     bool clearPhoto = false,
+    String? avatarUrl,
+    bool clearAvatar = false,
     bool? isAdmin,
     bool? isScheduleManager,
     bool? isActive,
@@ -94,6 +98,7 @@ class UserProfile {
       teams: teams ?? this.teams,
       badge: badge ?? this.badge,
       photoBase64: clearPhoto ? null : photoBase64 ?? this.photoBase64,
+      avatarUrl: clearAvatar ? null : avatarUrl ?? this.avatarUrl,
       isAdmin: isAdmin ?? this.isAdmin,
       isScheduleManager: isScheduleManager ?? this.isScheduleManager,
       isActive: isActive ?? this.isActive,
@@ -117,6 +122,7 @@ class UserProfile {
     'teams': teams,
     'badge': badge,
     'photoBase64': photoBase64,
+    'avatarUrl': avatarUrl,
     'isAdmin': isAdmin,
     'isScheduleManager': isScheduleManager,
     'isActive': isActive,
@@ -139,6 +145,7 @@ class UserProfile {
     teams: List<String>.from(json['teams'] as List),
     badge: json['badge'] as String?,
     photoBase64: json['photoBase64'] as String?,
+    avatarUrl: json['avatarUrl'] as String?,
     isAdmin: json['isAdmin'] as bool? ?? false,
     isScheduleManager: json['isScheduleManager'] as bool? ?? false,
     isActive: json['isActive'] as bool? ?? true,
@@ -154,22 +161,22 @@ class UserProfile {
         row['leadership_role'] as String? ??
         ((row['is_admin'] as bool? ?? false) ? 'admin' : 'member');
     return UserProfile(
-    id: row['id'] as String,
-    email: row['email'] as String,
-    name: row['name'] as String,
-    displayName: row['display_name'] as String?,
-    studentId: '${row['student_year']}학번',
-    generation: row['generation'] as int,
-    joinedYear: row['joined_year'] as int?,
-    phone: row['phone'] as String? ?? '',
-    position: row['position'] as String? ?? '미정',
-    jerseyNumber: row['jersey_number'] as int? ?? 0,
-    status: (row['membership_status'] as String? ?? 'yb').toUpperCase(),
-    teams: (row['teams'] as List?)?.cast<String>() ?? const ['ENCBA'],
+      id: row['id'] as String,
+      email: row['email'] as String,
+      name: row['name'] as String,
+      displayName: row['display_name'] as String?,
+      studentId: '${row['student_year']}학번',
+      generation: row['generation'] as int,
+      joinedYear: row['joined_year'] as int?,
+      phone: row['phone'] as String? ?? '',
+      position: row['position'] as String? ?? '미정',
+      jerseyNumber: row['jersey_number'] as int? ?? 0,
+      status: (row['membership_status'] as String? ?? 'yb').toUpperCase(),
+      teams: (row['teams'] as List?)?.cast<String>() ?? const ['ENCBA'],
       badge: row['badge'] as String?,
       photoBase64: row['photo_base64'] as String?,
-      isAdmin:
-          (row['is_admin'] as bool? ?? false) || leadershipRole == 'admin',
+      avatarUrl: row['avatar_url'] as String?,
+      isAdmin: (row['is_admin'] as bool? ?? false) || leadershipRole == 'admin',
       isScheduleManager: row['is_schedule_manager'] as bool? ?? false,
       isActive: row['is_active'] as bool? ?? true,
       leadershipRole: leadershipRole,

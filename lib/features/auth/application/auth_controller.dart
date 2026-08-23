@@ -48,7 +48,10 @@ class AuthState {
 class AuthController extends StateNotifier<AuthState> {
   AuthController(this._repository) : super(const AuthState()) {
     _restore();
-    _subscription = _repository?.authChanges.listen(_handleAuthChange);
+    _subscription = _repository?.authChanges.listen(
+      _handleAuthChange,
+      onError: _handleAuthStreamError,
+    );
   }
 
   AuthController.seeded(
@@ -65,6 +68,7 @@ class AuthController extends StateNotifier<AuthState> {
 
   final SupabaseAuthRepository? _repository;
   StreamSubscription<supabase.AuthState>? _subscription;
+  bool _restoreInProgress = true;
   SupabaseAuthRepository get _repo =>
       _repository ?? (throw StateError('Seeded auth cannot persist changes.'));
 
@@ -115,6 +119,8 @@ class AuthController extends StateNotifier<AuthState> {
         clearPendingRegistration: true,
         error: '저장된 로그인 정보를 복원하지 못했습니다.',
       );
+    } finally {
+      _restoreInProgress = false;
     }
   }
 
@@ -258,6 +264,9 @@ class AuthController extends StateNotifier<AuthState> {
       );
       return;
     }
+    // Supabase의 replay stream은 구독 직후 마지막 인증 이벤트를 다시 보낸다.
+    // 초기 복원이 같은 세션을 이미 처리 중이면 프로필 조회를 중복 실행하지 않는다.
+    if (_restoreInProgress) return;
     if (event.session?.user != null &&
         state.user?.id != event.session!.user.id) {
       try {
@@ -279,6 +288,11 @@ class AuthController extends StateNotifier<AuthState> {
     if (event.session != null) {
       state = state.copyWith(sessionRevision: state.sessionRevision + 1);
     }
+  }
+
+  void _handleAuthStreamError(Object error, StackTrace stackTrace) {
+    // 오프라인 토큰 갱신 오류도 이 stream으로 전달된다. 복원 로직이 캐시와
+    // 세션 만료를 판정하므로 여기서는 unhandled zone 오류만 막는다.
   }
 
   @override

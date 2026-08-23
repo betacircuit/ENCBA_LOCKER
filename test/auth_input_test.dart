@@ -77,6 +77,14 @@ void main() {
     );
   });
 
+  test('실명 로그인은 네트워크 없이 현재 주소와 레거시 주소를 먼저 만든다', () {
+    expect(directLoginEmails(' 이민섭 '), [
+      internalLoginEmailForName('이민섭'),
+      legacyInternalLoginEmailForName('이민섭'),
+    ]);
+    expect(directLoginEmails('MEMBER@SNU.AC.KR'), ['member@snu.ac.kr']);
+  });
+
   test('다른 부원에게 보이는 이름은 별칭이 있어도 실명이다', () {
     const profile = UserProfile(
       email: 'member@snu.ac.kr',
@@ -89,8 +97,10 @@ void main() {
       jerseyNumber: 1,
       status: 'YB',
       teams: ['ENCBA'],
+      avatarUrl: 'https://example.com/avatar.jpg',
     );
 
     expect(profile.visibleName, '김실명');
+    expect(UserProfile.fromJson(profile.toJson()).avatarUrl, profile.avatarUrl);
   });
 }

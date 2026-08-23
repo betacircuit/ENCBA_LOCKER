@@ -35,6 +35,7 @@ class ProfileScreen extends ConsumerWidget {
           teamLabel: user.teamLabel,
           badge: user.badge,
           photoBase64: user.photoBase64,
+          avatarUrl: user.avatarUrl,
           leadershipLabel: user.leadershipLabel,
           onTap: () => context.push('/profile/edit'),
         ),
@@ -858,6 +859,7 @@ class _ProfileCard extends StatelessWidget {
     required this.teamLabel,
     required this.badge,
     required this.photoBase64,
+    required this.avatarUrl,
     required this.leadershipLabel,
     required this.onTap,
   });
@@ -866,6 +868,7 @@ class _ProfileCard extends StatelessWidget {
   final String teamLabel;
   final String? badge;
   final String? photoBase64;
+  final String? avatarUrl;
   final String? leadershipLabel;
   final VoidCallback onTap;
   @override
@@ -877,7 +880,12 @@ class _ProfileCard extends StatelessWidget {
         padding: const EdgeInsets.all(18),
         child: Row(
           children: [
-            _Avatar(name: name, size: 62, photoBase64: photoBase64),
+            _Avatar(
+              name: name,
+              size: 62,
+              photoBase64: photoBase64,
+              avatarUrl: avatarUrl,
+            ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(

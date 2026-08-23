@@ -36,6 +36,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   late String _studentYearPick;
   late String _joinedYearPick;
   String? _photoBase64;
+  late final String? _avatarUrl;
   bool _photoChanged = false;
 
   @override
@@ -55,6 +56,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _jerseyNumber = TextEditingController(text: '${user.jerseyNumber}');
     _position = user.position;
     _photoBase64 = user.photoBase64;
+    _avatarUrl = user.avatarUrl;
   }
 
   @override
@@ -84,10 +86,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     CircleAvatar(
                       radius: 48,
                       backgroundColor: EncbaColors.highlight,
-                      backgroundImage: _photoBase64 == null
-                          ? null
-                          : MemoryImage(base64Decode(_photoBase64!)),
-                      child: _photoBase64 == null
+                      backgroundImage: _profileImage,
+                      child: _profileImage == null
                           ? Text(
                               _name.text.isEmpty ? 'E' : _name.text[0],
                               style: const TextStyle(
@@ -129,10 +129,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   CircleAvatar(
                     radius: 24,
                     backgroundColor: Colors.white,
-                    backgroundImage: _photoBase64 == null
-                        ? null
-                        : MemoryImage(base64Decode(_photoBase64!)),
-                    child: _photoBase64 == null
+                    backgroundImage: _profileImage,
+                    child: _profileImage == null
                         ? Text(_name.text.isEmpty ? 'E' : _name.text[0])
                         : null,
                   ),
@@ -227,6 +225,15 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   String? _required(String? value) =>
       value == null || value.trim().isEmpty ? '필수 항목입니다.' : null;
+
+  ImageProvider<Object>? get _profileImage {
+    final photo = _photoBase64;
+    if (photo != null && photo.isNotEmpty) {
+      return MemoryImage(base64Decode(photo));
+    }
+    final avatar = _avatarUrl;
+    return avatar == null || avatar.isEmpty ? null : NetworkImage(avatar);
+  }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:encba_locker/core/storage/local_store.dart';
@@ -237,26 +236,38 @@ class SupabaseAuthRepository {
   Future<UserProfile> signIn(String loginName, String password) async {
     try {
       final value = loginName.trim();
-      final candidates = await _loginCandidates(value);
-      for (var index = 0; index < candidates.length; index++) {
-        try {
-          final response = await _client.auth.signInWithPassword(
-            email: candidates[index],
-            password: password,
-          );
-          final user = response.user;
-          if (user == null) {
-            throw const EncbaAuthException('아이디 또는 비밀번호를 확인해 주세요.');
+      final attempted = <String>{};
+      supabase.AuthException? lastInvalidCredentials;
+
+      Future<UserProfile?> tryCandidates(Iterable<String> candidates) async {
+        for (final candidate in candidates.where(attempted.add)) {
+          try {
+            final response = await _client.auth.signInWithPassword(
+              email: candidate,
+              password: password,
+            );
+            final user = response.user;
+            if (user == null) {
+              throw const EncbaAuthException('아이디 또는 비밀번호를 확인해 주세요.');
+            }
+            return await _profileFor(user.id);
+          } on supabase.AuthException catch (error) {
+            if (!_isInvalidLoginCredentials(error)) rethrow;
+            lastInvalidCredentials = error;
           }
-          return await _profileFor(user.id);
-        } on supabase.AuthException catch (error) {
-          final hasLegacyCandidate = index + 1 < candidates.length;
-          if (hasLegacyCandidate && _isInvalidLoginCredentials(error)) {
-            continue;
-          }
-          rethrow;
         }
+        return null;
       }
+
+      // 실명 로그인은 Auth 이메일을 로컬에서 결정할 수 있다. 일반 경로에서
+      // Edge Function과 RPC 왕복을 먼저 기다리지 않고 곧바로 인증한다.
+      final direct = await tryCandidates(directLoginEmails(value));
+      if (direct != null) return direct;
+
+      // 학교 이메일/이전 데이터처럼 서버 매핑이 필요한 경우에만 조회한다.
+      final resolved = await tryCandidates(await _resolvedLoginEmails(value));
+      if (resolved != null) return resolved;
+      if (lastInvalidCredentials != null) throw lastInvalidCredentials!;
       throw const EncbaAuthException('아이디 또는 비밀번호를 확인해 주세요.');
     } on supabase.AuthException catch (error) {
       throw EncbaAuthException(_friendlyAuthMessage(error.message));
@@ -265,7 +276,7 @@ class SupabaseAuthRepository {
     }
   }
 
-  Future<List<String>> _loginCandidates(String value) async {
+  Future<List<String>> _resolvedLoginEmails(String value) async {
     final normalized = value.toLowerCase();
     final candidates = <String>[];
     void add(String? candidate) {
@@ -307,16 +318,10 @@ class SupabaseAuthRepository {
 
     final results = await Future.wait([resolveViaFunction(), resolveViaRpc()]);
     if (results[0] is Map) {
-      add((results[0]! as Map)['login_email'] as String?);
+      final resolved = (results[0]! as Map)['login_email'];
+      if (resolved is String) add(resolved);
     }
     if (results[1] is String) add(results[1] as String);
-
-    if (value.contains('@')) {
-      add(normalized);
-    } else {
-      add(internalLoginEmailForName(value));
-      add(legacyInternalLoginEmailForName(value));
-    }
     return candidates;
   }
 
@@ -496,16 +501,11 @@ class SupabaseAuthRepository {
           .toList();
       final avatarPath = row['avatar_path'] as String?;
       if (avatarPath != null && avatarPath.isNotEmpty) {
-        try {
-          // 사진이 늦게 오거나 실패해도 로그인·복원이 기다리지 않게 상한을 둔다.
-          final bytes = await _client.storage
-              .from('avatars')
-              .download(avatarPath)
-              .timeout(const Duration(seconds: 4));
-          normalized['photo_base64'] = base64Encode(bytes);
-        } on Object {
-          // 프로필 본문은 사진 다운로드 실패와 무관하게 사용할 수 있어야 한다.
-        }
+        // avatars 버킷은 public이다. 로그인 경로에서 이미지 bytes를 직렬로
+        // 내려받지 않고 URL만 넘겨 Flutter 이미지 캐시가 화면과 병렬로 받는다.
+        normalized['avatar_url'] = _client.storage
+            .from('avatars')
+            .getPublicUrl(avatarPath);
       }
       final profile = UserProfile.fromSupabase(normalized);
       if (!profile.isActive) {
@@ -533,15 +533,6 @@ class SupabaseAuthRepository {
   }
 
   String _profileCacheKey(String userId) => 'encba.profile.$userId.v1';
-
-  /// 로그인 아이디를 Supabase 계정 이메일로 옮긴다. `@`가 들어 있으면 이미
-  /// 이메일이므로 그대로 쓰고, 아니면 실명으로 만든 내부 주소를 쓴다.
-  String loginIdToEmail(String loginId) {
-    final value = loginId.trim();
-    return value.contains('@')
-        ? value.toLowerCase()
-        : internalLoginEmailForName(value);
-  }
 
   int _studentYear(String value) =>
       int.tryParse(value.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
@@ -623,4 +614,15 @@ String legacyInternalLoginEmailForName(String loginName) {
       .encode(utf8.encode(loginName.trim()))
       .replaceAll('=', '');
   return 'encba.$encoded@members.encba.local';
+}
+
+/// 네트워크 조회 없이 즉시 시도할 수 있는 로그인 이메일 후보.
+@visibleForTesting
+List<String> directLoginEmails(String loginName) {
+  final value = loginName.trim();
+  if (value.contains('@')) return [value.toLowerCase()];
+  return [
+    internalLoginEmailForName(value),
+    legacyInternalLoginEmailForName(value),
+  ];
 }
