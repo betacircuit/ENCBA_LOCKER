@@ -98,13 +98,13 @@ class HomecomingImportService {
       final parsedGeneration = int.tryParse(generationText);
       final generation =
           parsedGeneration != null &&
-              parsedGeneration >= 1 &&
+              parsedGeneration >= 0 &&
               parsedGeneration <= 200
           ? parsedGeneration
           : null;
       if (parsedGeneration != null && generation == null) {
         generationWarnings.add(
-          '${rowIndex + 1}행 기수 "$rawGeneration"은(는) 1~200 범위를 벗어나 비워 두었습니다. '
+          '${rowIndex + 1}행 기수 "$rawGeneration"은(는) 0~200 범위를 벗어나 비워 두었습니다. '
           '원본 파일에서 기수를 확인해 주세요.',
         );
       }

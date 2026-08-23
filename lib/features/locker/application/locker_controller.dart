@@ -50,6 +50,7 @@ class LockerController extends StateNotifier<LockerState> {
   String _memberQuery = '';
   String _memberMembership = 'ALL';
   static const _reminderStoreKey = 'encba.undecided-reminders.v1';
+  static const _initialSyncTimeout = Duration(seconds: 6);
 
   Future<void> _load() {
     final inFlight = _loadInFlight;
@@ -65,37 +66,47 @@ class LockerController extends StateNotifier<LockerState> {
     final repository = _repository!;
     try {
       final cached = await repository.loadCached();
-      if (cached != null) _applySnapshot(cached);
+      if (cached != null) {
+        _applySnapshot(cached, isSyncing: true);
+      } else {
+        // 로컬 저장소 확인이 끝나면 네트워크를 기다리지 않고 셸부터 연다.
+        state = state.copyWith(
+          isReady: true,
+          isSyncing: true,
+          isOfflineCache: false,
+          clearError: true,
+        );
+      }
       final snapshot = await repository.load(fallback: cached);
-      _applySnapshot(snapshot);
+      _applySnapshot(snapshot, isSyncing: false);
 
       final membersFuture = _orDefault(
-        repository.loadMembers(),
-        const <MemberProfile>[],
+        repository.loadMembers().timeout(_initialSyncTimeout),
+        state.members,
       );
       final announcementsFuture = _orDefault(
-        repository.loadAnnouncements(),
-        const <AnnouncementItem>[],
+        repository.loadAnnouncements().timeout(_initialSyncTimeout),
+        state.announcements,
       );
       final operationsFuture = _orDefault(
-        repository.loadOperations(),
-        const <OperationAssignment>[],
+        repository.loadOperations().timeout(_initialSyncTimeout),
+        state.operations,
       );
       final campaignFuture = _orDefault<HomecomingCampaign?>(
-        repository.loadActiveHomecomingCampaign(),
-        null,
+        repository.loadActiveHomecomingCampaign().timeout(_initialSyncTimeout),
+        state.homecomingCampaign,
       );
       final ratesFuture = _orDefault(
-        repository.loadAttendanceRates(),
-        const AttendanceRates(),
+        repository.loadAttendanceRates().timeout(_initialSyncTimeout),
+        state.attendanceRates,
       );
       final exchangeBoardFuture = _orDefault(
-        repository.loadOperationExchangeBoard(),
-        const <OperationAssignment>[],
+        repository.loadOperationExchangeBoard().timeout(_initialSyncTimeout),
+        state.operationExchangeBoard,
       );
       final swapRequestsFuture = _orDefault(
-        repository.loadOperationSwapRequests(),
-        const <OperationSwapRequest>[],
+        repository.loadOperationSwapRequests().timeout(_initialSyncTimeout),
+        state.operationSwapRequests,
       );
       state = state.copyWith(
         members: await membersFuture,
@@ -151,14 +162,18 @@ class LockerController extends StateNotifier<LockerState> {
       });
       // 관리자가 IB 운영표를 올리면 내 배정이 실시간으로 도착한다.
       // 재접속 없이 홈·일정·운영 화면에 바로 반영되게 한다.
-      _operationAssignmentChannel ??= repository.subscribeToOperationAssignments(
-        (record) {
-          unawaited(_mergeRealtimeOperations(repository, record));
-        },
-      );
+      _operationAssignmentChannel ??= repository
+          .subscribeToOperationAssignments((record) {
+            unawaited(_mergeRealtimeOperations(repository, record));
+          });
     } on Object catch (error, stackTrace) {
       debugPrint('ENCBA data sync failed: $error\n$stackTrace');
-      state = state.copyWith(isReady: true, error: '서버 데이터를 불러오지 못했습니다.');
+      state = state.copyWith(
+        isReady: true,
+        isSyncing: false,
+        isOfflineCache: true,
+        error: '서버 데이터를 불러오지 못했습니다.',
+      );
     }
   }
 
@@ -231,7 +246,7 @@ class LockerController extends StateNotifier<LockerState> {
     );
   }
 
-  void _applySnapshot(LockerSnapshot snapshot) {
+  void _applySnapshot(LockerSnapshot snapshot, {required bool isSyncing}) {
     state = state.copyWith(
       isReady: true,
       events: snapshot.events,
@@ -240,6 +255,7 @@ class LockerController extends StateNotifier<LockerState> {
       likedVideoIds: snapshot.likedVideoIds,
       hasMoreEvents: snapshot.hasMoreEvents,
       isOfflineCache: snapshot.fromCache,
+      isSyncing: isSyncing,
       clearError: true,
     );
   }
@@ -586,6 +602,38 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
+  Future<bool> assignHomecomingContact({
+    required HomecomingContact contact,
+    MemberProfile? member,
+  }) async {
+    final repository = _repository;
+    if (repository == null) return false;
+    final previous = state.homecomingContacts;
+    final updated = contact.assignedTo(id: member?.id, name: member?.name);
+    state = state.copyWith(
+      homecomingContacts: previous
+          .map((item) => item.id == contact.id ? updated : item)
+          .toList(growable: false),
+    );
+    try {
+      await repository.assignHomecomingContact(
+        id: contact.id,
+        assignedToId: member?.id,
+        assignedToName: member?.name,
+      );
+      return true;
+    } on Object catch (error, stackTrace) {
+      debugPrint(
+        'ENCBA homecoming assignee update failed: $error\n$stackTrace',
+      );
+      state = state.copyWith(
+        homecomingContacts: previous,
+        error: '홈커밍 담당자를 저장하지 못했습니다.',
+      );
+      return false;
+    }
+  }
+
   Future<bool> activateHomecomingCampaign({
     required int academicYear,
     required int term,
@@ -689,9 +737,7 @@ class LockerController extends StateNotifier<LockerState> {
       await repository.deleteHomecomingContact(id);
       return true;
     } on Object catch (error, stackTrace) {
-      debugPrint(
-        'ENCBA homecoming contact delete failed: $error\n$stackTrace',
-      );
+      debugPrint('ENCBA homecoming contact delete failed: $error\n$stackTrace');
       state = state.copyWith(
         homecomingContacts: previous,
         error: '선배 연락처를 삭제하지 못했습니다.',
@@ -1336,8 +1382,9 @@ class LockerController extends StateNotifier<LockerState> {
   }
 
   /// 영상 상세 화면에서 별점 현황을 읽어 온다.
-  Future<({int myStars, double average, int count})?>
-  loadVideoRating(String videoId) async {
+  Future<({int myStars, double average, int count})?> loadVideoRating(
+    String videoId,
+  ) async {
     final repository = _repository;
     if (repository == null) return null;
     return _orDefault(repository.loadVideoRating(videoId), null);
@@ -1504,19 +1551,13 @@ class LockerController extends StateNotifier<LockerState> {
 List<VideoItem> _seedVideos() {
   final now = DateTime.now();
   return [
-    for (final (index, code) in [
-      'Db2nVhDz4Fq',
-      'DajgzpRTc4e',
-      'DZDMprWogCr',
-      'DXPE0fsEwcm',
-      'DTnGCB7E50t',
-    ].indexed)
+    for (final (index, reel) in defaultReelTitlesByShortcode.entries.indexed)
       VideoItem(
-        id: 'instagram-$code',
-        title: 'ENCBA REEL ${index + 1}',
+        id: 'instagram-${reel.key}',
+        title: reel.value,
         durationLabel: '',
         category: '하이라이트',
-        url: 'https://www.instagram.com/reel/$code/',
+        url: 'https://www.instagram.com/reel/${reel.key}/',
         youtubeId: '',
         sourceType: 'instagram',
         uploadedAt: now.subtract(Duration(days: index)),
@@ -1549,6 +1590,15 @@ List<VideoItem> _seedVideos() {
     ),
   ];
 }
+
+@visibleForTesting
+const defaultReelTitlesByShortcode = {
+  'Db2nVhDz4Fq': 'Kusf 하이라이트 - 진격의 엔크바',
+  'DajgzpRTc4e': '엔크바 1학기 외부대회 하이라이트',
+  'DZDMprWogCr': '살짝 꼬니까 다 들어가네?',
+  'DXPE0fsEwcm': '서울대 대표 농친자들, 엔크바의 귀염뽀짝한 24시간',
+  'DTnGCB7E50t': '2025 The Process 엔크바 하이라이트',
+};
 
 List<MemberProfile> _seedMembers() => const [
   MemberProfile(

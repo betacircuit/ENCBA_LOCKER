@@ -477,18 +477,28 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
     try {
       final parsed = await HomecomingImportService().pickAndParse();
       if (parsed == null || !mounted) return;
-      final selectedAssignees = await _selectHomecomingAssignees(
+      final assigneeSelection = await _selectHomecomingAssignees(
         parsed.rows,
         parsed.sheetName,
         parsed.warnings,
       );
-      if (!mounted || selectedAssignees == null) return;
+      if (!mounted || assigneeSelection == null) return;
       final selectedRows = parsed.rows
           .where(
-            (row) => selectedAssignees.contains(
+            (row) => assigneeSelection.assignees.containsKey(
               (row['assigned_to_name'] as String?)?.trim() ?? '담당 미지정',
             ),
           )
+          .map((row) {
+            final sourceName =
+                (row['assigned_to_name'] as String?)?.trim() ?? '담당 미지정';
+            final member = assigneeSelection.assignees[sourceName];
+            return <String, dynamic>{
+              ...row,
+              'assigned_to_id': member?.id,
+              'assigned_to_name': member?.name,
+            };
+          })
           .toList(growable: false);
       final ok = await ref
           .read(lockerControllerProvider.notifier)
@@ -514,7 +524,7 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
     }
   }
 
-  Future<Set<String>?> _selectHomecomingAssignees(
+  Future<HomecomingAssigneeSelection?> _selectHomecomingAssignees(
     List<Map<String, dynamic>> rows,
     String sheetName,
     List<String> warnings,
@@ -523,113 +533,20 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
         .read(lockerControllerProvider.notifier)
         .loadAllMembersForAccountCheck();
     if (!mounted) return null;
-    final memberByName = {for (final member in members) member.name: member};
     final counts = <String, int>{};
     for (final row in rows) {
       final name = (row['assigned_to_name'] as String?)?.trim();
       final key = name == null || name.isEmpty ? '담당 미지정' : name;
       counts.update(key, (value) => value + 1, ifAbsent: () => 1);
     }
-    final names = counts.keys.toList()..sort();
-    final selected = names.toSet();
-    return showDialog<Set<String>>(
+    return showDialog<HomecomingAssigneeSelection>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text('$sheetName · 담당자 선택 등록'),
-          content: SizedBox(
-            width: 520,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('${rows.length}명의 선배 연락처를 읽었습니다.'),
-                if (warnings.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    warnings.join('\n'),
-                    style: const TextStyle(
-                      color: EncbaColors.late,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    TextButton(
-                      onPressed: () => setDialogState(() {
-                        selected
-                          ..clear()
-                          ..addAll(names);
-                      }),
-                      child: const Text('전체 선택'),
-                    ),
-                    TextButton(
-                      onPressed: () => setDialogState(() {
-                        selected
-                          ..clear()
-                          ..addAll(
-                            names.where((name) {
-                              final member = memberByName[name];
-                              return member?.hasRegisteredAccount == true &&
-                                  member?.isActive == true;
-                            }),
-                          );
-                      }),
-                      child: const Text('활성 계정만'),
-                    ),
-                  ],
-                ),
-                SizedBox(
-                  height: 300,
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: names
-                        .map((name) {
-                          final member = memberByName[name];
-                          final status =
-                              member == null || !member.hasRegisteredAccount
-                              ? '계정 미등록'
-                              : member.isActive
-                              ? '활성 계정'
-                              : '비활성 계정';
-                          return CheckboxListTile(
-                            dense: true,
-                            value: selected.contains(name),
-                            title: Text('$name · ${counts[name]}명'),
-                            subtitle: Text(status),
-                            onChanged: (checked) => setDialogState(() {
-                              checked == true
-                                  ? selected.add(name)
-                                  : selected.remove(name);
-                            }),
-                          );
-                        })
-                        .toList(growable: false),
-                  ),
-                ),
-                const Text(
-                  '선택한 담당자 그룹만 새 연락망으로 등록됩니다. 비활성·미등록 계정은 앱으로 배정이 전달되지 않을 수 있습니다.',
-                  style: TextStyle(color: EncbaColors.muted, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('취소'),
-            ),
-            FilledButton(
-              onPressed: selected.isEmpty
-                  ? null
-                  : () => Navigator.pop(dialogContext, Set.of(selected)),
-              child: Text('${selected.length}개 그룹 등록'),
-            ),
-          ],
-        ),
+      builder: (dialogContext) => HomecomingAssigneeSelectionDialog(
+        sheetName: sheetName,
+        contactCount: rows.length,
+        warnings: warnings,
+        counts: counts,
+        members: members,
       ),
     );
   }
@@ -703,7 +620,9 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
-        SnackBar(content: Text(locked ? '홈커밍 연락 보드를 잠갔습니다.' : '홈커밍을 잠그지 못했습니다.')),
+        SnackBar(
+          content: Text(locked ? '홈커밍 연락 보드를 잠갔습니다.' : '홈커밍을 잠그지 못했습니다.'),
+        ),
       );
   }
 }
@@ -837,18 +756,18 @@ $report''';
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
-      SnackBar(
-        content: Text(
-          opened
-              ? kIsWeb
-                    ? '자동 전송에 실패해 Gmail 작성창을 열었습니다.'
-                    : '자동 전송에 실패해 메일 앱을 열었습니다.'
-              : kIsWeb
-              ? 'Gmail을 열지 못했습니다. 팝업 차단을 확인해 주세요.'
-              : '메일 앱을 열지 못했습니다. legojmon@snu.ac.kr로 보내 주세요.',
+        SnackBar(
+          content: Text(
+            opened
+                ? kIsWeb
+                      ? '자동 전송에 실패해 Gmail 작성창을 열었습니다.'
+                      : '자동 전송에 실패해 메일 앱을 열었습니다.'
+                : kIsWeb
+                ? 'Gmail을 열지 못했습니다. 팝업 차단을 확인해 주세요.'
+                : '메일 앱을 열지 못했습니다. legojmon@snu.ac.kr로 보내 주세요.',
+          ),
         ),
-      ),
-    );
+      );
   }
 }
 
@@ -1006,5 +925,244 @@ Future<void> _confirmSignOut(BuildContext context, WidgetRef ref) async {
   );
   if (accepted == true) {
     await ref.read(authControllerProvider.notifier).signOut();
+  }
+}
+
+class HomecomingAssigneeSelection {
+  const HomecomingAssigneeSelection(this.assignees);
+
+  /// 키는 엑셀에 적힌 담당자 표기이며, 값은 실제 회원 전체 이름으로 확인된 계정이다.
+  /// null 값은 관리자가 명시적으로 '담당 미지정'을 선택한 그룹이다.
+  final Map<String, MemberProfile?> assignees;
+}
+
+class HomecomingAssigneeSelectionDialog extends StatefulWidget {
+  const HomecomingAssigneeSelectionDialog({
+    required this.sheetName,
+    required this.contactCount,
+    required this.warnings,
+    required this.counts,
+    required this.members,
+    super.key,
+  });
+
+  final String sheetName;
+  final int contactCount;
+  final List<String> warnings;
+  final Map<String, int> counts;
+  final List<MemberProfile> members;
+
+  @override
+  State<HomecomingAssigneeSelectionDialog> createState() =>
+      _HomecomingAssigneeSelectionDialogState();
+}
+
+class _HomecomingAssigneeSelectionDialogState
+    extends State<HomecomingAssigneeSelectionDialog> {
+  static const _unassigned = '__unassigned__';
+  late final List<String> _sourceNames;
+  late final List<MemberProfile> _members;
+  late final Map<String, MemberProfile> _memberById;
+  late final Set<String> _selected;
+  final Map<String, String> _choices = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _sourceNames = widget.counts.keys.toList()..sort();
+    _members =
+        widget.members.where((member) => member.hasRegisteredAccount).toList()
+          ..sort((left, right) {
+            final byName = left.name.compareTo(right.name);
+            return byName != 0
+                ? byName
+                : left.studentId.compareTo(right.studentId);
+          });
+    _memberById = {
+      for (final member in _members)
+        if (member.id != null) member.id!: member,
+    };
+    _selected = _sourceNames.toSet();
+    for (final sourceName in _sourceNames) {
+      if (sourceName == '담당 미지정') {
+        _choices[sourceName] = _unassigned;
+        continue;
+      }
+      final automatic = _automaticChoice(sourceName);
+      if (automatic != null) _choices[sourceName] = automatic;
+    }
+  }
+
+  String? _automaticChoice(String sourceName) {
+    final alias = sourceName.replaceAll(RegExp(r'\s+'), '');
+    if (alias.length < 2) return null;
+    final exact = _members
+        .where((member) => member.name.replaceAll(RegExp(r'\s+'), '') == alias)
+        .toList(growable: false);
+    final candidates = exact.isNotEmpty
+        ? exact
+        : _members
+              .where(
+                (member) =>
+                    member.name.replaceAll(RegExp(r'\s+'), '').endsWith(alias),
+              )
+              .toList(growable: false);
+    final active = candidates.where((member) => member.isActive).toList();
+    final match = active.length == 1
+        ? active.single
+        : candidates.length == 1
+        ? candidates.single
+        : null;
+    return match?.id;
+  }
+
+  String _memberLabel(MemberProfile member) {
+    final account = member.isActive ? '활성' : '비활성';
+    return '${member.name} · ${member.studentId} · $account';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final unresolved = _selected
+        .where((sourceName) => !_choices.containsKey(sourceName))
+        .length;
+    return AlertDialog(
+      scrollable: true,
+      title: Text('${widget.sheetName} · 담당자 선택 등록'),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${widget.contactCount}명의 선배 연락처를 읽었습니다.'),
+            if (widget.warnings.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                widget.warnings.join('\n'),
+                style: const TextStyle(color: EncbaColors.late, fontSize: 12),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton(
+                  onPressed: () => setState(() {
+                    _selected
+                      ..clear()
+                      ..addAll(_sourceNames);
+                  }),
+                  child: const Text('전체 선택'),
+                ),
+                TextButton(
+                  onPressed: () => setState(() {
+                    _selected
+                      ..clear()
+                      ..addAll(
+                        _sourceNames.where((sourceName) {
+                          final member = _memberById[_choices[sourceName]];
+                          return member?.isActive == true;
+                        }),
+                      );
+                  }),
+                  child: const Text('활성 계정만'),
+                ),
+              ],
+            ),
+            for (final sourceName in _sourceNames) ...[
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                value: _selected.contains(sourceName),
+                title: Text('$sourceName · ${widget.counts[sourceName]}명'),
+                subtitle: Text(
+                  !_selected.contains(sourceName)
+                      ? '가져오지 않음'
+                      : !_choices.containsKey(sourceName)
+                      ? '전체 이름을 선택해 주세요.'
+                      : _choices[sourceName] == _unassigned
+                      ? '담당 미지정으로 등록'
+                      : _memberLabel(_memberById[_choices[sourceName]]!),
+                  style: TextStyle(
+                    color:
+                        _selected.contains(sourceName) &&
+                            !_choices.containsKey(sourceName)
+                        ? EncbaColors.absent
+                        : EncbaColors.muted,
+                  ),
+                ),
+                onChanged: (checked) => setState(() {
+                  checked == true
+                      ? _selected.add(sourceName)
+                      : _selected.remove(sourceName);
+                }),
+              ),
+              if (_selected.contains(sourceName))
+                Padding(
+                  padding: const EdgeInsets.only(left: 12, right: 4, bottom: 8),
+                  child: DropdownButtonFormField<String>(
+                    key: ValueKey('homecoming-assignee-$sourceName'),
+                    initialValue: _choices[sourceName],
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: '실제 담당자 전체 이름',
+                    ),
+                    items: [
+                      const DropdownMenuItem(
+                        value: _unassigned,
+                        child: Text('담당 미지정'),
+                      ),
+                      for (final member in _members)
+                        DropdownMenuItem(
+                          value: member.id,
+                          child: Text(
+                            _memberLabel(member),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _choices[sourceName] = value);
+                    },
+                  ),
+                ),
+              const Divider(height: 1),
+            ],
+            const SizedBox(height: 12),
+            const Text(
+              '엑셀의 짧은 이름은 저장하지 않습니다. 실제 회원을 고르면 전체 이름과 계정으로 배정되며, 동명이인은 학번을 보고 구분할 수 있습니다.',
+              style: TextStyle(color: EncbaColors.muted, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: _selected.isEmpty || unresolved > 0
+              ? null
+              : () {
+                  final result = <String, MemberProfile?>{};
+                  for (final sourceName in _selected) {
+                    final choice = _choices[sourceName]!;
+                    result[sourceName] = choice == _unassigned
+                        ? null
+                        : _memberById[choice];
+                  }
+                  Navigator.pop(context, HomecomingAssigneeSelection(result));
+                },
+          child: Text(
+            unresolved > 0
+                ? '$unresolved개 담당자 확인 필요'
+                : '${_selected.length}개 그룹 등록',
+          ),
+        ),
+      ],
+    );
   }
 }

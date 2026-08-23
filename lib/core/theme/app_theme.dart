@@ -25,7 +25,9 @@ String encbaFontFor(String text, {bool display = false}) {
   return 'BlackHanSans';
 }
 
-const encbaFontFallback = <String>['GowunDodum', 'Arial'];
+// Jua에 없는 글자는 플랫폼 기본 글꼴로 폴백한다. 7MB에 가까운
+// GowunDodum 전체 글꼴을 첫 화면에서 내려받지 않도록 별도 번들을 뺀다.
+const encbaFontFallback = <String>['Arial'];
 
 TextStyle? _fallback(TextStyle? style) =>
     style?.copyWith(fontFamilyFallback: encbaFontFallback);

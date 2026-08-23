@@ -57,6 +57,7 @@ class SupabaseLockerRepository {
   final LocalStore _store;
   static const int eventPageSize = 20;
   static const int videoPageSize = 30;
+  static const _initialReadTimeout = Duration(seconds: 6);
   static const _announcementSelection =
       'id,title,body,pinned,is_urgent,published_at,image_url,poll_options,'
       'poll_question,'
@@ -96,31 +97,37 @@ class SupabaseLockerRepository {
   Future<LockerSnapshot> load({LockerSnapshot? fallback}) async {
     final todayStartsAt = encbaDayStartsAtUtc(DateTime.now()).toIso8601String();
     final cached = fallback ?? await _readCache();
+    var usedFallback = false;
+    void markFallback() => usedFallback = true;
     final eventFuture = _orFallback<({List<LockerEvent> events, bool hasMore})>(
       _loadEventPage(
         todayStartsAt: todayStartsAt,
         offset: 0,
         limit: eventPageSize,
         includeLocked: true,
-      ),
+      ).timeout(_initialReadTimeout),
       (
         events: cached?.events ?? const <LockerEvent>[],
         hasMore: cached?.hasMoreEvents ?? false,
       ),
       debugLabel: 'events',
+      onFallback: markFallback,
     );
     final attendanceFuture = _orFallback<Map<String, String>>(
-      _loadMyAttendance(),
+      _loadMyAttendance().timeout(_initialReadTimeout),
       cached?.attendance ?? const <String, String>{},
+      onFallback: markFallback,
     );
     final videosFuture = _orFallback<List<VideoItem>>(
-      _loadVideos(),
+      _loadVideos().timeout(_initialReadTimeout),
       cached?.videos ?? const <VideoItem>[],
       debugLabel: 'videos',
+      onFallback: markFallback,
     );
     final likesFuture = _orFallback<Set<String>>(
-      _loadLikedVideoIds(),
+      _loadLikedVideoIds().timeout(_initialReadTimeout),
       cached?.likedVideoIds ?? const <String>{},
+      onFallback: markFallback,
     );
 
     final eventPage = await eventFuture;
@@ -133,7 +140,7 @@ class SupabaseLockerRepository {
       videos: videos,
       likedVideoIds: likes,
       hasMoreEvents: eventPage.hasMore,
-      fromCache: cached != null && identical(eventPage.events, cached.events),
+      fromCache: usedFallback,
     );
     unawaited(
       _cache(snapshot).catchError((Object _) {
@@ -322,10 +329,12 @@ class SupabaseLockerRepository {
     Future<T> future,
     T fallback, {
     String? debugLabel,
+    VoidCallback? onFallback,
   }) async {
     try {
       return await future;
     } on Object catch (error) {
+      onFallback?.call();
       if (debugLabel != null) {
         debugPrint('Supabase $debugLabel load failed: $error');
       }
@@ -383,8 +392,7 @@ class SupabaseLockerRepository {
   }
 
   /// avatars 버킷은 public이므로 경로만 있으면 공개 URL을 만들 수 있다.
-  String? _avatarPublicUrl(String? path) =>
-      path == null || path.isEmpty
+  String? _avatarPublicUrl(String? path) => path == null || path.isEmpty
       ? null
       : _client.storage.from('avatars').getPublicUrl(path);
 
@@ -1165,6 +1173,15 @@ class SupabaseLockerRepository {
             : null,
       })
       .eq('id', contact.id);
+
+  Future<void> assignHomecomingContact({
+    required String id,
+    String? assignedToId,
+    String? assignedToName,
+  }) => _client
+      .from('homecoming_contacts')
+      .update({'assigned_to': assignedToId, 'assigned_to_name': assignedToName})
+      .eq('id', id);
 
   Future<HomecomingCampaign?> loadActiveHomecomingCampaign() async {
     final rows = await _client

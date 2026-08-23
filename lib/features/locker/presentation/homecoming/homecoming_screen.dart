@@ -157,9 +157,6 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
               (contact) => _HomecomingContactListTile(
                 contact: contact,
                 onTap: () => _showContact(contact, campaign, isAdmin),
-                onDelete: isAdmin
-                    ? () => _confirmDeleteContact(contact)
-                    : null,
               ),
             ),
           ],
@@ -176,11 +173,19 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (context) => _HomecomingContactDetailSheet(
+    builder: (sheetContext) => _HomecomingContactDetailSheet(
       contactId: contact.id,
       campaign: campaign,
       isAdmin: isAdmin,
       onSendSms: _sendSms,
+      onDelete: !isAdmin
+          ? null
+          : (current) async {
+              final deleted = await _confirmDeleteContact(current);
+              if (deleted && sheetContext.mounted) {
+                Navigator.pop(sheetContext);
+              }
+            },
     ),
   );
 
@@ -236,10 +241,12 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
                   ],
                   onChanged: (value) => setDialogState(() {
                     assignedToId = value ?? '';
-                    assignedToName = members
-                        .where((member) => member.id == value)
-                        .map((member) => member.name)
-                        .firstOrNull ?? '';
+                    assignedToName =
+                        members
+                            .where((member) => member.id == value)
+                            .map((member) => member.name)
+                            .firstOrNull ??
+                        '';
                   }),
                 ),
               ],
@@ -288,7 +295,7 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
     );
   }
 
-  Future<void> _confirmDeleteContact(HomecomingContact contact) async {
+  Future<bool> _confirmDeleteContact(HomecomingContact contact) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -306,16 +313,17 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted) return false;
     final deleted = await ref
         .read(lockerControllerProvider.notifier)
         .deleteHomecomingContact(contact.id);
-    if (!mounted) return;
+    if (!mounted) return deleted;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
         SnackBar(content: Text(deleted ? '삭제했습니다.' : '삭제하지 못했습니다.')),
       );
+    return deleted;
   }
 
   Future<void> _sendSms(
@@ -334,9 +342,7 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
     // in the text message instead of spaces/line breaks. Build the query
     // string manually with `Uri.encodeComponent`, which encodes spaces as
     // `%20` and newlines as `%0A`, so the Messages app renders real spaces.
-    final uri = Uri.parse(
-      'sms:${Uri.encodeComponent(contact.phone)}?body=${Uri.encodeComponent(body)}',
-    );
+    final uri = buildHomecomingSmsUri(phone: contact.phone, body: body);
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
@@ -373,14 +379,10 @@ class _HomecomingContactListTile extends StatelessWidget {
   const _HomecomingContactListTile({
     required this.contact,
     required this.onTap,
-    this.onDelete,
   });
 
   final HomecomingContact contact;
   final VoidCallback onTap;
-
-  /// 관리자에게만 전달된다. null이면 삭제 버튼을 보여주지 않는다.
-  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -414,22 +416,7 @@ class _HomecomingContactListTile extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
-        trailing: onDelete == null
-            ? const Icon(Icons.chevron_right_rounded)
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: '삭제',
-                    onPressed: onDelete,
-                    icon: const Icon(
-                      Icons.delete_outline_rounded,
-                      color: EncbaColors.absent,
-                    ),
-                  ),
-                  const Icon(Icons.chevron_right_rounded),
-                ],
-              ),
+        trailing: const Icon(Icons.chevron_right_rounded),
       ),
     ),
   );
@@ -441,12 +428,14 @@ class _HomecomingContactDetailSheet extends ConsumerWidget {
     required this.campaign,
     required this.isAdmin,
     required this.onSendSms,
+    this.onDelete,
   });
 
   final String contactId;
   final HomecomingCampaign campaign;
   final bool isAdmin;
   final Future<void> Function(HomecomingContact, HomecomingCampaign) onSendSms;
+  final Future<void> Function(HomecomingContact)? onDelete;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -509,6 +498,16 @@ class _HomecomingContactDetailSheet extends ConsumerWidget {
                             color: EncbaColors.snuBlue,
                             fontSize: 12,
                           ),
+                        ),
+                      if (isAdmin)
+                        TextButton.icon(
+                          onPressed: () => _editAssignee(context, ref, contact),
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          icon: const Icon(Icons.manage_accounts_outlined),
+                          label: const Text('담당자 수정'),
                         ),
                     ],
                   ),
@@ -635,6 +634,17 @@ class _HomecomingContactDetailSheet extends ConsumerWidget {
                     ),
                   ),
                 ),
+                if (onDelete != null) ...[
+                  const Divider(height: 28),
+                  OutlinedButton.icon(
+                    onPressed: () => onDelete!(contact),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: EncbaColors.absent,
+                    ),
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    label: const Text('선배 삭제'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -680,7 +690,99 @@ class _HomecomingContactDetailSheet extends ConsumerWidget {
     );
     if (value != null) await _save(ref, contact.copyWith(notes: value));
   }
+
+  Future<void> _editAssignee(
+    BuildContext context,
+    WidgetRef ref,
+    HomecomingContact contact,
+  ) async {
+    final members =
+        (await ref
+                .read(lockerControllerProvider.notifier)
+                .loadAllMembersForAccountCheck())
+            .where((member) => member.hasRegisteredAccount)
+            .toList()
+          ..sort((left, right) {
+            final byName = left.name.compareTo(right.name);
+            return byName != 0
+                ? byName
+                : left.studentId.compareTo(right.studentId);
+          });
+    if (!context.mounted) return;
+    final result = await showDialog<_HomecomingAssigneeEditResult>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        scrollable: true,
+        title: Text('${contact.name} 선배 담당자'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: Icon(
+                  contact.assignedToId == null
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                ),
+                title: const Text('담당 미지정'),
+                onTap: () => Navigator.pop(
+                  dialogContext,
+                  const _HomecomingAssigneeEditResult(null),
+                ),
+              ),
+              for (final member in members)
+                ListTile(
+                  leading: Icon(
+                    contact.assignedToId == member.id
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                  ),
+                  title: Text(member.name),
+                  subtitle: Text(
+                    '${member.studentId} · ${member.isActive ? '활성' : '비활성'}',
+                  ),
+                  onTap: () => Navigator.pop(
+                    dialogContext,
+                    _HomecomingAssigneeEditResult(member),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('취소'),
+          ),
+        ],
+      ),
+    );
+    if (result == null || !context.mounted) return;
+    final saved = await ref
+        .read(lockerControllerProvider.notifier)
+        .assignHomecomingContact(contact: contact, member: result.member);
+    if (!context.mounted || saved) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(const SnackBar(content: Text('담당자를 저장하지 못했습니다.')));
+  }
 }
+
+class _HomecomingAssigneeEditResult {
+  const _HomecomingAssigneeEditResult(this.member);
+
+  final MemberProfile? member;
+}
+
+@visibleForTesting
+Uri buildHomecomingSmsUri({required String phone, required String body}) => Uri(
+  scheme: 'sms',
+  path: phone,
+  // Uri.queryParameters는 공백을 '+'로 바꾸는 폼 인코딩을 사용한다.
+  // SMS 본문은 폼 데이터가 아니므로 공백과 줄바꿈을 직접 percent-encode한다.
+  query: 'body=${Uri.encodeComponent(body)}',
+);
 
 Color _homecomingStatusColor(String status) => switch (status) {
   'confirmed' => EncbaColors.attending,

@@ -9,6 +9,7 @@ class LockerUiState {
     this.memberSegment = 0,
     this.unreadNotifications = 0,
     this.isOfflineCache = false,
+    this.isSyncing = false,
     this.error,
   });
 
@@ -19,6 +20,7 @@ class LockerUiState {
   final int memberSegment;
   final int unreadNotifications;
   final bool isOfflineCache;
+  final bool isSyncing;
   final String? error;
 }
 
@@ -120,6 +122,7 @@ class LockerState {
     bool hasMoreEvents = false,
     bool isLoadingMoreEvents = false,
     bool isOfflineCache = false,
+    bool isSyncing = false,
     String? error,
   }) : ui = LockerUiState(
          isReady: isReady,
@@ -129,6 +132,7 @@ class LockerState {
          memberSegment: memberSegment,
          unreadNotifications: unreadNotifications,
          isOfflineCache: isOfflineCache,
+         isSyncing: isSyncing,
          error: error,
        ),
        eventsState = LockerEventsState(
@@ -178,6 +182,7 @@ class LockerState {
   int get memberSegment => ui.memberSegment;
   int get unreadNotifications => ui.unreadNotifications;
   bool get isOfflineCache => ui.isOfflineCache;
+  bool get isSyncing => ui.isSyncing;
   String? get error => ui.error;
   Map<String, String> get attendance => eventsState.attendance;
   List<LockerEvent> get events => eventsState.events;
@@ -237,6 +242,7 @@ class LockerState {
     bool? hasMoreEvents,
     bool? isLoadingMoreEvents,
     bool? isOfflineCache,
+    bool? isSyncing,
     String? error,
     bool clearError = false,
   }) {
@@ -248,6 +254,7 @@ class LockerState {
         memberSegment != null ||
         unreadNotifications != null ||
         isOfflineCache != null ||
+        isSyncing != null ||
         error != null ||
         clearError;
     final eventsChanged =
@@ -283,6 +290,7 @@ class LockerState {
               unreadNotifications:
                   unreadNotifications ?? this.unreadNotifications,
               isOfflineCache: isOfflineCache ?? this.isOfflineCache,
+              isSyncing: isSyncing ?? this.isSyncing,
               error: clearError ? null : error ?? this.error,
             )
           : ui,

@@ -42,11 +42,18 @@ part 'operations/operations_screens.dart';
 part 'homecoming/homecoming_screen.dart';
 part 'shared/shared_widgets.dart';
 
-class LockerShell extends ConsumerWidget {
+class LockerShell extends ConsumerStatefulWidget {
   const LockerShell({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LockerShell> createState() => _LockerShellState();
+}
+
+class _LockerShellState extends ConsumerState<LockerShell> {
+  final Set<int> _visitedTabs = {};
+
+  @override
+  Widget build(BuildContext context) {
     ref.listen<String?>(
       lockerControllerProvider.select((state) => state.error),
       (previous, next) {
@@ -111,14 +118,88 @@ class LockerShell extends ConsumerWidget {
     final selectedTab =
         LockerTab.fromPath(GoRouterState.of(context).matchedLocation) ??
         LockerTab.home;
+    _visitedTabs.add(selectedTab.index);
+    final syncStatus = ref.watch(
+      lockerControllerProvider.select(
+        (state) =>
+            (isSyncing: state.isSyncing, isOfflineCache: state.isOfflineCache),
+      ),
+    );
     return Scaffold(
-      body: IndexedStack(index: selectedTab.index, children: pages),
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            if (syncStatus.isSyncing || syncStatus.isOfflineCache)
+              _SyncStatusBar(
+                isSyncing: syncStatus.isSyncing,
+                onRetry: () =>
+                    ref.read(lockerControllerProvider.notifier).reload(),
+              ),
+            Expanded(
+              child: IndexedStack(
+                index: selectedTab.index,
+                children: [
+                  for (var index = 0; index < pages.length; index++)
+                    if (_visitedTabs.contains(index))
+                      pages[index]
+                    else
+                      const SizedBox.shrink(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
       bottomNavigationBar: _SlidingNavigationBar(
         selectedIndex: selectedTab.index,
         onSelected: (index) => context.go(LockerTab.values[index].path),
       ),
     );
   }
+}
+
+class _SyncStatusBar extends StatelessWidget {
+  const _SyncStatusBar({required this.isSyncing, required this.onRetry});
+
+  final bool isSyncing;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: EncbaColors.highlight,
+    child: SizedBox(
+      height: 40,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            if (isSyncing) ...[
+              const SizedBox.square(
+                dimension: 15,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 10),
+            ],
+            Expanded(
+              child: Text(
+                isSyncing
+                    ? '저장된 화면을 먼저 열고 최신 데이터를 동기화 중입니다.'
+                    : '연결이 불안정해 저장된 데이터를 표시하고 있습니다.',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: EncbaColors.navy),
+              ),
+            ),
+            if (!isSyncing)
+              TextButton(onPressed: onRetry, child: const Text('다시 시도')),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _SlidingNavigationBar extends StatelessWidget {

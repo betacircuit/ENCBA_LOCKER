@@ -26,6 +26,19 @@ void main() {
     expect(identical(next.operationsState, state.operationsState), isTrue);
   });
 
+  test('동기화 상태 변경은 UI 상태만 새 객체로 교체한다', () {
+    final state = LockerState(isReady: true);
+
+    final next = state.copyWith(isSyncing: true);
+
+    expect(next.isSyncing, isTrue);
+    expect(identical(next.ui, state.ui), isFalse);
+    expect(identical(next.eventsState, state.eventsState), isTrue);
+    expect(identical(next.videosState, state.videosState), isTrue);
+    expect(identical(next.membersState, state.membersState), isTrue);
+    expect(identical(next.operationsState, state.operationsState), isTrue);
+  });
+
   test('컨트롤러의 영상 좋아요는 영상 상태와 개수만 갱신한다', () async {
     final controller = LockerController.seeded();
     addTearDown(controller.dispose);

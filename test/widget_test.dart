@@ -33,6 +33,54 @@ void main() {
     expect(encbaFontFor('일정'), 'Jua');
   });
 
+  testWidgets('첫 진입에서는 선택한 탭만 만들고 방문한 탭은 유지한다', (tester) async {
+    await tester.pumpWidget(
+      _signedInApp(
+        const LockerShell(),
+        lockerState: LockerState(isReady: true),
+        initialLocation: '/home',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(find.byType(VideosScreen), findsNothing);
+    expect(find.byType(GamesScreen), findsNothing);
+    expect(find.byType(ScheduleScreen), findsNothing);
+    expect(find.byType(ProfileScreen), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.play_circle_outline_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(VideosScreen), findsOneWidget);
+    expect(find.byType(HomeScreen, skipOffstage: false), findsOneWidget);
+  });
+
+  testWidgets('동기화와 오프라인 캐시 상태를 화면에 구분해 표시한다', (tester) async {
+    await tester.pumpWidget(
+      _signedInApp(
+        const LockerShell(),
+        lockerState: LockerState(isReady: true, isSyncing: true),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('저장된 화면을 먼저 열고 최신 데이터를 동기화 중입니다.'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await tester.pumpWidget(
+      _signedInApp(
+        const LockerShell(),
+        lockerState: LockerState(isReady: true, isOfflineCache: true),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('연결이 불안정해 저장된 데이터를 표시하고 있습니다.'), findsOneWidget);
+    expect(find.text('다시 시도'), findsOneWidget);
+  });
+
   test('참석 마감은 경기는 3시간, 그 외 일정은 1시간 전이다', () {
     final start = DateTime(2026, 9, 1, 18);
     LockerEvent event(EventKind kind) => LockerEvent(
@@ -347,6 +395,169 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('다시 잠그기'), findsOneWidget);
+  });
+
+  test('홈커밍 문자 URI는 공백과 줄바꿈을 + 없이 인코딩한다', () {
+    final uri = buildHomecomingSmsUri(
+      phone: '010-1234-5678',
+      body: '김기종 선배님 안녕하십니까?\n감사합니다.',
+    ).toString();
+
+    expect(uri, startsWith('sms:010-1234-5678?body='));
+    expect(uri, contains('%20'));
+    expect(uri, contains('%0A'));
+    expect(uri, isNot(contains('+')));
+  });
+
+  testWidgets('홈커밍 목록의 삭제는 상세 화면을 연 뒤에만 보인다', (tester) async {
+    final campaign = HomecomingCampaign(
+      id: 'homecoming-delete-test',
+      title: '2026년 2학기 홈커밍',
+      academicYear: 2026,
+      term: 2,
+      eventDate: DateTime(2026, 11, 7),
+      startsAt: '14:00:00',
+      endsAt: '18:00:00',
+      venue: '서울대학교 기숙사체육관',
+      isActive: true,
+    );
+    const contact = HomecomingContact(
+      id: 'contact-delete-test',
+      name: '김선배',
+      phone: '010-1111-2222',
+      status: 'pending',
+      generation: 0,
+      assignedToId: 'member-id',
+      assignedToName: '최재원',
+    );
+    await tester.pumpWidget(
+      _signedInApp(
+        const HomecomingScreen(),
+        lockerState: LockerState(
+          isReady: true,
+          homecomingCampaign: campaign,
+          homecomingContacts: const [contact],
+          members: const [
+            MemberProfile(
+              id: '11111111-1111-4111-8111-111111111111',
+              name: '김성준',
+              studentId: '23학번',
+              generation: 42,
+              status: 'YB',
+              position: 'G',
+              teams: ['ENCBA'],
+              note: '',
+            ),
+            MemberProfile(
+              id: '22222222-2222-4222-8222-222222222222',
+              name: '이성준',
+              studentId: '24학번',
+              generation: 43,
+              status: 'YB',
+              position: 'F',
+              teams: ['ENCBA'],
+              note: '',
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('선배 삭제'), findsNothing);
+    expect(find.byTooltip('삭제'), findsNothing);
+    await tester.tap(find.text('김선배 선배님 (미연락)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('담당자 수정'), findsOneWidget);
+    await tester.tap(find.text('담당자 수정'));
+    await tester.pumpAndSettle();
+    expect(find.text('김성준'), findsOneWidget);
+    expect(find.text('23학번 · 활성'), findsOneWidget);
+    expect(find.text('이성준'), findsOneWidget);
+    expect(find.text('24학번 · 활성'), findsOneWidget);
+    await tester.tap(find.text('취소'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('선배 삭제'));
+    await tester.pumpAndSettle();
+    expect(find.text('선배 삭제'), findsOneWidget);
+  });
+
+  testWidgets('홈커밍 담당자 선택은 전체 이름과 학번으로 동명이인을 구분하고 끝까지 스크롤된다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(550, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const members = [
+      MemberProfile(
+        id: '11111111-1111-4111-8111-111111111111',
+        name: '김성준',
+        studentId: '23학번',
+        generation: 42,
+        status: 'YB',
+        position: 'G',
+        teams: ['ENCBA'],
+        note: '',
+      ),
+      MemberProfile(
+        id: '22222222-2222-4222-8222-222222222222',
+        name: '이성준',
+        studentId: '24학번',
+        generation: 43,
+        status: 'YB',
+        position: 'F',
+        teams: ['ENCBA'],
+        note: '',
+      ),
+      MemberProfile(
+        id: '33333333-3333-4333-8333-333333333333',
+        name: '최재원',
+        studentId: '25학번',
+        generation: 44,
+        status: 'YB',
+        position: 'C',
+        teams: ['ENCBA'],
+        note: '',
+      ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: HomecomingAssigneeSelectionDialog(
+          sheetName: '시트1',
+          contactCount: 137,
+          warnings: const [
+            '휴대폰과 집/회사 번호가 모두 없는 5명도 명단에 포함됩니다.',
+            '동명이인으로 보이는 이름 1개가 있습니다.',
+          ],
+          counts: const {
+            '성준': 10,
+            '재원': 11,
+            '준호': 10,
+            '지원': 10,
+            '윤석': 11,
+            '민섭': 11,
+            '우진': 10,
+            '톡방 조사': 52,
+            '담당 미지정': 2,
+          },
+          members: members,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('최재원 · 25학번 · 활성'), findsWidgets);
+    expect(find.textContaining('담당자 확인 필요'), findsOneWidget);
+    await tester.ensureVisible(find.textContaining('엑셀의 짧은 이름은 저장하지 않습니다.'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('엑셀의 짧은 이름은 저장하지 않습니다.'), findsOneWidget);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('homecoming-assignee-성준')),
+    );
+    await tester.tap(find.byKey(const ValueKey('homecoming-assignee-성준')));
+    await tester.pumpAndSettle();
+    expect(find.text('김성준 · 23학번 · 활성'), findsWidgets);
+    expect(find.text('이성준 · 24학번 · 활성'), findsWidgets);
   });
 
   testWidgets('일정 출결은 응답 전에는 어떤 항목도 선택되지 않는다', (tester) async {
@@ -996,10 +1207,7 @@ void main() {
   });
 
   test('운영진은 모두 하이라이트 등록 권한을 가진다', () {
-    final member = testUser.copyWith(
-      isAdmin: false,
-      leadershipRole: 'member',
-    );
+    final member = testUser.copyWith(isAdmin: false, leadershipRole: 'member');
     final manager = testUser.copyWith(
       isAdmin: false,
       leadershipRole: 'manager',

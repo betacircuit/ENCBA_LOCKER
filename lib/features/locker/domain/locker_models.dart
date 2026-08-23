@@ -588,6 +588,8 @@ class HomecomingContact {
     bool? followUpAllowed,
     DateTime? followUpOn,
     String? notes,
+    String? assignedToId,
+    String? assignedToName,
   }) => HomecomingContact(
     id: id,
     name: name,
@@ -601,8 +603,25 @@ class HomecomingContact {
     followUpOn: followUpOn ?? this.followUpOn,
     notes: notes ?? this.notes,
     sourceRow: sourceRow,
-    assignedToId: assignedToId,
-    assignedToName: assignedToName,
+    assignedToId: assignedToId ?? this.assignedToId,
+    assignedToName: assignedToName ?? this.assignedToName,
+  );
+
+  HomecomingContact assignedTo({String? id, String? name}) => HomecomingContact(
+    id: this.id,
+    name: this.name,
+    phone: phone,
+    status: status,
+    generation: generation,
+    parkingRequired: parkingRequired,
+    parkingRegistered: parkingRegistered,
+    homeOrOfficePhone: homeOrOfficePhone,
+    followUpAllowed: followUpAllowed,
+    followUpOn: followUpOn,
+    notes: notes,
+    sourceRow: sourceRow,
+    assignedToId: id,
+    assignedToName: name,
   );
 }
 

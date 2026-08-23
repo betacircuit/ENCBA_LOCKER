@@ -119,6 +119,31 @@ void main() {
     expect(result.warnings.single, contains('원본 파일에서 기수를 확인'));
   });
 
+  test('00학번은 2000학번을 뜻하는 정상 기수로 보존한다', () {
+    final workbook = Excel.createExcel();
+    final sheet = workbook[workbook.getDefaultSheet()!];
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0)).value =
+        TextCellValue('이름');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 0)).value =
+        TextCellValue('학번');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: 0)).value =
+        TextCellValue('휴대폰');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 1)).value =
+        TextCellValue('김영학');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 1)).value =
+        TextCellValue('00');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: 1)).value =
+        TextCellValue('010-1111-2222');
+
+    final result = HomecomingImportService().parseBytes(
+      fileName: '홈커밍.xlsx',
+      bytes: workbook.encode()!,
+    );
+
+    expect(result.rows.single['generation'], 0);
+    expect(result.warnings.where((warning) => warning.contains('기수')), isEmpty);
+  });
+
   test('제공된 실제 홈커밍 연락망의 모든 이름을 보존한다', () {
     const path = r'C:\Users\Jaewon\Downloads\2026-2 홈커밍 연락의 사본.xlsx';
     final file = File(path);
@@ -153,6 +178,16 @@ void main() {
     expect(byAssignee['톡방 조사'], 52);
     expect(byAssignee['윤석'], 11);
     expect(byAssignee['이민섭'], 11);
+    expect(
+      result.rows
+          .where((row) => const {58, 59, 60}.contains(row['source_row']))
+          .map((row) => row['generation']),
+      everyElement(0),
+    );
+    expect(
+      result.warnings.where((warning) => warning.contains('기수 "00"')),
+      isEmpty,
+    );
   });
 
   test('합쳐진 연락 담당 칸을 아래 행까지 이어 붙인다', () {
