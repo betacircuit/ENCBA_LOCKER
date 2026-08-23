@@ -995,7 +995,11 @@ void main() {
     expect(restoredEvent.start.day, restoredEvent.end.day);
   });
 
-  test('매니저만 하이라이트 등록 권한을 가진다', () {
+  test('운영진은 모두 하이라이트 등록 권한을 가진다', () {
+    final member = testUser.copyWith(
+      isAdmin: false,
+      leadershipRole: 'member',
+    );
     final manager = testUser.copyWith(
       isAdmin: false,
       leadershipRole: 'manager',
@@ -1005,8 +1009,9 @@ void main() {
       leadershipRole: 'captain',
     );
 
+    expect(member.canManageHighlights, isFalse);
     expect(manager.canManageHighlights, isTrue);
-    expect(captain.canManageHighlights, isFalse);
+    expect(captain.canManageHighlights, isTrue);
     expect(captain.canAdminister, isTrue);
   });
 

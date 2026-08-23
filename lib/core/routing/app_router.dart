@@ -114,7 +114,10 @@ final List<RouteBase> lockerRoutes = [
   ),
   GoRoute(
     path: '/members',
-    builder: (context, state) => const MemberDirectoryScreen(),
+    builder: (context, state) => MemberDirectoryScreen(
+      startWithPendingOnly:
+          state.uri.queryParameters['pending'] == '1',
+    ),
     routes: [
       GoRoute(
         path: 'report',

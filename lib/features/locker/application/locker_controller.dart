@@ -647,6 +647,59 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
+  /// 관리자가 홈커밍 연락 보드에 선배를 한 명 직접 추가한다.
+  Future<bool> addHomecomingContact({
+    required String name,
+    required String phone,
+    int? generation,
+    String? assignedToId,
+    String? assignedToName,
+  }) async {
+    final campaign = state.homecomingCampaign;
+    final repository = _repository;
+    if (campaign == null || repository == null) return false;
+    try {
+      await repository.addHomecomingContact(
+        campaignId: campaign.id,
+        name: name,
+        phone: phone,
+        generation: generation,
+        assignedToId: assignedToId,
+        assignedToName: assignedToName,
+      );
+      final refreshed = await repository.loadHomecomingContacts();
+      state = state.copyWith(homecomingContacts: refreshed, clearError: true);
+      return true;
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA homecoming contact add failed: $error\n$stackTrace');
+      state = state.copyWith(error: '선배 연락처를 추가하지 못했습니다.');
+      return false;
+    }
+  }
+
+  /// 관리자가 홈커밍 연락 보드에서 선배 카드를 삭제한다.
+  Future<bool> deleteHomecomingContact(String id) async {
+    final repository = _repository;
+    if (repository == null) return false;
+    final previous = state.homecomingContacts;
+    state = state.copyWith(
+      homecomingContacts: previous.where((item) => item.id != id).toList(),
+    );
+    try {
+      await repository.deleteHomecomingContact(id);
+      return true;
+    } on Object catch (error, stackTrace) {
+      debugPrint(
+        'ENCBA homecoming contact delete failed: $error\n$stackTrace',
+      );
+      state = state.copyWith(
+        homecomingContacts: previous,
+        error: '선배 연락처를 삭제하지 못했습니다.',
+      );
+      return false;
+    }
+  }
+
   Future<({int imported, int unmatched})?> importOperations({
     required String fileName,
     required int academicYear,
@@ -674,6 +727,45 @@ class LockerController extends StateNotifier<LockerState> {
       debugPrint('ENCBA operation import failed: $error\n$stackTrace');
       state = state.copyWith(error: 'IB 운영표를 가져오지 못했습니다.');
       return null;
+    }
+  }
+
+  /// 관리자용: 학기 전체 IB 운영 배정을 읽어 온다.
+  Future<List<OperationAssignment>> loadAllOperations() async {
+    final repository = _repository;
+    if (repository == null) return const [];
+    return _orDefault(
+      repository.loadAllOperations(),
+      const <OperationAssignment>[],
+    );
+  }
+
+  /// 관리자가 전체 운영 배정을 수정한 뒤 내 일정과 교환 게시판을 새로 읽는다.
+  Future<bool> updateOperationAssignment({
+    required OperationAssignment assignment,
+    required DateTime start,
+    required DateTime end,
+    required String title,
+    required String location,
+    required String memo,
+  }) async {
+    final repository = _repository;
+    if (repository == null) return false;
+    try {
+      await repository.updateOperationAssignment(
+        id: assignment.id,
+        start: start,
+        end: end,
+        title: title,
+        location: location,
+        memo: memo,
+      );
+      await refreshOperationSwaps();
+      return true;
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA operation update failed: $error\n$stackTrace');
+      state = state.copyWith(error: '운영 일정을 수정하지 못했습니다.');
+      return false;
     }
   }
 
@@ -1243,6 +1335,30 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
+  /// 영상 상세 화면에서 별점 현황을 읽어 온다.
+  Future<({int myStars, double average, int count})?>
+  loadVideoRating(String videoId) async {
+    final repository = _repository;
+    if (repository == null) return null;
+    return _orDefault(repository.loadVideoRating(videoId), null);
+  }
+
+  /// 별점을 저장하고 갱신된 평균을 돌려준다. 실패하면 null.
+  Future<({int myStars, double average, int count})?> setVideoRating(
+    String videoId,
+    int stars,
+  ) async {
+    final repository = _repository;
+    if (repository == null) return null;
+    try {
+      return await repository.setVideoRating(videoId, stars);
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA video rating save failed: $error\n$stackTrace');
+      state = state.copyWith(error: '별점을 저장하지 못했습니다.');
+      return null;
+    }
+  }
+
   void upsertVideoFromRealtime(VideoItem video) {
     final next = [...state.videos];
     final index = next.indexWhere((item) => item.id == video.id);
@@ -1375,8 +1491,11 @@ class LockerController extends StateNotifier<LockerState> {
         clearError: true,
       );
       return true;
-    } on Object {
-      state = state.copyWith(error: '영상 코멘트를 저장하지 못했습니다.');
+    } on Object catch (error) {
+      debugPrint('ENCBA video comment save failed: $error');
+      // 디버그 빌드에서는 실제 서버 사유를 함께 보여준다.
+      final detail = kDebugMode ? '\n(${error.toString()})' : '';
+      state = state.copyWith(error: '영상 코멘트를 저장하지 못했습니다.$detail');
       return false;
     }
   }

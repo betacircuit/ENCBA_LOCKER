@@ -146,7 +146,14 @@ class UserProfile {
     isReservationManager: json['isReservationManager'] as bool? ?? false,
   );
 
-  factory UserProfile.fromSupabase(Map<String, dynamic> row) => UserProfile(
+  /// leadership_role='admin'인데 is_admin 플래그가 꺼진 계정이 있었다.
+  /// 화면은 leadership_role 기준으로 관리자 뱃지를 보여주므로, 두 값 중
+  /// 하나라도 관리자면 관리자로 취급해 서버·클라이언트 판정을 맞춘다.
+  factory UserProfile.fromSupabase(Map<String, dynamic> row) {
+    final leadershipRole =
+        row['leadership_role'] as String? ??
+        ((row['is_admin'] as bool? ?? false) ? 'admin' : 'member');
+    return UserProfile(
     id: row['id'] as String,
     email: row['email'] as String,
     name: row['name'] as String,
@@ -159,23 +166,28 @@ class UserProfile {
     jerseyNumber: row['jersey_number'] as int? ?? 0,
     status: (row['membership_status'] as String? ?? 'yb').toUpperCase(),
     teams: (row['teams'] as List?)?.cast<String>() ?? const ['ENCBA'],
-    badge: row['badge'] as String?,
-    photoBase64: row['photo_base64'] as String?,
-    isAdmin: row['is_admin'] as bool? ?? false,
-    isScheduleManager: row['is_schedule_manager'] as bool? ?? false,
-    isActive: row['is_active'] as bool? ?? true,
-    leadershipRole:
-        row['leadership_role'] as String? ??
-        ((row['is_admin'] as bool? ?? false) ? 'admin' : 'member'),
-    isReservationManager: row['is_reservation_manager'] as bool? ?? false,
-  );
+      badge: row['badge'] as String?,
+      photoBase64: row['photo_base64'] as String?,
+      isAdmin:
+          (row['is_admin'] as bool? ?? false) || leadershipRole == 'admin',
+      isScheduleManager: row['is_schedule_manager'] as bool? ?? false,
+      isActive: row['is_active'] as bool? ?? true,
+      leadershipRole: leadershipRole,
+      isReservationManager: row['is_reservation_manager'] as bool? ?? false,
+    );
+  }
 
   /// 다른 부원에게 노출되는 이름은 가입 명단에서 확인한 실명만 사용한다.
   String get visibleName => name;
 
   bool get canAdminister => isAdmin || leadershipRole == 'captain';
 
-  bool get canManageHighlights => leadershipRole == 'manager';
+  /// 하이라이트(릴스) 등록은 매니저 전용이었지만, 관리자·주장도 올릴 수
+  /// 있게 열었다. 운영진이 하이라이트를 대신 등록하는 일이 잦기 때문이다.
+  bool get canManageHighlights =>
+      leadershipRole == 'manager' ||
+      leadershipRole == 'captain' ||
+      isAdmin;
 
   String? get leadershipLabel => switch (leadershipRole) {
     'admin' => '관리자',

@@ -260,6 +260,7 @@ class MemberProfile {
     this.department = '',
     this.isFreshman = false,
     this.titles = const [],
+    this.avatarUrl,
   });
 
   final String? id;
@@ -282,6 +283,9 @@ class MemberProfile {
 
   /// 관리자/주장/매니저 권한과는 무관한 표시용 직책(부서장, BEN 감독 등).
   final List<String> titles;
+
+  /// 공개된 프로필 사진 주소(avatars 버킷). null이면 이니셜로 표시한다.
+  final String? avatarUrl;
 
   bool get canAdminister =>
       leadershipRole == 'admin' || leadershipRole == 'captain';
@@ -318,6 +322,7 @@ class MemberProfile {
     String? department,
     bool? isFreshman,
     List<String>? titles,
+    String? avatarUrl,
   }) => MemberProfile(
     id: id,
     name: name ?? this.name,
@@ -337,6 +342,7 @@ class MemberProfile {
     department: department ?? this.department,
     isFreshman: isFreshman ?? this.isFreshman,
     titles: titles ?? this.titles,
+    avatarUrl: avatarUrl ?? this.avatarUrl,
   );
 }
 

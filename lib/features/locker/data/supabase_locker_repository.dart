@@ -376,10 +376,17 @@ class SupabaseLockerRepository {
             department: map['department'] as String? ?? '',
             isFreshman: map['is_freshman'] as bool? ?? false,
             titles: (map['titles'] as List?)?.cast<String>() ?? const [],
+            avatarUrl: _avatarPublicUrl(map['avatar_path'] as String?),
           );
         })
         .toList(growable: false);
   }
+
+  /// avatars 버킷은 public이므로 경로만 있으면 공개 URL을 만들 수 있다.
+  String? _avatarPublicUrl(String? path) =>
+      path == null || path.isEmpty
+      ? null
+      : _client.storage.from('avatars').getPublicUrl(path);
 
   /// 멤버 상세 공유 주소를 위해 검색·필터 상태와 무관하게 한 명을 찾는다.
   Future<MemberProfile?> loadMember(String id) async {
@@ -1036,6 +1043,59 @@ class SupabaseLockerRepository {
     );
   }
 
+  /// 관리자가 학기 전체 IB 운영 배정을 볼 때 쓴다. RLS가 부원에게는
+  /// 자기 배정만, 관리자에게는 전체를 허용하므로 화면에서 권한을 가린다.
+  Future<List<OperationAssignment>> loadAllOperations() async {
+    final rows = await _client
+        .from('operation_assignments')
+        .select(
+          'id,title,starts_at,ends_at,location,memo,assignee_name,'
+          'profiles!operation_assignments_profile_id_fkey(name,display_name)',
+        )
+        .order('starts_at')
+        .limit(500);
+    return (rows as List<dynamic>)
+        .map((raw) {
+          final row = Map<String, dynamic>.from(raw as Map);
+          final profile = row['profiles'] as Map?;
+          return OperationAssignment(
+            id: row['id'] as String,
+            title: row['title'] as String,
+            start: DateTime.parse(row['starts_at'] as String).toLocal(),
+            end: DateTime.parse(row['ends_at'] as String).toLocal(),
+            location: row['location'] as String? ?? '',
+            memo: row['memo'] as String? ?? '',
+            assigneeId: null,
+            assigneeName:
+                row['assignee_name'] as String? ??
+                profile?['name'] as String? ??
+                profile?['display_name'] as String? ??
+                '미지정',
+            isMine: false,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  /// 관리자가 전체 운영 배정의 시간·장소·메모를 고친다.
+  Future<void> updateOperationAssignment({
+    required String id,
+    required DateTime start,
+    required DateTime end,
+    required String title,
+    required String location,
+    required String memo,
+  }) => _client
+      .from('operation_assignments')
+      .update({
+        'title': title,
+        'starts_at': start.toUtc().toIso8601String(),
+        'ends_at': end.toUtc().toIso8601String(),
+        'location': location.trim().isEmpty ? null : location.trim(),
+        'memo': memo.trim().isEmpty ? null : memo.trim(),
+      })
+      .eq('id', id);
+
   Future<List<HomecomingContact>> loadHomecomingContacts() async {
     final rows = await _client
         .from('homecoming_contacts')
@@ -1176,6 +1236,27 @@ class SupabaseLockerRepository {
       'requested_contacts': contacts,
     },
   );
+
+  /// 관리자가 연락 보드에서 선배를 한 명 직접 추가한다. 엑셀 가져오기 없이
+  /// 빠진 선배를 보충할 때 쓴다. RLS가 관리자에게만 insert를 허용한다.
+  Future<void> addHomecomingContact({
+    required String campaignId,
+    required String name,
+    required String phone,
+    int? generation,
+    String? assignedToId,
+    String? assignedToName,
+  }) => _client.from('homecoming_contacts').insert({
+    'campaign_id': campaignId,
+    'senior_name': name,
+    'phone': phone,
+    'generation': generation,
+    'assigned_to': assignedToId,
+    'assigned_to_name': assignedToName,
+  });
+
+  Future<void> deleteHomecomingContact(String id) =>
+      _client.from('homecoming_contacts').delete().eq('id', id);
 
   Future<void> vote(
     String eventId,
@@ -1371,6 +1452,43 @@ class SupabaseLockerRepository {
     );
   }
 
+  /// 영상 별점 요약: 내가 준 점수와 전체 평균·인원 수.
+  Future<({int myStars, double average, int count})> loadVideoRating(
+    String videoId,
+  ) async {
+    final rows = await _client
+        .from('video_ratings')
+        .select('profile_id,stars')
+        .eq('video_id', videoId);
+    final myId = _userId;
+    var total = 0;
+    var myStars = 0;
+    for (final raw in rows as List<dynamic>) {
+      final row = Map<String, dynamic>.from(raw as Map);
+      final stars = _databaseInt(row['stars']) ?? 0;
+      total += stars;
+      if (row['profile_id'] == myId) myStars = stars;
+    }
+    final count = (rows as List).length;
+    return (
+      myStars: myStars,
+      average: count == 0 ? 0.0 : total / count,
+      count: count,
+    );
+  }
+
+  Future<({int myStars, double average, int count})> setVideoRating(
+    String videoId,
+    int stars,
+  ) async {
+    await _client.from('video_ratings').upsert({
+      'video_id': videoId,
+      'profile_id': _userId,
+      'stars': stars.clamp(1, 5),
+    }, onConflict: 'video_id,profile_id');
+    return loadVideoRating(videoId);
+  }
+
   Future<void> setVideoLike(String videoId, {required bool liked}) async {
     if (liked) {
       try {
@@ -1533,6 +1651,8 @@ class SupabaseLockerRepository {
     required String body,
     List<VideoTaggedMember> targetPlayers = const [],
   }) async {
+    // 값이 없는 컬럼은 아예 보내지 않는다. 릴스(하이라이트)처럼 쿼터·링크가
+    // 없는 댓글에서 명시적 null이 원인일 수 있는 저장 실패를 줄인다.
     final payload = <String, dynamic>{
       'video_id': videoId,
       'profile_id': _userId,

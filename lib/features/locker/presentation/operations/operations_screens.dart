@@ -8,6 +8,12 @@ class OperationsScreen extends ConsumerStatefulWidget {
 }
 
 class _OperationsScreenState extends ConsumerState<OperationsScreen> {
+  List<OperationAssignment>? _allAssignments;
+  bool _loadingAll = false;
+
+  /// 관리자 섹션을 목록 대신 학기 타임라인으로 보여 준다.
+  bool _timelineView = true;
+
   @override
   void initState() {
     super.initState();
@@ -119,9 +125,361 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
                     onTap: () => _requestSwap(item),
                   ),
                 ),
+          if (ref.watch(authControllerProvider).user?.canAdminister ?? false)
+            ..._adminSection(),
         ],
       ),
     );
+  }
+
+  /// 관리자 전용: 학기 전체 운영 배정을 보고 시간·장소·메모를 고친다.
+  /// 부원 화면과 같은 목록 위젯을 재사용해 두 화면이 어긋나지 않게 한다.
+  List<Widget> _adminSection() {
+    final assignments = _allAssignments;
+    return [
+      const SizedBox(height: 28),
+      Row(
+        children: [
+          const Expanded(
+            child: Text(
+              '전체 운영 일정 (관리자)',
+              style: TextStyle(
+                fontFamily: 'Jua',
+                fontSize: 27,
+                color: EncbaColors.navy,
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: _timelineView ? '목록 보기' : '타임라인 보기',
+            onPressed: () => setState(() => _timelineView = !_timelineView),
+            icon: Icon(_timelineView ? Icons.list_rounded : Icons.timeline),
+          ),
+          IconButton(
+            tooltip: '새로고침',
+            onPressed: _loadingAll ? null : _loadAllAssignments,
+            icon: _loadingAll
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      const SizedBox(height: 6),
+      Text(
+        _timelineView
+            ? '학기 전체 운영 흐름을 한눈에 봅니다. 항목을 누르면 수정합니다.'
+            : '모든 부원의 IB 운영 배정을 확인하고 시간·장소·메모를 바로 수정합니다.',
+        style: const TextStyle(color: EncbaColors.muted),
+      ),
+      const SizedBox(height: 12),
+      if (assignments == null && !_loadingAll)
+        OutlinedButton.icon(
+          onPressed: _loadAllAssignments,
+          icon: const Icon(Icons.visibility_outlined),
+          label: const Text('전체 배정 불러오기'),
+        )
+      else if (_loadingAll)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Center(child: CircularProgressIndicator()),
+        )
+      else if (assignments!.isEmpty)
+        const _EmptyState(
+          icon: Icons.assignment_late_outlined,
+          title: '등록된 운영 배정이 없습니다',
+        )
+      else if (_timelineView)
+        ..._buildSemesterTimeline(assignments)
+      else
+        ...assignments.map(
+          (item) => _TaskTile(
+            date: '${item.start.month}/${item.start.day}',
+            title: '${item.title} · ${item.assigneeName}',
+            place: '${time(item.start)} · ${item.location}',
+            onTap: () => _editAssignment(item),
+          ),
+        ),
+    ];
+  }
+
+  /// 학기 타임라인: 월별로 묶어 왼쪽 점선 축에 날짜를 찍어 보여 준다.
+  List<Widget> _buildSemesterTimeline(List<OperationAssignment> items) {
+    final byMonth = <String, List<OperationAssignment>>{};
+    for (final item in items) {
+      byMonth.putIfAbsent('${item.start.year}.${item.start.month}', () => []).add(item);
+    }
+    final widgets = <Widget>[];
+    for (final entry in byMonth.entries) {
+      widgets.add(Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 4),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                decoration: BoxDecoration(
+                  color: EncbaColors.highlight,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${entry.key}월',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    color: EncbaColors.deepBlue,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${entry.value.length}건',
+                style: const TextStyle(color: EncbaColors.muted, fontSize: 12),
+              ),
+            ],
+          ),
+        ));
+      for (final item in entry.value) {
+        widgets.add(
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => _editAssignment(item),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Column(
+                      children: [
+                        const SizedBox(height: 16),
+                        Container(
+                          width: 9,
+                          height: 9,
+                          decoration: const BoxDecoration(
+                            color: EncbaColors.snuBlue,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        Expanded(
+                          child: Container(
+                            width: 2,
+                            color: EncbaColors.line.withValues(alpha: .7),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 2,
+                          ),
+                          title: Text(
+                            '${item.start.day}일 (${_weekdayLabel(item.start.weekday)}) ${time(item.start)} · ${item.title}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${item.assigneeName} · ${item.location.isEmpty ? '장소 미정' : item.location}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: const Icon(
+                            Icons.edit_outlined,
+                            size: 18,
+                            color: EncbaColors.muted,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+    return widgets;
+  }
+
+  String _weekdayLabel(int weekday) => switch (weekday) {
+    DateTime.monday => '월',
+    DateTime.tuesday => '화',
+    DateTime.wednesday => '수',
+    DateTime.thursday => '목',
+    DateTime.friday => '금',
+    DateTime.saturday => '토',
+    _ => '일',
+  };
+
+  Future<void> _loadAllAssignments() async {
+    setState(() => _loadingAll = true);
+    final assignments = await ref
+        .read(lockerControllerProvider.notifier)
+        .loadAllOperations();
+    if (!mounted) return;
+    setState(() {
+      _allAssignments = assignments;
+      _loadingAll = false;
+    });
+  }
+
+  Future<void> _editAssignment(OperationAssignment assignment) async {
+    var start = assignment.start;
+    var end = assignment.end;
+    final title = TextEditingController(text: assignment.title);
+    final location = TextEditingController(text: assignment.location);
+    final memo = TextEditingController(text: assignment.memo);
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('${assignment.assigneeName} 배정 수정'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: title,
+                  decoration: const InputDecoration(labelText: '제목'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: location,
+                  decoration: const InputDecoration(labelText: '장소'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final date = await showDatePicker(
+                      context: context,
+                      initialDate: start,
+                      firstDate: DateTime(start.year - 1),
+                      lastDate: DateTime(start.year + 2),
+                    );
+                    if (date == null) return;
+                    setDialogState(() {
+                      start = DateTime(
+                        date.year,
+                        date.month,
+                        date.day,
+                        start.hour,
+                        start.minute,
+                      );
+                      end = start.add(end.difference(assignment.start));
+                    });
+                  },
+                  icon: const Icon(Icons.calendar_month_outlined),
+                  label: Text('${start.month}/${start.day} (${start.weekday})'),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () async {
+                          final picked = await showTimePicker(
+                            context: context,
+                            initialTime: TimeOfDay.fromDateTime(start),
+                          );
+                          if (picked == null) return;
+                          setDialogState(() {
+                            start = DateTime(
+                              start.year,
+                              start.month,
+                              start.day,
+                              picked.hour,
+                              picked.minute,
+                            );
+                          });
+                        },
+                        child: Text('시작 ${time(start)}'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () async {
+                          final picked = await showTimePicker(
+                            context: context,
+                            initialTime: TimeOfDay.fromDateTime(end),
+                          );
+                          if (picked == null) return;
+                          setDialogState(() {
+                            end = DateTime(
+                              end.year,
+                              end.month,
+                              end.day,
+                              picked.hour,
+                              picked.minute,
+                            );
+                          });
+                        },
+                        child: Text('종료 ${time(end)}'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: memo,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: '메모'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: title.text.trim().isEmpty || !end.isAfter(start)
+                  ? null
+                  : () => Navigator.pop(dialogContext, true),
+              child: const Text('저장'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || saved != true) {
+      title.dispose();
+      location.dispose();
+      memo.dispose();
+      return;
+    }
+    final ok = await ref
+        .read(lockerControllerProvider.notifier)
+        .updateOperationAssignment(
+          assignment: assignment,
+          start: start,
+          end: end,
+          title: title.text.trim(),
+          location: location.text.trim(),
+          memo: memo.text.trim(),
+        );
+    title.dispose();
+    location.dispose();
+    memo.dispose();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(ok ? '수정했습니다.' : '수정하지 못했습니다.')));
+    await _loadAllAssignments();
   }
 
   Widget _swapRequestCard(OperationSwapRequest request) => Container(

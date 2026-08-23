@@ -165,8 +165,8 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
         _MenuTile(
           icon: Icons.pending_actions_outlined,
           title: '가입 대기 명단',
-          subtitle: '아직 구글 계정으로 가입하지 않은 예비 인원 확인 (멤버 목록의 "비활성" 필터)',
-          onTap: () => context.push('/members'),
+          subtitle: '아직 구글 계정으로 가입하지 않은 예비 인원만 모아 보기',
+          onTap: () => context.push('/members?pending=1'),
         ),
         _MenuTile(
           icon: Icons.upload_file_outlined,

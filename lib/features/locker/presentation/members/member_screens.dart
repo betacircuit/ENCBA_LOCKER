@@ -12,7 +12,11 @@ String _statusLabel(String status) => switch (status) {
 };
 
 class MemberDirectoryScreen extends ConsumerStatefulWidget {
-  const MemberDirectoryScreen({super.key});
+  const MemberDirectoryScreen({super.key, this.startWithPendingOnly = false});
+
+  /// "가입 대기 명단" 메뉴에서 열 때 true. 비활성(가입 대기) 필터를 켠
+  /// 상태로 시작해 관리자가 바로 예비 인원을 볼 수 있게 한다.
+  final bool startWithPendingOnly;
 
   @override
   ConsumerState<MemberDirectoryScreen> createState() =>
@@ -24,7 +28,7 @@ class _MemberDirectoryScreenState extends ConsumerState<MemberDirectoryScreen> {
   int _searchRevision = 0;
   _MemberSort _sort = _MemberSort.studentYear;
   bool _showMilitary = false;
-  bool _showInactive = false;
+  late bool _showInactive = widget.startWithPendingOnly;
   bool _reservationOnly = false;
   bool _freshmenOnly = false;
   bool _exporting = false;
@@ -643,6 +647,7 @@ class _MemberDetailView extends ConsumerWidget {
             child: _Avatar(
               name: member.name,
               size: 88,
+              avatarUrl: member.avatarUrl,
               isActive: member.isActive,
             ),
           ),
@@ -1144,7 +1149,12 @@ class _MemberTile extends StatelessWidget {
     child: ListTile(
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      leading: _Avatar(name: member.name, size: 48, isActive: member.isActive),
+      leading: _Avatar(
+        name: member.name,
+        size: 48,
+        avatarUrl: member.avatarUrl,
+        isActive: member.isActive,
+      ),
       title: Row(
         children: [
           Expanded(
@@ -1251,11 +1261,16 @@ class _Avatar extends StatelessWidget {
     required this.name,
     required this.size,
     this.photoBase64,
+    this.avatarUrl,
     this.isActive,
   });
   final String name;
   final double size;
   final String? photoBase64;
+
+  /// 다른 부원의 공개 프로필 사진 주소. photoBase64(내 사진)보다 우선하지
+  /// 않고, 둘 다 없으면 이니셜로 표시한다.
+  final String? avatarUrl;
 
   /// null이면 표시하지 않고, 값이 있으면 인스타그램 접속 표시처럼
   /// 아바타 모서리에 초록(활성)/빨강(비활성) 점을 얹는다.
@@ -1303,21 +1318,31 @@ class _Avatar extends StatelessWidget {
       border: Border.all(color: const Color(0xFFC9D9EA)),
     ),
     clipBehavior: Clip.antiAlias,
-    child: photoBase64 == null
-        ? Text(
-            name.substring(0, 1),
-            style: TextStyle(
-              fontFamily: 'Jua',
-              fontSize: size * .34,
-              color: EncbaColors.deepBlue,
-            ),
-          )
-        : Image.memory(
+    child: photoBase64 != null
+        ? Image.memory(
             base64Decode(photoBase64!),
             width: size,
             height: size,
             fit: BoxFit.cover,
-          ),
+          )
+        : avatarUrl != null
+        ? Image.network(
+            avatarUrl!,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => _initials(),
+          )
+        : _initials(),
+  );
+
+  Widget _initials() => Text(
+    name.substring(0, 1),
+    style: TextStyle(
+      fontFamily: 'Jua',
+      fontSize: size * .34,
+      color: EncbaColors.deepBlue,
+    ),
   );
 }
 

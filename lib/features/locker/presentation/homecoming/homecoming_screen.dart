@@ -21,7 +21,7 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
   @override
   Widget build(BuildContext context) {
     final isAdmin =
-        ref.watch(authControllerProvider).user?.leadershipRole == 'admin';
+        ref.watch(authControllerProvider).user?.canAdminister ?? false;
     final homecomingState = ref.watch(
       lockerControllerProvider.select(
         (state) => (
@@ -105,6 +105,14 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
               label: const Text('연락 매뉴얼'),
             ),
             if (isAdmin) ...[
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: () => _showAddContactDialog(campaign),
+                icon: const Icon(Icons.person_add_alt_rounded),
+                label: const Text('선배 직접 추가'),
+              ),
+            ],
+            if (isAdmin) ...[
               const SizedBox(height: 6),
               const Text(
                 '엑셀 가져오기·응답 엑셀·다시 잠그기는 개인 탭의 관리자 섹션에 있습니다.',
@@ -149,6 +157,9 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
               (contact) => _HomecomingContactListTile(
                 contact: contact,
                 onTap: () => _showContact(contact, campaign, isAdmin),
+                onDelete: isAdmin
+                    ? () => _confirmDeleteContact(contact)
+                    : null,
               ),
             ),
           ],
@@ -172,6 +183,140 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
       onSendSms: _sendSms,
     ),
   );
+
+  /// 관리자가 엑셀 없이 선배를 한 명 직접 추가한다.
+  Future<void> _showAddContactDialog(HomecomingCampaign campaign) async {
+    final name = TextEditingController();
+    final phone = TextEditingController();
+    final generation = TextEditingController();
+    var assignedToId = '';
+    var assignedToName = '';
+    final members = await ref
+        .read(lockerControllerProvider.notifier)
+        .loadAllMembersForAccountCheck();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('선배 연락처 추가'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: name,
+                  autofocus: true,
+                  decoration: const InputDecoration(labelText: '선배 성함 *'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: phone,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(labelText: '휴대전화 *'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: generation,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: '기수(학번, 선택)'),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: assignedToId.isEmpty ? null : assignedToId,
+                  decoration: const InputDecoration(labelText: '담당 부원 (선택)'),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('담당 미지정')),
+                    for (final member in members)
+                      if (member.id != null && member.isActive)
+                        DropdownMenuItem(
+                          value: member.id,
+                          child: Text(member.name),
+                        ),
+                  ],
+                  onChanged: (value) => setDialogState(() {
+                    assignedToId = value ?? '';
+                    assignedToName = members
+                        .where((member) => member.id == value)
+                        .map((member) => member.name)
+                        .firstOrNull ?? '';
+                  }),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: name.text.trim().isEmpty || phone.text.trim().isEmpty
+                  ? null
+                  : () async {
+                      final saved = await ref
+                          .read(lockerControllerProvider.notifier)
+                          .addHomecomingContact(
+                            name: name.text.trim(),
+                            phone: phone.text.trim(),
+                            generation: int.tryParse(generation.text.trim()),
+                            assignedToId: assignedToId.isEmpty
+                                ? null
+                                : assignedToId,
+                            assignedToName: assignedToName.isEmpty
+                                ? null
+                                : assignedToName,
+                          );
+                      if (!dialogContext.mounted) return;
+                      Navigator.pop(dialogContext);
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context)
+                        ..clearSnackBars()
+                        ..showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              saved ? '선배를 추가했습니다.' : '추가하지 못했습니다.',
+                            ),
+                          ),
+                        );
+                    },
+              child: const Text('추가'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteContact(HomecomingContact contact) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${contact.name} 선배를 삭제할까요?'),
+        content: const Text('연락 기록도 함께 사라지며 되돌릴 수 없습니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final deleted = await ref
+        .read(lockerControllerProvider.notifier)
+        .deleteHomecomingContact(contact.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(content: Text(deleted ? '삭제했습니다.' : '삭제하지 못했습니다.')),
+      );
+  }
 
   Future<void> _sendSms(
     HomecomingContact contact,
@@ -228,10 +373,14 @@ class _HomecomingContactListTile extends StatelessWidget {
   const _HomecomingContactListTile({
     required this.contact,
     required this.onTap,
+    this.onDelete,
   });
 
   final HomecomingContact contact;
   final VoidCallback onTap;
+
+  /// 관리자에게만 전달된다. null이면 삭제 버튼을 보여주지 않는다.
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -265,7 +414,22 @@ class _HomecomingContactListTile extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
-        trailing: const Icon(Icons.chevron_right_rounded),
+        trailing: onDelete == null
+            ? const Icon(Icons.chevron_right_rounded)
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: '삭제',
+                    onPressed: onDelete,
+                    icon: const Icon(
+                      Icons.delete_outline_rounded,
+                      color: EncbaColors.absent,
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded),
+                ],
+              ),
       ),
     ),
   );
