@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:encba_locker/core/config/app_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -17,7 +19,9 @@ Future<void> main() async {
     url: AppConfig.supabaseUrl,
     publishableKey: AppConfig.supabasePublishableKey,
   );
-  await PushNotificationService.instance.initialize();
+  // 푸시 초기화(Firebase 시작·초기 메시지 확인)는 첫 화면을 가로막지 않는다.
+  // 여기를 기다리면 서버와 무관한 준비 작업 때문에 앱 실행이 늦어졌다.
+  unawaited(PushNotificationService.instance.initialize());
   runApp(const EncbaLockerApp());
 }
 

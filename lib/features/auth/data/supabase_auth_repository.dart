@@ -27,6 +27,24 @@ class SupabaseAuthRepository {
 
   Stream<supabase.AuthState> get authChanges => _client.auth.onAuthStateChange;
 
+  /// 세션 복원을 기다리지 않고 지금 메모리에 있는 사용자 ID.
+  /// 캐시 프로필로 첫 화면을 빠르게 그릴 때만 쓴다.
+  String? get currentUserId => _client.auth.currentUser?.id;
+
+  /// 저장해 둔 프로필 캐시를 읽는다. 세션 복원 직후 네트워크 왕복 없이
+  /// 화면을 먼저 그리는 데 쓰고, 이후 서버 값으로 조용히 덮어쓴다.
+  Future<UserProfile?> loadCachedProfile(String userId) async {
+    try {
+      final cached = await _store.getString(_profileCacheKey(userId));
+      if (cached == null) return null;
+      return UserProfile.fromJson(
+        Map<String, dynamic>.from(jsonDecode(cached) as Map),
+      );
+    } on Object {
+      return null;
+    }
+  }
+
   /// Google에서 돌아온 주소에 실패 흔적이 있으면 그 사유를 돌려준다.
   /// 이게 없으면 인증이 실패해도 그냥 로그인 화면으로 돌아온 것처럼 보인다.
   String? pendingOAuthError() {
@@ -261,26 +279,37 @@ class SupabaseAuthRepository {
 
     // 학교 이메일 전체 주소는 기존 Edge Function과 DB RPC 양쪽에서 찾고,
     // @ 앞 아이디만 입력한 경우에는 DB RPC가 보존된 학교 이메일로 계정을 찾는다.
-    try {
-      final response = await _client.functions.invoke(
-        'resolve-login-email',
-        body: {'identifier': normalized, 'email': normalized},
-      );
-      final data = response.data;
-      final resolved = data is Map ? data['login_email'] as String? : null;
-      add(resolved);
-    } on Object {
-      // DB RPC 폴백이 있으므로 배포 시점이 다른 Edge Function 장애를 숨기지 않는다.
+    // 두 조회는 서로 독립적이라 순서대로 기다리지 않고 동시에 보낸다.
+    Future<Object?> resolveViaFunction() async {
+      try {
+        final response = await _client.functions.invoke(
+          'resolve-login-email',
+          body: {'identifier': normalized, 'email': normalized},
+        );
+        return response.data;
+      } on Object {
+        // DB RPC 폴백이 있으므로 배포 시점이 다른 Edge Function 장애를 숨기지 않는다.
+        return null;
+      }
     }
-    try {
-      final resolved = await _client.rpc(
-        'resolve_login_email',
-        params: {'requested_identifier': normalized},
-      );
-      if (resolved is String) add(resolved);
-    } on Object {
-      // 이전 DB에서도 실명 로그인과 일반 이메일 직접 로그인은 계속 동작한다.
+
+    Future<Object?> resolveViaRpc() async {
+      try {
+        return await _client.rpc(
+          'resolve_login_email',
+          params: {'requested_identifier': normalized},
+        );
+      } on Object {
+        // 이전 DB에서도 실명 로그인과 일반 이메일 직접 로그인은 계속 동작한다.
+        return null;
+      }
     }
+
+    final results = await Future.wait([resolveViaFunction(), resolveViaRpc()]);
+    if (results[0] is Map) {
+      add((results[0]! as Map)['login_email'] as String?);
+    }
+    if (results[1] is String) add(results[1] as String);
 
     if (value.contains('@')) {
       add(normalized);
@@ -468,9 +497,11 @@ class SupabaseAuthRepository {
       final avatarPath = row['avatar_path'] as String?;
       if (avatarPath != null && avatarPath.isNotEmpty) {
         try {
+          // 사진이 늦게 오거나 실패해도 로그인·복원이 기다리지 않게 상한을 둔다.
           final bytes = await _client.storage
               .from('avatars')
-              .download(avatarPath);
+              .download(avatarPath)
+              .timeout(const Duration(seconds: 4));
           normalized['photo_base64'] = base64Encode(bytes);
         } on Object {
           // 프로필 본문은 사진 다운로드 실패와 무관하게 사용할 수 있어야 한다.

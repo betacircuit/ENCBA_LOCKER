@@ -70,6 +70,20 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<void> _restore() async {
     final oauthError = _repo.pendingOAuthError();
+    // 캐시된 프로필로 먼저 화면을 그린다. 서버 확인(세션 갱신·프로필 조회·
+    // 사진 받기)은 그 뒤에 조용히 진행돼 첫 화면이 네트워크를 기다리지 않는다.
+    final cachedId = _repo.currentUserId;
+    if (cachedId != null) {
+      final cached = await _repo.loadCachedProfile(cachedId);
+      if (cached != null && mounted && state.user == null) {
+        state = state.copyWith(
+          isReady: true,
+          user: cached,
+          clearError: oauthError == null,
+          error: oauthError,
+        );
+      }
+    }
     try {
       final session = await _repo.restoreSession();
       state = state.copyWith(
