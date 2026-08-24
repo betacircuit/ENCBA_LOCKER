@@ -92,9 +92,9 @@ class _PwaInstallCardState extends ConsumerState<PwaInstallCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        isDesktop ? 'LOCKER를 앱으로 설치' : 'LOCKER를 홈 화면에',
-                        style: const TextStyle(
+                      const Text(
+                        'LOCKER를 홈 화면에',
+                        style: TextStyle(
                           color: Colors.white,
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
@@ -102,7 +102,7 @@ class _PwaInstallCardState extends ConsumerState<PwaInstallCard> {
                       ),
                       const SizedBox(height: 2),
                       const Text(
-                        '30초면 설치 완료 · 앱스토어 필요 없음',
+                        '30초면 추가 완료 · 앱스토어 필요 없음',
                         style: TextStyle(
                           color: Color(0xFFC9D9ED),
                           fontSize: 11,
@@ -126,7 +126,7 @@ class _PwaInstallCardState extends ConsumerState<PwaInstallCard> {
               padding: const EdgeInsets.only(top: 13, right: 9, bottom: 6),
               child: Text(
                 isDesktop
-                    ? '주소창 오른쪽의 설치 아이콘을 누르면 브라우저 탭 없이 앱처럼 열립니다.'
+                    ? '주소창 오른쪽 아이콘을 누르면 홈 화면에 추가하듯 브라우저 탭 없이 앱처럼 쓸 수 있어요.'
                     : '브라우저 주소창 없이 더 빠르게 열고, 일반 앱처럼 사용할 수 있습니다.',
                 style: const TextStyle(
                   color: Colors.white,
@@ -220,7 +220,7 @@ class _PwaInstallTutorialState extends State<PwaInstallTutorial> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'LOCKER 설치 가이드',
+                      'LOCKER 홈 화면 추가 가이드',
                       style: TextStyle(
                         color: EncbaColors.navy,
                         fontFamily: 'Jua',
@@ -296,7 +296,7 @@ class _PwaInstallTutorialState extends State<PwaInstallTutorial> {
               child: FilledButton.icon(
                 onPressed: widget.onClose,
                 icon: const Icon(Icons.check_rounded),
-                label: const Text('설치 방법 확인 완료'),
+                label: const Text('추가 방법 확인 완료'),
               ),
             ),
           ),
@@ -339,14 +339,14 @@ const _androidInstallSteps = [
     '삼성 인터넷은 아래쪽 메뉴 버튼에서 같은 항목을 찾을 수 있습니다.',
   ),
   _InstallStep(
-    '설치 메뉴 선택',
+    '홈 화면에 추가 선택',
     '“앱 설치” 또는 “홈 화면에 추가”를 누릅니다. 브라우저 버전에 따라 문구가 다를 수 있습니다.',
     '두 문구 중 하나만 보이면 정상입니다.',
   ),
   _InstallStep(
-    '설치 확인',
+    '추가 확인',
     'LOCKER 아이콘과 이름을 확인한 뒤 “설치” 또는 “추가”를 누릅니다.',
-    '설치가 끝날 때까지 Chrome을 닫지 마세요.',
+    '추가가 끝날 때까지 Chrome을 닫지 마세요.',
   ),
 ];
 
@@ -471,7 +471,7 @@ class _InstallFinishCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                '설치 완료',
+                '홈 화면 추가 완료',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 19,

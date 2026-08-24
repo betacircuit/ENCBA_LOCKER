@@ -257,13 +257,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           // 아이디·비밀번호 로그인은 당분간 비활성화했다.
                           // 실사용은 전부 Google 로그인뿐이라 그 버튼을 이
                           // 자리로 올리고, 아래 빈 자리는 홈 화면 추가
-                          // 안내로 채운다.
-                          FilledButton.icon(
+                          // 안내로 채운다. 예전 입력 필드와 비슷한 높이의
+                          // 긴 테두리 박스로 둬 부담스러운 CTA처럼 보이지
+                          // 않게 한다.
+                          OutlinedButton.icon(
                             onPressed: auth.isBusy
                                 ? null
                                 : () => ref
                                       .read(authControllerProvider.notifier)
                                       .startGoogleSignIn(),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 17),
+                              side: const BorderSide(color: EncbaColors.line),
+                            ),
                             icon: const Icon(Icons.school_outlined),
                             label: Text(
                               auth.isBusy ? 'Google 연결 중…' : 'Google 계정으로 로그인',
