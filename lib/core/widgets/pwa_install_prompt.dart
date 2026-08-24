@@ -70,83 +70,44 @@ class _PwaInstallCardState extends ConsumerState<PwaInstallCard> {
       color: EncbaColors.navy,
       margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(17, 16, 8, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  padding: const EdgeInsets.all(7),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Image.asset('assets/images/app_icon.png'),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'LOCKER를 홈 화면에',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      const Text(
-                        '30초면 추가 완료 · 앱스토어 필요 없음',
-                        style: TextStyle(
-                          color: Color(0xFFC9D9ED),
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: '다시 보지 않기',
-                  onPressed: _dismiss,
-                  icon: const Icon(
-                    Icons.close_rounded,
-                    size: 20,
-                    color: Colors.white70,
-                  ),
-                ),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 13, right: 9, bottom: 6),
-              child: Text(
-                isDesktop
-                    ? '주소창 오른쪽 아이콘을 누르면 홈 화면에 추가하듯 브라우저 탭 없이 앱처럼 쓸 수 있어요.'
-                    : '브라우저 주소창 없이 더 빠르게 열고, 일반 앱처럼 사용할 수 있습니다.',
-                style: const TextStyle(
+      child: InkWell(
+        onTap: isDesktop ? null : () => _showSteps(context, platform),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(17, 10, 8, 10),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
                   color: Colors.white,
-                  fontSize: 13,
-                  height: 1.45,
+                  borderRadius: BorderRadius.circular(12),
                 ),
+                child: Image.asset('assets/images/app_icon.png'),
               ),
-            ),
-            if (!isDesktop)
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => _showSteps(context, platform),
-                  style: TextButton.styleFrom(
-                    foregroundColor: EncbaColors.timeMarker,
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'LOCKER를 홈 화면에 추가',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
                   ),
-                  child: const Text('이미지로 따라하기  →'),
                 ),
               ),
-          ],
+              IconButton(
+                tooltip: '다시 보지 않기',
+                onPressed: _dismiss,
+                icon: const Icon(
+                  Icons.close_rounded,
+                  size: 20,
+                  color: Colors.white70,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

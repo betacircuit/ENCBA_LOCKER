@@ -38,7 +38,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
     final pendingRegistration = auth.pendingRegistration;
-    final isRegistration = _signUp || pendingRegistration != null;
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -253,28 +252,40 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                               ],
                             ),
                           ),
-                        ] else
+                        ] else ...[
                           // 아이디·비밀번호 로그인은 당분간 비활성화했다.
                           // 실사용은 전부 Google 로그인뿐이라 그 버튼을 이
                           // 자리로 올리고, 아래 빈 자리는 홈 화면 추가
                           // 안내로 채운다. 예전 입력 필드와 비슷한 높이의
-                          // 긴 테두리 박스로 둬 부담스러운 CTA처럼 보이지
-                          // 않게 한다.
-                          OutlinedButton.icon(
-                            onPressed: auth.isBusy
-                                ? null
-                                : () => ref
-                                      .read(authControllerProvider.notifier)
-                                      .startGoogleSignIn(),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 17),
-                              side: const BorderSide(color: EncbaColors.line),
-                            ),
-                            icon: const Icon(Icons.school_outlined),
-                            label: Text(
-                              auth.isBusy ? 'Google 연결 중…' : 'Google 계정으로 로그인',
+                          // 긴 테두리 박스로 두되, 가로도 꽉 채워 늘린다.
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: auth.isBusy
+                                  ? null
+                                  : () => ref
+                                        .read(authControllerProvider.notifier)
+                                        .startGoogleSignIn(),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 17),
+                                side: const BorderSide(color: EncbaColors.line),
+                              ),
+                              icon: const Icon(Icons.school_outlined),
+                              label: Text(
+                                auth.isBusy ? 'Google 연결 중…' : 'Google 계정으로 로그인',
+                              ),
                             ),
                           ),
+                          TextButton(
+                            onPressed: auth.isBusy
+                                ? null
+                                : () => setState(() {
+                                    _signUp = true;
+                                    _formKey.currentState?.reset();
+                                  }),
+                            child: const Text('처음이라면 Google 회원가입'),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -289,7 +300,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     ),
                   ],
                   const SizedBox(height: 20),
-                  if (_signUp && pendingRegistration == null)
+                  if (_signUp && pendingRegistration == null) ...[
                     FilledButton.icon(
                       onPressed: auth.isBusy
                           ? null
@@ -300,8 +311,18 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       label: Text(
                         auth.isBusy ? 'Google 연결 중…' : 'Google 계정으로 계속',
                       ),
-                    )
-                  else if (pendingRegistration != null)
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: auth.isBusy
+                          ? null
+                          : () => setState(() {
+                              _signUp = false;
+                              _formKey.currentState?.reset();
+                            }),
+                      child: const Text('이미 계정이 있어요'),
+                    ),
+                  ] else if (pendingRegistration != null) ...[
                     FilledButton(
                       onPressed: auth.isBusy ? null : _submit,
                       child: AnimatedSwitcher(
@@ -320,34 +341,21 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 key: ValueKey('label'),
                               ),
                       ),
-                    )
-                  else
-                    const PwaInstallCard(),
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: auth.isBusy
-                        ? null
-                        : () async {
-                            if (pendingRegistration != null) {
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: auth.isBusy
+                          ? null
+                          : () async {
                               await ref
                                   .read(authControllerProvider.notifier)
                                   .cancelGoogleRegistration();
                               if (mounted) setState(() => _signUp = true);
-                              return;
-                            }
-                            setState(() {
-                              _signUp = !_signUp;
-                              _formKey.currentState?.reset();
-                            });
-                          },
-                    child: Text(
-                      pendingRegistration != null
-                          ? '다른 Google 계정 사용'
-                          : isRegistration
-                          ? '이미 계정이 있어요'
-                          : '처음이라면 Google 회원가입',
+                            },
+                      child: const Text('다른 Google 계정 사용'),
                     ),
-                  ),
+                  ] else
+                    const PwaInstallCard(),
                 ],
               ),
             ),
