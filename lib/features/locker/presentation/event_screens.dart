@@ -1647,10 +1647,6 @@ class _MarkerPainter extends CustomPainter {
       ..lineTo(4, size.height)
       ..close();
     canvas.drawPath(path, paint);
-    canvas.drawRect(
-      Rect.fromLTWH(0, size.height * .72, size.width, size.height * .18),
-      Paint()..color = color.withValues(alpha: .35),
-    );
   }
 
   @override
