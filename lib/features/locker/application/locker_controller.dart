@@ -1381,31 +1381,6 @@ class LockerController extends StateNotifier<LockerState> {
     }
   }
 
-  /// 영상 상세 화면에서 별점 현황을 읽어 온다.
-  Future<({int myStars, double average, int count})?> loadVideoRating(
-    String videoId,
-  ) async {
-    final repository = _repository;
-    if (repository == null) return null;
-    return _orDefault(repository.loadVideoRating(videoId), null);
-  }
-
-  /// 별점을 저장하고 갱신된 평균을 돌려준다. 실패하면 null.
-  Future<({int myStars, double average, int count})?> setVideoRating(
-    String videoId,
-    int stars,
-  ) async {
-    final repository = _repository;
-    if (repository == null) return null;
-    try {
-      return await repository.setVideoRating(videoId, stars);
-    } on Object catch (error, stackTrace) {
-      debugPrint('ENCBA video rating save failed: $error\n$stackTrace');
-      state = state.copyWith(error: '별점을 저장하지 못했습니다.');
-      return null;
-    }
-  }
-
   void upsertVideoFromRealtime(VideoItem video) {
     final next = [...state.videos];
     final index = next.indexWhere((item) => item.id == video.id);

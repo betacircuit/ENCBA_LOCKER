@@ -25,9 +25,12 @@ String encbaFontFor(String text, {bool display = false}) {
   return 'BlackHanSans';
 }
 
-// Jua에 없는 글자는 플랫폼 기본 글꼴로 폴백한다. 7MB에 가까운
-// GowunDodum 전체 글꼴을 첫 화면에서 내려받지 않도록 별도 번들을 뺀다.
-const encbaFontFallback = <String>['Arial'];
+// Jua·BlackHanSans는 자주 쓰는 한글 2,300여 자만 담고 있다(전체 11,172자
+// 중 일부). 이 범위를 벗어난 글자는 물론이고, 커버리지가 일부뿐인 폰트는
+// 웹 CanvasKit 렌더러가 아예 신뢰하지 않아 담고 있는 글자까지 기본
+// 폰트로 새어 나간다. 한글을 전부 담은 GowunDodum을 폴백에 둬서 어떤
+// 한글이 오더라도(공지 등 자유 입력 텍스트 포함) 깨지지 않게 한다.
+const encbaFontFallback = <String>['GowunDodum', 'Arial'];
 
 TextStyle? _fallback(TextStyle? style) =>
     style?.copyWith(fontFamilyFallback: encbaFontFallback);

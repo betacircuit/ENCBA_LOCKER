@@ -945,8 +945,6 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
               Text('${displayed.likeCount}'),
             ],
           ),
-          const SizedBox(height: 4),
-          _VideoStarRating(videoId: displayed.id),
           const SizedBox(height: 16),
           if (displayed.category == '복기' ||
               displayed.category == '하이라이트') ...[
@@ -1081,79 +1079,6 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
 
 /// 복기 영상의 링크 목록. 쿼터가 정해진 링크가 앞에 오고, 쿼터 미정 링크는
 /// 뒤에 번호를 붙여 늘어놓는다.
-/// 영상 상세 화면 하단의 1~5점 별점 행. 진입 시 평균·내 점수를 읽어
-/// 보여 주고 누르면 즉시 저장해 갱신된 평균으로 되돌아온다.
-class _VideoStarRating extends ConsumerStatefulWidget {
-  const _VideoStarRating({required this.videoId});
-
-  final String videoId;
-
-  @override
-  ConsumerState<_VideoStarRating> createState() => _VideoStarRatingState();
-}
-
-class _VideoStarRatingState extends ConsumerState<_VideoStarRating> {
-  ({int myStars, double average, int count})? _summary;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    Future.microtask(_load);
-  }
-
-  Future<void> _load() async {
-    final summary = await ref
-        .read(lockerControllerProvider.notifier)
-        .loadVideoRating(widget.videoId);
-    if (!mounted) return;
-    setState(() => _summary = summary);
-  }
-
-  Future<void> _rate(int stars) async {
-    if (_saving || stars == (_summary?.myStars ?? 0)) return;
-    setState(() => _saving = true);
-    final updated = await ref
-        .read(lockerControllerProvider.notifier)
-        .setVideoRating(widget.videoId, stars);
-    if (!mounted) return;
-    setState(() {
-      if (updated != null) _summary = updated;
-      _saving = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final summary = _summary;
-    final myStars = summary?.myStars ?? 0;
-    return Row(
-      children: [
-        for (var star = 1; star <= 5; star++)
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            tooltip: '$star점',
-            onPressed: _saving ? null : () => unawaited(_rate(star)),
-            icon: Icon(
-              star <= myStars
-                  ? Icons.star_rounded
-                  : Icons.star_outline_rounded,
-              color: EncbaColors.late,
-              size: 26,
-            ),
-          ),
-        const SizedBox(width: 2),
-        Text(
-          summary == null || summary.count == 0
-              ? '첫 별점을 남겨 보세요'
-              : '${summary.average.toStringAsFixed(1)}점 · ${summary.count}명 참여',
-          style: const TextStyle(color: EncbaColors.muted, fontSize: 13),
-        ),
-      ],
-    );
-  }
-}
-
 class _VideoLinkPicker extends StatelessWidget {
   const _VideoLinkPicker({
     required this.links,

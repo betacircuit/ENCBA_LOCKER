@@ -93,6 +93,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/images/app_icon.png
     - assets/images/encba_logo.png
     - assets/images/reel_Db2nVhDz4Fq.jpg
     - assets/images/reel_DajgzpRTc4e.jpg
@@ -107,6 +108,9 @@ flutter:
     - family: BlackHanSans
       fonts:
         - asset: assets/fonts/BlackHanSans-Regular.ttf
+    - family: GowunDodum
+      fonts:
+        - asset: assets/fonts/GowunDodum-Regular.ttf
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

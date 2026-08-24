@@ -1469,43 +1469,6 @@ class SupabaseLockerRepository {
     );
   }
 
-  /// 영상 별점 요약: 내가 준 점수와 전체 평균·인원 수.
-  Future<({int myStars, double average, int count})> loadVideoRating(
-    String videoId,
-  ) async {
-    final rows = await _client
-        .from('video_ratings')
-        .select('profile_id,stars')
-        .eq('video_id', videoId);
-    final myId = _userId;
-    var total = 0;
-    var myStars = 0;
-    for (final raw in rows as List<dynamic>) {
-      final row = Map<String, dynamic>.from(raw as Map);
-      final stars = _databaseInt(row['stars']) ?? 0;
-      total += stars;
-      if (row['profile_id'] == myId) myStars = stars;
-    }
-    final count = (rows as List).length;
-    return (
-      myStars: myStars,
-      average: count == 0 ? 0.0 : total / count,
-      count: count,
-    );
-  }
-
-  Future<({int myStars, double average, int count})> setVideoRating(
-    String videoId,
-    int stars,
-  ) async {
-    await _client.from('video_ratings').upsert({
-      'video_id': videoId,
-      'profile_id': _userId,
-      'stars': stars.clamp(1, 5),
-    }, onConflict: 'video_id,profile_id');
-    return loadVideoRating(videoId);
-  }
-
   Future<void> setVideoLike(String videoId, {required bool liked}) async {
     if (liked) {
       try {

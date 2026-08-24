@@ -1,5 +1,7 @@
 import 'dart:js_interop';
 
+import 'package:web/web.dart' as web;
+
 import 'app_environment.dart';
 
 @JS('navigator.standalone')
@@ -39,12 +41,22 @@ class AppEnvironmentImpl implements AppEnvironment {
 
   static final bool _appleMobile = () {
     try {
-      final ua = 'navigator.userAgent'.toJS.toDart.toLowerCase();
+      final navigator = web.window.navigator;
+      final ua = navigator.userAgent.toLowerCase();
       final isIosLike =
           ua.contains('iphone') ||
           ua.contains('ipad') ||
-          (ua.contains('macintosh') && ua.contains('safari'));
+          ua.contains('ipod') ||
+          (ua.contains('macintosh') && navigator.maxTouchPoints > 1);
       return isIosLike && !ua.contains('crios') && !ua.contains('fxios');
+    } on Object {
+      return false;
+    }
+  }();
+
+  static final bool _androidMobile = () {
+    try {
+      return web.window.navigator.userAgent.toLowerCase().contains('android');
     } on Object {
       return false;
     }
@@ -55,6 +67,9 @@ class AppEnvironmentImpl implements AppEnvironment {
 
   @override
   bool get isAppleMobileWeb => _appleMobile;
+
+  @override
+  bool get isAndroidMobileWeb => _androidMobile;
 
   @override
   bool get prefersReducedData {

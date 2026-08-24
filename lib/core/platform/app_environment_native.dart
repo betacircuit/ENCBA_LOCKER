@@ -14,5 +14,8 @@ class AppEnvironmentImpl implements AppEnvironment {
   bool get isAppleMobileWeb => Platform.operatingSystem == 'ios';
 
   @override
+  bool get isAndroidMobileWeb => false;
+
+  @override
   bool get prefersReducedData => false;
 }

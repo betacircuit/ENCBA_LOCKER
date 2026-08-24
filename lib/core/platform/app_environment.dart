@@ -10,6 +10,9 @@ abstract class AppEnvironment {
   /// iOS·iPadOS Safari(홈 화면 추가 안내가 필요한 플랫폼)인지.
   bool get isAppleMobileWeb;
 
+  /// Android 모바일 브라우저에서 웹으로 실행 중인지.
+  bool get isAndroidMobileWeb;
+
   /// 사용자가 데이터 절약 모드를 켰거나 매우 느린 연결인지.
   /// true면 네트워크 썸네일을 생략하고 가벼운 화면을 보여준다.
   bool get prefersReducedData;
