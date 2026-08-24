@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:encba_locker/core/config/app_config.dart';
 import 'package:encba_locker/core/storage/local_store.dart';
 import 'package:encba_locker/features/locker/services/notification_category_prefs.dart';
+import 'package:encba_locker/features/locker/services/notification_history_service.dart';
 import 'package:encba_locker/features/locker/services/web_notification_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -77,12 +78,12 @@ class PushNotificationService {
       _foregroundSubscription = FirebaseMessaging.onMessage.listen((message) {
         final notification = message.notification;
         if (notification == null) return;
-        unawaited(
-          WebNotificationService().show(
-            notification.title ?? 'ENCBA LOCKER',
-            notification.body ?? '',
-          ),
-        );
+        // 제목에 앱 이름을 쓰면 브라우저·OS가 붙이는 앱 이름과 겹쳐
+        // "ENCBA LOCKER from LOCKER"처럼 보인다.
+        final title = notification.title ?? '새 알림';
+        final body = notification.body ?? '';
+        unawaited(NotificationHistoryService().add(title: title, body: body));
+        unawaited(WebNotificationService().show(title, body));
       });
       _openedSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
         _handleOpenedMessage,
@@ -122,8 +123,8 @@ class PushNotificationService {
     await LocalStore().setString(_notificationEnabledKey, 'true');
     await _registerToken(token);
     await WebNotificationService().show(
-      'ENCBA LOCKER',
-      '원격 알림이 켜졌습니다. 긴급 공지와 출결 마감을 알려드릴게요.',
+      '원격 알림이 켜졌습니다',
+      '긴급 공지와 출결 마감을 알려드릴게요.',
     );
     return true;
   }

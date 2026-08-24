@@ -187,7 +187,38 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
               ? _activateCampaign
               : () => _showHomecomingAdmin(campaign, contacts),
         ),
+        _MenuTile(
+          icon: Icons.notifications_active_outlined,
+          title: '알림 테스트',
+          subtitle: '10초 뒤 도착하는 알림으로 기기 설정을 확인',
+          onTap: _testNotification,
+        ),
       ],
+    );
+  }
+
+  /// 알림이 실제로 기기에 도착하는지 확인하는 용도. 앱을 나가 있어야 알림이
+  /// 보이므로 발송을 10초 미뤄 둔다.
+  Future<void> _testNotification() async {
+    final enabled = await WebNotificationService().isEnabled();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          enabled
+              ? '10초 뒤에 알림이 도착합니다. 앱을 나가서 확인해 보세요.'
+              : '알림이 꺼져 있습니다. 홈 화면 종 아이콘에서 알림을 먼저 켜 주세요.',
+        ),
+      ),
+    );
+    if (!enabled) return;
+    // 화면을 벗어나도 알림은 떠야 하므로 dispose 때 타이머를 취소하지 않는다.
+    // 대신 콜백에서 State나 context를 건드리지 않아 dispose 뒤에도 안전하다.
+    Timer(
+      const Duration(seconds: 10),
+      () => unawaited(
+        WebNotificationService().show('알림 테스트', '알림이 정상적으로 도착했습니다.'),
+      ),
     );
   }
 

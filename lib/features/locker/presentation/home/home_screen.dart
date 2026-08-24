@@ -43,13 +43,7 @@ class HomeScreen extends ConsumerWidget {
               tooltip: '알림',
               onPressed: () {
                 ref.read(lockerControllerProvider.notifier).readNotifications();
-                _showNotifications(
-                  context,
-                  ref,
-                  homeState.announcements,
-                  canManage: user.canAdminister,
-                  user: user,
-                );
+                _showNotifications(context, ref, user: user);
               },
               icon: Badge(
                 isLabelVisible: unreadNotifications > 0,
@@ -61,7 +55,13 @@ class HomeScreen extends ConsumerWidget {
         ),
       ),
       children: [
-        const _SectionHeader(title: '가장 가까운 일정'),
+        // 일정 등록 입구는 플래너 탭에만 있어 관리자가 탭을 옮겨야 했다.
+        // 홈에서도 같은 등록 화면으로 바로 갈 수 있게 열어 둔다.
+        _SectionHeader(
+          title: '가장 가까운 일정',
+          action: user.canAdminister ? '새 일정' : null,
+          onTap: user.canAdminister ? () => _openEditor(context) : null,
+        ),
         const SizedBox(height: 11),
         if (nextEvent == null)
           _EmptyState(
@@ -402,22 +402,23 @@ class _Linkified extends StatelessWidget {
 
 Future<void> _showNotifications(
   BuildContext context,
-  WidgetRef ref,
-  List<AnnouncementItem> announcements, {
-  required bool canManage,
+  WidgetRef ref, {
   required UserProfile user,
 }) async {
   final service = WebNotificationService();
   final prefs = NotificationCategoryPrefs();
+  final historyService = NotificationHistoryService();
   var enabled = await service.isEnabled();
   final categoryEnabled = <NotificationCategory, bool>{
     for (final category in NotificationCategory.values)
       category: await prefs.isEnabled(category),
   };
+  var history = await historyService.load();
   if (!context.mounted) return;
   await showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
+    isScrollControlled: true,
     builder: (_) => StatefulBuilder(
       builder: (sheetContext, setState) => SafeArea(
         child: Padding(
@@ -426,72 +427,108 @@ Future<void> _showNotifications(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                '알림',
-                style: TextStyle(
-                  fontFamily: 'Jua',
-                  fontSize: 25,
-                  color: EncbaColors.navy,
-                ),
-              ),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                value: enabled,
-                title: const Text('알림 받기'),
-                subtitle: Text(
-                  user.isReservationManager
-                      ? '공지 · 미정 응답 · 체육관 예약 오픈 알림'
-                      : '공지와 미정 응답 알림',
-                ),
-                onChanged: (value) async {
-                  if (value) {
-                    final granted = await service.enableAndTest();
-                    if (!sheetContext.mounted) return;
-                    setState(() => enabled = granted);
-                    if (granted) {
-                      ref
-                          .read(lockerControllerProvider.notifier)
-                          .refreshUndecidedReminders();
-                      await ref
-                          .read(lockerControllerProvider.notifier)
-                          .scheduleReservationOpeningReminder(
-                            isReservationManager: user.isReservationManager,
-                          );
-                    }
-                  } else {
-                    await service.disable();
-                    if (sheetContext.mounted) setState(() => enabled = false);
-                  }
-                },
-              ),
-              if (enabled) ...[
-                const SizedBox(height: 4),
-                const Text(
-                  '항목별 알림',
-                  style: TextStyle(
-                    color: EncbaColors.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      '알림',
+                      style: TextStyle(
+                        fontFamily: 'Jua',
+                        fontSize: 25,
+                        color: EncbaColors.navy,
+                      ),
+                    ),
                   ),
+                  if (history.isNotEmpty)
+                    TextButton(
+                      onPressed: () async {
+                        await historyService.clear();
+                        if (sheetContext.mounted) {
+                          setState(() => history = const []);
+                        }
+                      },
+                      child: const Text('기록 지우기'),
+                    ),
+                ],
+              ),
+              // 평소에는 지난 알림이 먼저 보이도록 설정은 접어 둔다.
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: EdgeInsets.zero,
+                shape: const Border(),
+                collapsedShape: const Border(),
+                leading: const Icon(
+                  Icons.tune_rounded,
+                  color: EncbaColors.muted,
                 ),
-                for (final category in NotificationCategory.values)
+                title: const Text('알림 설정'),
+                subtitle: Text(enabled ? '알림 받는 중' : '알림 꺼짐'),
+                children: [
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    value: categoryEnabled[category] ?? true,
-                    title: Text(switch (category) {
-                      NotificationCategory.announcements => '공지',
-                      NotificationCategory.events => '일정',
-                      NotificationCategory.videos => '영상',
-                    }),
+                    value: enabled,
+                    title: const Text('알림 받기'),
+                    subtitle: Text(
+                      user.isReservationManager
+                          ? '공지 · 미정 응답 · 체육관 예약 오픈 알림'
+                          : '공지와 미정 응답 알림',
+                    ),
                     onChanged: (value) async {
-                      await prefs.setEnabled(category, value);
-                      setState(() => categoryEnabled[category] = value);
+                      if (value) {
+                        final granted = await service.enableAndTest();
+                        if (!sheetContext.mounted) return;
+                        setState(() => enabled = granted);
+                        if (granted) {
+                          ref
+                              .read(lockerControllerProvider.notifier)
+                              .refreshUndecidedReminders();
+                          await ref
+                              .read(lockerControllerProvider.notifier)
+                              .scheduleReservationOpeningReminder(
+                                isReservationManager: user.isReservationManager,
+                              );
+                        }
+                      } else {
+                        await service.disable();
+                        if (sheetContext.mounted) {
+                          setState(() => enabled = false);
+                        }
+                      }
                     },
                   ),
-              ],
+                  if (enabled) ...[
+                    const SizedBox(height: 4),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '항목별 알림',
+                        style: TextStyle(
+                          color: EncbaColors.muted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    for (final category in NotificationCategory.values)
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        value: categoryEnabled[category] ?? true,
+                        title: Text(switch (category) {
+                          NotificationCategory.announcements => '공지',
+                          NotificationCategory.events => '일정',
+                          NotificationCategory.videos => '영상',
+                        }),
+                        onChanged: (value) async {
+                          await prefs.setEnabled(category, value);
+                          setState(() => categoryEnabled[category] = value);
+                        },
+                      ),
+                  ],
+                ],
+              ),
               const Divider(),
-              if (announcements.isEmpty)
+              if (history.isEmpty)
                 const ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(
@@ -501,31 +538,86 @@ Future<void> _showNotifications(
                   title: Text('새 알림이 없습니다'),
                 )
               else
-                ...announcements
-                    .take(3)
-                    .map(
-                      (notice) => ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(
-                          Icons.campaign_outlined,
-                          color: EncbaColors.snuBlue,
-                        ),
-                        title: Text(notice.title),
-                        subtitle: Text(
-                          '${notice.author} · ${_relativeTime(notice.publishedAt)}',
-                        ),
-                        onTap: () {
-                          Navigator.pop(sheetContext);
-                          _openNotice(context, notice.id);
-                        },
-                      ),
-                    ),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.zero,
+                    itemCount: history.length,
+                    separatorBuilder: (context, index) =>
+                        const Divider(height: 1, color: EncbaColors.line),
+                    itemBuilder: (context, index) =>
+                        _NotificationHistoryTile(entry: history[index]),
+                  ),
+                ),
             ],
           ),
         ),
       ),
     ),
   );
+}
+
+/// 알림 기록 한 줄. 정확한 시각과 상대 시간을 함께 보여 준다.
+class _NotificationHistoryTile extends StatelessWidget {
+  const _NotificationHistoryTile({required this.entry});
+
+  final NotificationHistoryEntry entry;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 12),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: EncbaColors.snuBlue.withValues(alpha: .1),
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: const Icon(
+            Icons.notifications_active_outlined,
+            size: 18,
+            color: EncbaColors.snuBlue,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                entry.title,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              if (entry.body.isNotEmpty) ...[
+                const SizedBox(height: 3),
+                Text(
+                  entry.body,
+                  style: const TextStyle(fontSize: 13, color: EncbaColors.ink),
+                ),
+              ],
+              const SizedBox(height: 5),
+              Text(
+                '${_notificationTimestamp(entry.receivedAt)} · ${_relativeTime(entry.receivedAt)}',
+                style: const TextStyle(fontSize: 12, color: EncbaColors.muted),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// "8월 25일 오후 3:42"처럼 알림을 받은 정확한 시각을 적는다.
+/// intl의 기본 로케일은 영어라 오전·오후를 직접 붙인다.
+String _notificationTimestamp(DateTime value) {
+  final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+  final minute = value.minute.toString().padLeft(2, '0');
+  final meridiem = value.hour < 12 ? '오전' : '오후';
+  return '${value.month}월 ${value.day}일 $meridiem $hour:$minute';
 }
 
 Future<void> _showAnnouncementEditor(

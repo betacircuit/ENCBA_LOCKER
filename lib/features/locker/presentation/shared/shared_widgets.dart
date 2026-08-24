@@ -109,6 +109,7 @@ String _relativeTime(DateTime value) {
   if (elapsed.inMinutes < 1) return '방금 전';
   if (elapsed.inHours < 1) return '${elapsed.inMinutes}분 전';
   if (elapsed.inDays < 1) return '${elapsed.inHours}시간 전';
+  if (elapsed.inDays < 2) return '어제';
   if (elapsed.inDays < 7) return '${elapsed.inDays}일 전';
   return '${value.month}.${value.day}';
 }

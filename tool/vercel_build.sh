@@ -71,7 +71,9 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
   const notification = payload.notification || {};
-  const title = notification.title || "ENCBA LOCKER";
+  // 브라우저가 알림 아래에 PWA 이름(manifest의 short_name)을 붙이므로
+  // 제목에 앱 이름을 다시 쓰지 않는다.
+  const title = notification.title || "새 알림";
   const body = notification.body || "";
   const data = payload.data || {};
   self.registration.showNotification(title, {

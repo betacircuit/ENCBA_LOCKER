@@ -7,6 +7,7 @@ import 'package:encba_locker/features/locker/application/locker_state.dart';
 import 'package:encba_locker/features/locker/data/supabase_locker_repository.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/services/notification_category_prefs.dart';
+import 'package:encba_locker/features/locker/services/notification_history_service.dart';
 import 'package:encba_locker/features/locker/services/web_notification_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,6 +39,7 @@ class LockerController extends StateNotifier<LockerState> {
   RealtimeChannel? _eventChannel;
   RealtimeChannel? _videoFeedChannel;
   final _notificationPrefs = NotificationCategoryPrefs();
+  final _notificationHistory = NotificationHistoryService();
   Timer? _undecidedReminderTimer;
   Future<void>? _loadInFlight;
   Future<void>? _homecomingContactsLoadInFlight;
@@ -161,7 +163,7 @@ class LockerController extends StateNotifier<LockerState> {
           unreadNotifications: state.unreadNotifications + 1,
         );
         unawaited(
-          WebNotificationService().show(
+          _notify(
             'IB 운영 교환 신청이 왔습니다',
             'PERSONAL의 IB 운영 일정에서 요청을 확인해 주세요.',
           ),
@@ -192,6 +194,13 @@ class LockerController extends StateNotifier<LockerState> {
     String body,
   ) async {
     if (!await _notificationPrefs.isEnabled(category)) return;
+    await _notify(title, body);
+  }
+
+  /// 알림을 띄우기 전에 기록부터 남긴다. 브라우저 권한이 꺼져 있어
+  /// 알림이 뜨지 않더라도 알림 패널에서는 지난 알림을 볼 수 있어야 한다.
+  Future<void> _notify(String title, String body) async {
+    await _notificationHistory.add(title: title, body: body);
     await WebNotificationService().show(title, body);
   }
 
@@ -973,11 +982,12 @@ class LockerController extends StateNotifier<LockerState> {
     );
     var changed = false;
     for (final event in due) {
-      final shown = await WebNotificationService().show(
-        '일정을 확정해 주세요',
-        '${event.title} · ${event.start.month}.${event.start.day} ${event.start.hour.toString().padLeft(2, '0')}:${event.start.minute.toString().padLeft(2, '0')}',
-      );
+      const title = '일정을 확정해 주세요';
+      final body =
+          '${event.title} · ${event.start.month}.${event.start.day} ${event.start.hour.toString().padLeft(2, '0')}:${event.start.minute.toString().padLeft(2, '0')}';
+      final shown = await WebNotificationService().show(title, body);
       if (shown) {
+        await _notificationHistory.add(title: title, body: body);
         sent.add(event.id);
         changed = true;
       }

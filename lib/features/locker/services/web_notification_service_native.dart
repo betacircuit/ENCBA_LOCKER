@@ -13,7 +13,8 @@ class WebNotificationService {
         await _channel.invokeMethod<bool>('requestPermission') ?? false;
     if (!granted) return false;
     await LocalStore().setString(_enabledKey, 'true');
-    return show('ENCBA LOCKER', '알림이 켜졌습니다. 새 공지와 일정 변경을 알려드릴게요.');
+    // 알림 제목에 앱 이름을 다시 쓰면 시스템이 붙이는 앱 이름과 겹친다.
+    return show('알림이 켜졌습니다', '새 공지와 일정 변경을 알려드릴게요.');
   }
 
   Future<bool> isEnabled() async =>
