@@ -22,6 +22,10 @@ class PwaInstallCard extends ConsumerStatefulWidget {
 
 class _PwaInstallCardState extends ConsumerState<PwaInstallCard> {
   bool? _dismissed;
+  // 위에서 알림처럼 슬라이드 + 페이드로 들어오는 진입 애니메이션의 상태.
+  // 처음 그려질 때는 false로 시작해, 그 다음 프레임에 true로 바뀌면서
+  // AnimatedSlide/AnimatedOpacity가 목표 값까지 애니메이션한다.
+  bool _entered = false;
 
   /// 저장소를 쓸 수 없는 환경(테스트 등)에서도 화면이 깨지지 않게 한다.
   /// 읽기 실패는 "아직 숨기지 않음"으로, 쓰기 실패는 무시한다.
@@ -39,6 +43,13 @@ class _PwaInstallCardState extends ConsumerState<PwaInstallCard> {
     Future.microtask(() async {
       final dismissed = await _readDismissed();
       if (mounted) setState(() => _dismissed = dismissed);
+    });
+  }
+
+  void _startEntranceAnimation() {
+    if (_entered) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _entered = true);
     });
   }
 
@@ -66,7 +77,8 @@ class _PwaInstallCardState extends ConsumerState<PwaInstallCard> {
         ? PwaInstallPlatform.android
         : PwaInstallPlatform.desktop;
     final isDesktop = platform == PwaInstallPlatform.desktop;
-    return Card(
+    _startEntranceAnimation();
+    final card = Card(
       color: EncbaColors.navy,
       margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.antiAlias,
@@ -109,6 +121,18 @@ class _PwaInstallCardState extends ConsumerState<PwaInstallCard> {
             ],
           ),
         ),
+      ),
+    );
+    // 위쪽에서 알림이 뜨듯 살짝 슬라이드다운 + 페이드인.
+    return AnimatedSlide(
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+      offset: _entered ? Offset.zero : const Offset(0, -0.35),
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOut,
+        opacity: _entered ? 1 : 0,
+        child: card,
       ),
     );
   }
@@ -278,36 +302,36 @@ class _InstallStep {
 const _iosInstallSteps = [
   _InstallStep(
     'Safari에서 LOCKER 열기',
-    '현재 LOCKER 페이지를 Safari로 엽니다. 화면 아래쪽 도구 막대의 공유 버튼을 누르세요.',
-    '주소창이 위에 있다면 공유 버튼도 화면 위쪽에 있을 수 있습니다.',
+    '지금 이 페이지를 Safari로 열어 주세요. 화면 아래쪽(아이패드는 위쪽) 도구 막대에서 사각형에 위쪽 화살표가 그려진 공유 버튼을 누릅니다.',
+    '카카오톡·인스타그램 등 앱 안에서 열린 브라우저에서는 이 기능을 쓸 수 없어요. 꼭 Safari로 열어야 합니다.',
   ),
   _InstallStep(
     '홈 화면에 추가 선택',
-    '공유 메뉴를 위로 올린 뒤 “홈 화면에 추가” 항목을 누릅니다.',
-    '항목이 안 보이면 공유 메뉴를 아래쪽까지 천천히 스크롤하세요.',
+    '공유 메뉴가 뜨면 아이콘 목록을 아래로 스크롤해서 “홈 화면에 추가” 항목을 찾아 누릅니다.',
+    '항목이 바로 안 보이면 계속 아래로 내려 보세요. 목록 중간쯤에 있습니다.',
   ),
   _InstallStep(
     '이름 확인 후 추가',
-    '아이콘 아래 이름이 LOCKER인지 확인하고 오른쪽 위 “추가”를 누릅니다.',
-    '이름은 바꾸지 않아야 다른 부원과 같은 이름으로 찾기 쉽습니다.',
+    '아이콘 아래 표시될 이름이 LOCKER인지 확인하고, 화면 오른쪽 위의 “추가”를 누르면 끝입니다.',
+    '이름을 바꾸면 다른 부원 화면과 다르게 보일 수 있어요. 그대로 두는 걸 추천합니다.',
   ),
 ];
 
 const _androidInstallSteps = [
   _InstallStep(
     'Chrome에서 LOCKER 열기',
-    '현재 LOCKER 페이지를 Chrome으로 열고 오른쪽 위 점 세 개 메뉴를 누르세요.',
-    '삼성 인터넷은 아래쪽 메뉴 버튼에서 같은 항목을 찾을 수 있습니다.',
+    '지금 이 페이지를 Chrome으로 열고, 화면 오른쪽 위 점 세 개(⋮) 메뉴 버튼을 누릅니다.',
+    '삼성 인터넷은 화면 아래쪽 메뉴 버튼에서 같은 항목을 찾을 수 있습니다.',
   ),
   _InstallStep(
     '홈 화면에 추가 선택',
-    '“앱 설치” 또는 “홈 화면에 추가”를 누릅니다. 브라우저 버전에 따라 문구가 다를 수 있습니다.',
-    '두 문구 중 하나만 보이면 정상입니다.',
+    '메뉴 목록에서 “앱 설치” 또는 “홈 화면에 추가”를 누릅니다. 브라우저 버전에 따라 문구가 다를 수 있어요.',
+    '둘 중 하나만 보여도 정상입니다. 같은 기능이니 보이는 걸 누르면 됩니다.',
   ),
   _InstallStep(
     '추가 확인',
-    'LOCKER 아이콘과 이름을 확인한 뒤 “설치” 또는 “추가”를 누릅니다.',
-    '추가가 끝날 때까지 Chrome을 닫지 마세요.',
+    'LOCKER 아이콘과 이름을 확인한 뒤 뜨는 대화상자에서 “설치” 또는 “추가”를 누릅니다.',
+    '추가가 끝날 때까지 Chrome을 닫지 마세요. 완료되면 홈 화면에 바로 아이콘이 생깁니다.',
   ),
 ];
 

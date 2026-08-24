@@ -276,7 +276,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 12),
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton(
@@ -308,7 +308,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
                   if (_signUp && pendingRegistration == null) ...[
                     FilledButton.icon(
                       onPressed: auth.isBusy
