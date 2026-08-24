@@ -925,7 +925,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('불참은 수기 사유를 입력해야 저장된다', (tester) async {
+  testWidgets('불참은 사유를 고르고 확인 문구를 입력해야 저장된다', (tester) async {
     await tester.pumpWidget(_signedInApp(const LockerShell()));
     await tester.pumpAndSettle();
 
@@ -934,8 +934,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('불참 사유'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField).last, '학과 필수 수업과 시간이 겹칩니다.');
-    await tester.tap(find.text('저장'));
+    // 사유도 확인 문구도 없으면 확정할 수 없다.
+    final confirmButton = find.widgetWithText(FilledButton, '불참 확정');
+    expect(tester.widget<FilledButton>(confirmButton).onPressed, isNull);
+
+    await tester.tap(find.text(absenceReasonPresets.first));
+    await tester.pumpAndSettle();
+    // 사유만 골라도 확인 문구 없이는 여전히 막혀 있다.
+    expect(tester.widget<FilledButton>(confirmButton).onPressed, isNull);
+
+    await tester.enterText(find.byType(TextField).last, absenceConfirmPhrase);
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(confirmButton).onPressed, isNotNull);
+
+    await tester.tap(confirmButton);
     await tester.pump(const Duration(milliseconds: 260));
     expect(find.textContaining('불참으로 저장했습니다'), findsOneWidget);
   });

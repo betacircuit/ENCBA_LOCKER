@@ -1437,36 +1437,190 @@ class AttendanceSelector extends ConsumerWidget {
     _ => EncbaColors.undecided,
   };
 
-  Future<String?> _askAbsenceReason(BuildContext context) async {
-    var typedReason = '';
-    final reason = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('불참 사유'),
-        content: TextField(
-          autofocus: true,
-          minLines: 2,
-          maxLines: 4,
-          maxLength: 500,
-          onChanged: (value) => typedReason = value,
-          decoration: const InputDecoration(hintText: '불참 사유를 직접 적어 주세요.'),
+  Future<String?> _askAbsenceReason(BuildContext context) => showDialog<String>(
+    context: context,
+    builder: (context) => const _AbsenceReasonDialog(),
+  );
+}
+
+/// 밴드에서 실제로 가장 많이 쌓인 불참 사유 5종.
+///
+/// 선택지와 출결 통계의 분류가 어긋나지 않도록 목록은 여기서만 정의한다.
+const absenceReasonPresets = <String>['가족 일정', '학업', '개인 선약', '여행', '부상·건강'];
+
+/// 불참을 확정하려면 그대로 입력해야 하는 문구.
+const absenceConfirmPhrase = '불참하겠습니다';
+
+/// 직접 입력 선택지 라벨. 이 값 자체는 사유로 저장되지 않는다.
+const _absenceCustomLabel = '직접 입력';
+
+const _absenceReasonHints = <String, String>{
+  '가족 일정': '본가 방문, 가족 여행, 가족 행사',
+  '학업': '시험, 기말고사, 과제·프로젝트 마감, 세미나',
+  '개인 선약': '미리 잡아 둔 약속',
+  '여행': '개인 여행, 해외여행',
+  '부상·건강': '부상, 감기, 고열 등',
+  _absenceCustomLabel: '위 다섯 가지에 해당하지 않을 때만 사용해 주세요.',
+};
+
+/// 불참 사유를 고르고 확인 문구까지 입력해야 통과되는 다이얼로그.
+class _AbsenceReasonDialog extends StatefulWidget {
+  const _AbsenceReasonDialog();
+
+  @override
+  State<_AbsenceReasonDialog> createState() => _AbsenceReasonDialogState();
+}
+
+class _AbsenceReasonDialogState extends State<_AbsenceReasonDialog> {
+  String? _selected;
+  final _customController = TextEditingController();
+  final _confirmController = TextEditingController();
+
+  @override
+  void dispose() {
+    _customController.dispose();
+    _confirmController.dispose();
+    super.dispose();
+  }
+
+  /// 저장될 사유 문자열. 선택지는 라벨 그대로, 직접 입력은 적은 내용을 쓴다.
+  String? get _reason {
+    final selected = _selected;
+    if (selected == null) return null;
+    if (selected != _absenceCustomLabel) return selected;
+    final typed = _customController.text.trim();
+    return typed.isEmpty ? null : typed;
+  }
+
+  bool get _confirmed =>
+      _confirmController.text.trim() == absenceConfirmPhrase;
+
+  @override
+  Widget build(BuildContext context) {
+    final reason = _reason;
+    final canSubmit = reason != null && _confirmed;
+    return AlertDialog(
+      title: const Text('불참 사유'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                '불참은 팀 구성과 코트 배정에 바로 영향을 줍니다. 사유를 고르고 확인 문구까지 '
+                '적게 한 건 한 번 더 신중하게 생각해 보시라는 뜻입니다.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: EncbaColors.muted,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 14),
+              for (final label in [...absenceReasonPresets, _absenceCustomLabel])
+                _reasonTile(label),
+              if (_selected == _absenceCustomLabel) ...[
+                const SizedBox(height: 4),
+                TextField(
+                  controller: _customController,
+                  autofocus: true,
+                  minLines: 2,
+                  maxLines: 4,
+                  maxLength: 500,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    hintText: '불참 사유를 직접 적어 주세요.',
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              const Text(
+                "확정하려면 아래에 '$absenceConfirmPhrase'를 그대로 입력해 주세요.",
+                style: TextStyle(fontSize: 12, color: EncbaColors.ink),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _confirmController,
+                maxLength: 20,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  hintText: absenceConfirmPhrase,
+                  counterText: '',
+                ),
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: canSubmit ? () => Navigator.pop(context, reason) : null,
+          child: const Text('불참 확정'),
+        ),
+      ],
+    );
+  }
+
+  Widget _reasonTile(String label) {
+    final active = _selected == label;
+    final hint = _absenceReasonHints[label];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(11),
+        onTap: () => setState(() => _selected = label),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: active ? EncbaColors.absent.withValues(alpha: .08) : null,
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(
+              color: active ? EncbaColors.absent : EncbaColors.line,
+            ),
           ),
-          FilledButton(
-            onPressed: () {
-              final value = typedReason.trim();
-              if (value.isNotEmpty) Navigator.pop(context, value);
-            },
-            child: const Text('저장'),
+          child: Row(
+            children: [
+              Icon(
+                active
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                size: 18,
+                color: active ? EncbaColors.absent : EncbaColors.muted,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: active ? EncbaColors.absent : EncbaColors.ink,
+                      ),
+                    ),
+                    if (hint != null)
+                      Text(
+                        hint,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: EncbaColors.muted,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
-    return reason;
   }
 }
 
