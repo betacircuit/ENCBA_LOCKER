@@ -226,11 +226,18 @@
         (ua.indexOf('macintosh') !== -1 && window.navigator.maxTouchPoints > 1)) &&
         ua.indexOf('crios') === -1 && ua.indexOf('fxios') === -1;
       var isAndroid = ua.indexOf('android') !== -1;
-      if (!isIosLike && !isAndroid) return;
+      // 데스크톱은 Chrome·Edge(크로미움 계열)만 주소창에 설치 아이콘을 지원한다.
+      // Firefox·Safari 데스크톱은 이 방식의 설치가 없어 안내하지 않는다.
+      var isChromiumDesktop = !isIosLike && !isAndroid &&
+        (ua.indexOf('edg/') !== -1 ||
+          (ua.indexOf('chrome/') !== -1 && ua.indexOf('chromium') === -1));
+      if (!isIosLike && !isAndroid && !isChromiumDesktop) return;
 
       textEl.textContent = isIosLike
         ? 'Safari 하단 공유 버튼 → "홈 화면에 추가"를 누르면 앱처럼 쓸 수 있어요.'
-        : '브라우저 메뉴 → "홈 화면에 추가"를 누르면 앱처럼 쓸 수 있어요.';
+        : isAndroid
+        ? '브라우저 메뉴 → "홈 화면에 추가"를 누르면 앱처럼 쓸 수 있어요.'
+        : '주소창 오른쪽의 설치 아이콘을 누르면 앱처럼 설치할 수 있어요.';
       el.classList.add('encba-show');
     })();
 

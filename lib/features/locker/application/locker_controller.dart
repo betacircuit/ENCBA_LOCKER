@@ -64,6 +64,14 @@ class LockerController extends StateNotifier<LockerState> {
 
   Future<void> _performLoad() async {
     final repository = _repository!;
+    // 로그아웃 상태에서도 auth 상태 변화(세션 복원 시도, 로그아웃 등)마다
+    // 이 컨트롤러가 다시 만들어져 곧장 동기화를 시도한다. 로그인 전에는
+    // 서버 호출이 전부 "로그인이 필요합니다" 에러로 실패할 뿐이므로 미리
+    // 걸러서 불필요한 요청과 콘솔 에러 로그를 없앤다.
+    if (Supabase.instance.client.auth.currentUser == null) {
+      state = state.copyWith(isReady: true, isSyncing: false);
+      return;
+    }
     try {
       final cached = await repository.loadCached();
       if (cached != null) {
