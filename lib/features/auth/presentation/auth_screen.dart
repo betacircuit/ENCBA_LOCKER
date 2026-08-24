@@ -276,14 +276,23 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                               ),
                             ),
                           ),
-                          TextButton(
-                            onPressed: auth.isBusy
-                                ? null
-                                : () => setState(() {
-                                    _signUp = true;
-                                    _formKey.currentState?.reset();
-                                  }),
-                            child: const Text('처음이라면 Google 회원가입'),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              onPressed: auth.isBusy
+                                  ? null
+                                  : () => setState(() {
+                                      _signUp = true;
+                                      _formKey.currentState?.reset();
+                                    }),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: EncbaColors.snuBlue,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 17),
+                              ),
+                              child: const Text('처음이라면 Google 회원가입'),
+                            ),
                           ),
                         ],
                       ],
