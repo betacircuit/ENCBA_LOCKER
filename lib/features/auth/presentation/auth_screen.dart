@@ -1,4 +1,5 @@
 import 'package:encba_locker/core/theme/app_theme.dart';
+import 'package:encba_locker/core/widgets/pwa_install_prompt.dart';
 import 'package:encba_locker/core/widgets/wheel_picker_field.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/domain/user_profile.dart';
@@ -17,7 +18,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _formKey = GlobalKey<FormState>();
   final _password = TextEditingController();
   final _passwordConfirm = TextEditingController();
-  final _name = TextEditingController();
   final _phone = TextEditingController(text: '010-');
   final _jerseyNumber = TextEditingController();
   bool _signUp = false;
@@ -28,13 +28,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
   @override
   void dispose() {
-    for (final controller in [
-      _password,
-      _passwordConfirm,
-      _name,
-      _phone,
-      _jerseyNumber,
-    ]) {
+    for (final controller in [_password, _passwordConfirm, _phone, _jerseyNumber]) {
       controller.dispose();
     }
     super.dispose();
@@ -259,34 +253,22 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                               ],
                             ),
                           ),
-                        ] else ...[
-                          _Field(
-                            controller: _name,
-                            label: '아이디',
-                            hint: '학교 이메일 또는 실명',
-                            autofillHints: const [AutofillHints.username],
-                            validator: _required,
-                          ),
-                          const SizedBox(height: 12),
-                          _Field(
-                            controller: _password,
-                            label: '비밀번호',
-                            obscureText: _obscure,
-                            autofillHints: const [AutofillHints.password],
-                            suffix: IconButton(
-                              onPressed: () =>
-                                  setState(() => _obscure = !_obscure),
-                              icon: Icon(
-                                _obscure
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
-                              ),
+                        ] else
+                          // 아이디·비밀번호 로그인은 당분간 비활성화했다.
+                          // 실사용은 전부 Google 로그인뿐이라 그 버튼을 이
+                          // 자리로 올리고, 아래 빈 자리는 홈 화면 추가
+                          // 안내로 채운다.
+                          FilledButton.icon(
+                            onPressed: auth.isBusy
+                                ? null
+                                : () => ref
+                                      .read(authControllerProvider.notifier)
+                                      .startGoogleSignIn(),
+                            icon: const Icon(Icons.school_outlined),
+                            label: Text(
+                              auth.isBusy ? 'Google 연결 중…' : 'Google 계정으로 로그인',
                             ),
-                            validator: (value) => (value?.length ?? 0) < 8
-                                ? '8자 이상 입력해 주세요.'
-                                : null,
                           ),
-                        ],
                       ],
                     ),
                   ),
@@ -313,7 +295,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         auth.isBusy ? 'Google 연결 중…' : 'Google 계정으로 계속',
                       ),
                     )
-                  else ...[
+                  else if (pendingRegistration != null)
                     FilledButton(
                       onPressed: auth.isBusy ? null : _submit,
                       child: AnimatedSwitcher(
@@ -327,33 +309,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                   strokeWidth: 2,
                                 ),
                               )
-                            : Text(
-                                pendingRegistration != null
-                                    ? '정보 저장하고 가입 완료'
-                                    : '로그인',
-                                key: const ValueKey('label'),
+                            : const Text(
+                                '정보 저장하고 가입 완료',
+                                key: ValueKey('label'),
                               ),
                       ),
-                    ),
-                    // 학교 계정을 이미 연결한 부원은 비밀번호 없이 들어온다.
-                    // 가입 흐름과 같은 버튼이며, 프로필이 있으면 바로 로그인된다.
-                    if (pendingRegistration == null) ...[
-                      const SizedBox(height: 14),
-                      const _OrDivider(),
-                      const SizedBox(height: 14),
-                      OutlinedButton.icon(
-                        onPressed: auth.isBusy
-                            ? null
-                            : () => ref
-                                  .read(authControllerProvider.notifier)
-                                  .startGoogleSignIn(),
-                        icon: const Icon(Icons.school_outlined),
-                        label: Text(
-                          auth.isBusy ? 'Google 연결 중…' : 'Google 계정으로 로그인',
-                        ),
-                      ),
-                    ],
-                  ],
+                    )
+                  else
+                    const PwaInstallCard(),
                   const SizedBox(height: 12),
                   TextButton(
                     onPressed: auth.isBusy
@@ -388,44 +351,41 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     );
   }
 
-  String? _required(String? value) =>
-      value == null || value.trim().isEmpty ? '입력해 주세요.' : null;
-
+  /// 등록 확정(Google 인증 뒤 회원 정보 입력) 폼 제출. 아이디·비밀번호
+  /// 로그인은 비활성화돼 있어 이 버튼은 pendingRegistration이 있을 때만
+  /// 노출된다.
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
     final controller = ref.read(authControllerProvider.notifier);
     final registration = ref.read(authControllerProvider).pendingRegistration;
-    if (registration != null) {
-      final name = registration.suggestedName.trim();
-      if (name.isEmpty) {
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(
-            const SnackBar(
-              content: Text('학교 계정에서 실명을 확인하지 못했습니다. 관리자에게 문의해 주세요.'),
-            ),
-          );
-        return;
-      }
-      await controller.completeGoogleRegistration(
-        UserProfile(
-          email: registration.email,
-          name: name,
-          studentId: '$_studentYearPick학번',
-          generation: 1,
-          joinedYear: int.parse(_joinedYearPick),
-          phone: _phone.text.trim(),
-          position: _position,
-          jerseyNumber: int.parse(_jerseyNumber.text),
-          status: 'YB',
-          teams: const ['ENCBA'],
-        ),
-        password: _password.text,
-      );
-    } else {
-      await controller.signIn(_name.text.trim(), _password.text);
+    if (registration == null) return;
+    final name = registration.suggestedName.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('학교 계정에서 실명을 확인하지 못했습니다. 관리자에게 문의해 주세요.'),
+          ),
+        );
+      return;
     }
+    await controller.completeGoogleRegistration(
+      UserProfile(
+        email: registration.email,
+        name: name,
+        studentId: '$_studentYearPick학번',
+        generation: 1,
+        joinedYear: int.parse(_joinedYearPick),
+        phone: _phone.text.trim(),
+        position: _position,
+        jerseyNumber: int.parse(_jerseyNumber.text),
+        status: 'YB',
+        teams: const ['ENCBA'],
+      ),
+      password: _password.text,
+    );
   }
 }
 
@@ -633,25 +593,5 @@ class _VerifiedRealNameField extends StatelessWidget {
         ),
       ],
     ),
-  );
-}
-
-/// 실명 로그인과 학교 계정 로그인을 갈라 주는 구분선.
-class _OrDivider extends StatelessWidget {
-  const _OrDivider();
-
-  @override
-  Widget build(BuildContext context) => const Row(
-    children: [
-      Expanded(child: Divider(color: EncbaColors.line)),
-      Padding(
-        padding: EdgeInsets.symmetric(horizontal: 12),
-        child: Text(
-          '또는',
-          style: TextStyle(color: EncbaColors.muted, fontSize: 12),
-        ),
-      ),
-      Expanded(child: Divider(color: EncbaColors.line)),
-    ],
   );
 }

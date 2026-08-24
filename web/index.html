@@ -56,36 +56,25 @@
     }
     #encba-boot {
       position: fixed; inset: 0; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 14px;
+      align-items: center; justify-content: center; gap: 12px;
       color: #0b2347; font: 700 14px/1.4 system-ui, sans-serif;
       padding: 24px; box-sizing: border-box; text-align: center;
     }
-    #encba-boot-spinner { display: flex; align-items: center; gap: 10px; }
-    #encba-boot-spinner::before {
-      content: ""; width: 28px; height: 28px;
-      border: 3px solid #c9d7e8; border-top-color: #00539b;
-      border-radius: 50%; animation: encba-spin .8s linear infinite;
+    #encba-boot-bar-track {
+      width: 220px; max-width: 60vw; height: 6px; border-radius: 999px;
+      background: #c9d7e8; overflow: hidden;
     }
-    @keyframes encba-spin { to { transform: rotate(360deg); } }
-    #encba-boot-percent { color: #5c6b84; font-weight: 600; min-width: 2.5em; }
-    #encba-boot-pwa {
-      display: none; align-items: center; gap: 10px; max-width: 320px;
-      margin-top: 6px; padding: 10px 14px; border-radius: 14px;
-      background: #ffffffb3; border: 1px solid #d9e2ef;
-      font-weight: 500; font-size: 12px; color: #123a72; text-align: left;
-    }
-    #encba-boot-pwa.encba-show { display: flex; }
-    #encba-boot-pwa img {
-      width: 34px; height: 34px; border-radius: 9px; flex: none;
+    #encba-boot-bar-fill {
+      height: 100%; width: 4%; border-radius: 999px;
+      background: #00539b; transition: width .25s ease-out;
     }
   </style>
 </head>
 <body>
   <div id="encba-boot" role="status" aria-live="polite">
-    <div id="encba-boot-spinner">ENCBA LOCKER 불러오는 중<span id="encba-boot-percent"></span></div>
-    <div id="encba-boot-pwa">
-      <img src="icons/Icon-192.png" alt="">
-      <span id="encba-boot-pwa-text"></span>
+    <div>ENCBA LOCKER 불러오는 중</div>
+    <div id="encba-boot-bar-track">
+      <div id="encba-boot-bar-fill"></div>
     </div>
   </div>
   <!--
@@ -175,24 +164,23 @@
       document.getElementById('encba-boot')?.remove();
     });
 
-    // 로딩 중 대략적인 진행률 표시. Flutter는 실제 다운로드 진행률(바이트
+    // 로딩 중 대략적인 진행률 바. Flutter는 실제 다운로드 진행률(바이트
     // 단위)을 알려주는 API가 없어서, 리소스 타이밍으로 실제 받아온 바이트를
     // 누적하고 이 앱의 첫 프레임 전 다운로드 총량(엔진 wasm + JS 번들 +
     // 번들 폰트 3종) 추정치와 비교한 근사값이다. 100%를 못 채우고 먼저
     // first-frame이 오면(캐시 히트 등) 그대로 화면이 사라지므로 문제없다.
+    // "홈 화면에 추가" 안내는 로그인 화면(AuthScreen)의 PwaInstallCard로
+    // 옮겨서 여기서는 더 이상 보여주지 않는다.
     (function () {
-      var percentEl = document.getElementById('encba-boot-percent');
-      if (!percentEl || !window.PerformanceObserver) return;
+      var barEl = document.getElementById('encba-boot-bar-fill');
+      if (!barEl || !window.PerformanceObserver) return;
       var ESTIMATED_TOTAL_BYTES = 18 * 1024 * 1024;
       var seen = {};
       var loadedBytes = 0;
-      var lastShown = -1;
 
       function render() {
-        var percent = Math.min(99, Math.round((loadedBytes / ESTIMATED_TOTAL_BYTES) * 100));
-        if (percent === lastShown) return;
-        lastShown = percent;
-        percentEl.textContent = ' ' + percent + '%';
+        var percent = Math.max(4, Math.min(99, Math.round((loadedBytes / ESTIMATED_TOTAL_BYTES) * 100)));
+        barEl.style.width = percent + '%';
       }
 
       try {
@@ -208,37 +196,6 @@
       } catch (e) {
         /* 관찰 실패해도 로딩 자체는 그대로 진행된다. */
       }
-    })();
-
-    // 로그인 전 방문자에게도 "홈 화면에 추가"를 안내한다. 이미 설치돼
-    // standalone으로 열려 있으면 보여줄 이유가 없다.
-    (function () {
-      var el = document.getElementById('encba-boot-pwa');
-      var textEl = document.getElementById('encba-boot-pwa-text');
-      if (!el || !textEl) return;
-
-      var isStandalone = window.navigator.standalone === true ||
-        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-      if (isStandalone) return;
-
-      var ua = window.navigator.userAgent.toLowerCase();
-      var isIosLike = (ua.indexOf('iphone') !== -1 || ua.indexOf('ipad') !== -1 || ua.indexOf('ipod') !== -1 ||
-        (ua.indexOf('macintosh') !== -1 && window.navigator.maxTouchPoints > 1)) &&
-        ua.indexOf('crios') === -1 && ua.indexOf('fxios') === -1;
-      var isAndroid = ua.indexOf('android') !== -1;
-      // 데스크톱은 Chrome·Edge(크로미움 계열)만 주소창에 설치 아이콘을 지원한다.
-      // Firefox·Safari 데스크톱은 이 방식의 설치가 없어 안내하지 않는다.
-      var isChromiumDesktop = !isIosLike && !isAndroid &&
-        (ua.indexOf('edg/') !== -1 ||
-          (ua.indexOf('chrome/') !== -1 && ua.indexOf('chromium') === -1));
-      if (!isIosLike && !isAndroid && !isChromiumDesktop) return;
-
-      textEl.textContent = isIosLike
-        ? 'Safari 하단 공유 버튼 → "홈 화면에 추가"를 누르면 앱처럼 쓸 수 있어요.'
-        : isAndroid
-        ? '브라우저 메뉴 → "홈 화면에 추가"를 누르면 앱처럼 쓸 수 있어요.'
-        : '주소창 오른쪽의 설치 아이콘을 누르면 앱처럼 설치할 수 있어요.';
-      el.classList.add('encba-show');
     })();
 
     // 백그라운드 푸시 알림 서비스 워커. Vercel 빌드가 Firebase 설정 값을

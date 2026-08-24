@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:encba_locker/core/platform/app_environment.dart';
-import 'package:encba_locker/core/storage/local_store.dart';
 import 'package:encba_locker/core/theme/app_theme.dart';
+import 'package:encba_locker/core/widgets/pwa_install_prompt.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/domain/user_profile.dart';
 import 'package:encba_locker/features/locker/application/locker_controller.dart';

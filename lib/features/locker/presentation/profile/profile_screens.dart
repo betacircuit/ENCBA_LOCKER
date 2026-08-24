@@ -27,7 +27,7 @@ class ProfileScreen extends ConsumerWidget {
         ),
       ),
       children: [
-        const _PwaInstallCard(),
+        const PwaInstallCard(),
         _ProfileCard(
           name: user.visibleName,
           meta:

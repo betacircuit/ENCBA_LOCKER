@@ -17,5 +17,8 @@ class AppEnvironmentImpl implements AppEnvironment {
   bool get isAndroidMobileWeb => false;
 
   @override
+  bool get isChromiumDesktopWeb => false;
+
+  @override
   bool get prefersReducedData => false;
 }

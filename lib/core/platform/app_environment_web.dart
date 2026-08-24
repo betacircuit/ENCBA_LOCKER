@@ -62,6 +62,19 @@ class AppEnvironmentImpl implements AppEnvironment {
     }
   }();
 
+  // Chrome·Edge(크로미움 계열) 데스크톱만 주소창에 설치 아이콘을 지원한다.
+  // Firefox·Safari 데스크톱은 이 방식의 설치가 없다.
+  static final bool _chromiumDesktop = () {
+    try {
+      final ua = web.window.navigator.userAgent.toLowerCase();
+      if (_appleMobile || _androidMobile) return false;
+      return ua.contains('edg/') ||
+          (ua.contains('chrome/') && !ua.contains('chromium'));
+    } on Object {
+      return false;
+    }
+  }();
+
   @override
   bool get isStandalone => _standalone;
 
@@ -70,6 +83,9 @@ class AppEnvironmentImpl implements AppEnvironment {
 
   @override
   bool get isAndroidMobileWeb => _androidMobile;
+
+  @override
+  bool get isChromiumDesktopWeb => _chromiumDesktop;
 
   @override
   bool get prefersReducedData {
