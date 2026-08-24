@@ -279,7 +279,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           const SizedBox(height: 12),
                           SizedBox(
                             width: double.infinity,
-                            child: FilledButton(
+                            child: FilledButton.icon(
                               onPressed: auth.isBusy
                                   ? null
                                   : () => setState(() {
@@ -291,7 +291,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(vertical: 17),
                               ),
-                              child: const Text('처음이라면 Google 회원가입'),
+                              icon: const Icon(Icons.school_outlined),
+                              label: const Text('처음이라면 Google 회원가입'),
                             ),
                           ),
                         ],
@@ -308,7 +309,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 12),
                   if (_signUp && pendingRegistration == null) ...[
                     FilledButton.icon(
                       onPressed: auth.isBusy

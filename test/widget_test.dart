@@ -198,10 +198,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Welcome to ENCBA'), findsOneWidget);
-    expect(find.text('로그인'), findsOneWidget);
-    // 실명 로그인 화면에서도 학교 계정으로 바로 들어올 수 있어야 한다.
+    // 아이디·비밀번호 로그인은 비활성화돼 있어, 기본 화면은 Google
+    // 로그인과 회원가입 버튼만 보여준다.
     expect(find.text('Google 계정으로 로그인'), findsOneWidget);
-    expect(find.text('또는'), findsOneWidget);
     expect(find.text('처음이라면 Google 회원가입'), findsOneWidget);
 
     await tester.tap(find.text('처음이라면 Google 회원가입'));

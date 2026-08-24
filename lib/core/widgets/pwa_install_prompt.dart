@@ -1,16 +1,13 @@
 import 'package:encba_locker/core/platform/app_environment.dart';
-import 'package:encba_locker/core/storage/local_store.dart';
 import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-const _pwaDismissKey = 'encba.pwa-install-dismissed.v1';
 
 enum PwaInstallPlatform { ios, android, desktop }
 
 /// iOS Safari·Android Chrome·데스크톱 Chrome/Edge 등 "브라우저에서 그냥
 /// 열린" 상태에서만 보이는 홈 화면 추가·설치 안내. 설치(standalone)
-/// 상태이거나 다시 보지 않기를 고르면 사라진다.
+/// 상태가 아니면 웹에서는 항상 뜬다(다시 보지 않기 없음).
 ///
 /// 로그인 전 화면(sign-in)과 로그인 후 프로필 탭 양쪽에서 재사용한다.
 class PwaInstallCard extends ConsumerStatefulWidget {
@@ -21,30 +18,10 @@ class PwaInstallCard extends ConsumerStatefulWidget {
 }
 
 class _PwaInstallCardState extends ConsumerState<PwaInstallCard> {
-  bool? _dismissed;
   // 위에서 알림처럼 슬라이드 + 페이드로 들어오는 진입 애니메이션의 상태.
   // 처음 그려질 때는 false로 시작해, 그 다음 프레임에 true로 바뀌면서
   // AnimatedSlide/AnimatedOpacity가 목표 값까지 애니메이션한다.
   bool _entered = false;
-
-  /// 저장소를 쓸 수 없는 환경(테스트 등)에서도 화면이 깨지지 않게 한다.
-  /// 읽기 실패는 "아직 숨기지 않음"으로, 쓰기 실패는 무시한다.
-  Future<bool> _readDismissed() async {
-    try {
-      return await LocalStore().getString(_pwaDismissKey) == 'true';
-    } on Object {
-      return false;
-    }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    Future.microtask(() async {
-      final dismissed = await _readDismissed();
-      if (mounted) setState(() => _dismissed = dismissed);
-    });
-  }
 
   void _startEntranceAnimation() {
     if (_entered) return;
@@ -53,22 +30,13 @@ class _PwaInstallCardState extends ConsumerState<PwaInstallCard> {
     });
   }
 
-  Future<void> _dismiss() async {
-    setState(() => _dismissed = true);
-    try {
-      await LocalStore().setString(_pwaDismissKey, 'true');
-    } on Object {
-      // 저장에 실패해도 이번 세션에는 숨긴다.
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final env = const AppEnvironmentImpl();
-    // 네이티브 앱·설치된 PWA·안내 숨김에는 보이지 않는다.
+    // 네이티브 앱·설치된 PWA에는 보이지 않는다. 그 외 웹에서는 항상 보인다.
     final installable =
         env.isAppleMobileWeb || env.isAndroidMobileWeb || env.isChromiumDesktopWeb;
-    if (_dismissed != false || !installable || env.isStandalone) {
+    if (!installable || env.isStandalone) {
       return const SizedBox.shrink();
     }
     final platform = env.isAppleMobileWeb
@@ -85,16 +53,16 @@ class _PwaInstallCardState extends ConsumerState<PwaInstallCard> {
       child: InkWell(
         onTap: isDesktop ? null : () => _showSteps(context, platform),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(17, 10, 8, 10),
+          padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 8),
           child: Row(
             children: [
               Container(
-                width: 44,
-                height: 44,
-                padding: const EdgeInsets.all(7),
+                width: 40,
+                height: 40,
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(11),
                 ),
                 child: Image.asset('assets/images/app_icon.png'),
               ),
@@ -109,15 +77,11 @@ class _PwaInstallCardState extends ConsumerState<PwaInstallCard> {
                   ),
                 ),
               ),
-              IconButton(
-                tooltip: '다시 보지 않기',
-                onPressed: _dismiss,
-                icon: const Icon(
-                  Icons.close_rounded,
-                  size: 20,
+              if (!isDesktop)
+                const Icon(
+                  Icons.chevron_right_rounded,
                   color: Colors.white70,
                 ),
-              ),
             ],
           ),
         ),

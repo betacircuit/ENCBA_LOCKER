@@ -66,8 +66,12 @@
     }
     #encba-boot-bar-fill {
       height: 100%; width: 4%; border-radius: 999px;
-      background: #00539b; transition: width .25s ease-out;
+      background: #00539b;
+      transition: width .25s ease-out, background-color .3s ease-out;
     }
+    #encba-boot-bar-fill.encba-boot-done { background: #1aa260; }
+    #encba-boot-percent { color: #5c6b84; font-weight: 600; font-size: 12px; }
+    #encba-boot-percent.encba-boot-done { color: #1aa260; }
   </style>
 </head>
 <body>
@@ -76,6 +80,7 @@
     <div id="encba-boot-bar-track">
       <div id="encba-boot-bar-fill"></div>
     </div>
+    <div id="encba-boot-percent">0%</div>
   </div>
   <!--
     You can customize the "flutter_bootstrap.js" script.
@@ -160,42 +165,55 @@
       }
     })();
 
-    window.addEventListener('flutter-first-frame', function () {
-      document.getElementById('encba-boot')?.remove();
-    });
-
-    // 로딩 중 대략적인 진행률 바. Flutter는 실제 다운로드 진행률(바이트
-    // 단위)을 알려주는 API가 없어서, 리소스 타이밍으로 실제 받아온 바이트를
-    // 누적하고 이 앱의 첫 프레임 전 다운로드 총량(엔진 wasm + JS 번들 +
-    // 번들 폰트 3종) 추정치와 비교한 근사값이다. 100%를 못 채우고 먼저
-    // first-frame이 오면(캐시 히트 등) 그대로 화면이 사라지므로 문제없다.
+    // 로딩 중 대략적인 진행률 바 + 퍼센트. Flutter는 실제 다운로드
+    // 진행률(바이트 단위)을 알려주는 API가 없어서, 리소스 타이밍으로 실제
+    // 받아온 바이트를 누적하고 이 앱의 첫 프레임 전 다운로드 총량(엔진
+    // wasm + JS 번들 + 번들 폰트 3종) 추정치와 비교한 근사값이다.
     // "홈 화면에 추가" 안내는 로그인 화면(AuthScreen)의 PwaInstallCard로
     // 옮겨서 여기서는 더 이상 보여주지 않는다.
     (function () {
       var barEl = document.getElementById('encba-boot-bar-fill');
-      if (!barEl || !window.PerformanceObserver) return;
+      var percentEl = document.getElementById('encba-boot-percent');
       var ESTIMATED_TOTAL_BYTES = 18 * 1024 * 1024;
       var seen = {};
       var loadedBytes = 0;
 
       function render() {
+        if (!barEl || !percentEl) return;
         var percent = Math.max(4, Math.min(99, Math.round((loadedBytes / ESTIMATED_TOTAL_BYTES) * 100)));
         barEl.style.width = percent + '%';
+        percentEl.textContent = percent + '%';
       }
 
-      try {
-        var observer = new PerformanceObserver(function (list) {
-          list.getEntries().forEach(function (entry) {
-            if (seen[entry.name]) return;
-            seen[entry.name] = true;
-            loadedBytes += entry.transferSize || entry.encodedBodySize || entry.decodedBodySize || 0;
+      if (window.PerformanceObserver) {
+        try {
+          var observer = new PerformanceObserver(function (list) {
+            list.getEntries().forEach(function (entry) {
+              if (seen[entry.name]) return;
+              seen[entry.name] = true;
+              loadedBytes += entry.transferSize || entry.encodedBodySize || entry.decodedBodySize || 0;
+            });
+            render();
           });
-          render();
-        });
-        observer.observe({ type: 'resource', buffered: true });
-      } catch (e) {
-        /* 관찰 실패해도 로딩 자체는 그대로 진행된다. */
+          observer.observe({ type: 'resource', buffered: true });
+        } catch (e) {
+          /* 관찰 실패해도 로딩 자체는 그대로 진행된다. */
+        }
       }
+
+      // 첫 프레임이 뜨면 100%로 채우고 초록색으로 바꿔 "다 됐다"는 걸
+      // 짧게 보여준 뒤(작은 도파민 보상) 화면을 없앤다.
+      window.addEventListener('flutter-first-frame', function () {
+        if (barEl && percentEl) {
+          barEl.style.width = '100%';
+          percentEl.textContent = '100%';
+          barEl.classList.add('encba-boot-done');
+          percentEl.classList.add('encba-boot-done');
+        }
+        window.setTimeout(function () {
+          document.getElementById('encba-boot')?.remove();
+        }, 380);
+      });
     })();
 
     // 백그라운드 푸시 알림 서비스 워커. Vercel 빌드가 Firebase 설정 값을
