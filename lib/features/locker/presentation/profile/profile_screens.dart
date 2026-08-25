@@ -73,7 +73,7 @@ class ProfileScreen extends ConsumerWidget {
           icon: Icons.bug_report_outlined,
           title: '오류 제보',
           subtitle: '발생한 문제를 개발자에게 보내기',
-          onTap: () => context.push('/bug-report'),
+          onTap: () => _showBugReportSheet(context),
         ),
         _MenuTile(
           icon: Icons.assignment_outlined,
@@ -675,8 +675,24 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
   }
 }
 
+Future<void> _showBugReportSheet(BuildContext context) async {
+  final submitted = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    showDragHandle: true,
+    builder: (context) => const BugReportScreen(asBottomSheet: true),
+  );
+  if (submitted != true || !context.mounted) return;
+  ScaffoldMessenger.of(context)
+    ..clearSnackBars()
+    ..showSnackBar(const SnackBar(content: Text('오류 제보를 보냈습니다. 관리자가 확인합니다.')));
+}
+
 class BugReportScreen extends ConsumerStatefulWidget {
-  const BugReportScreen({super.key});
+  const BugReportScreen({super.key, this.asBottomSheet = false});
+
+  final bool asBottomSheet;
 
   @override
   ConsumerState<BugReportScreen> createState() => _BugReportScreenState();
@@ -693,14 +709,12 @@ class _BugReportScreenState extends ConsumerState<BugReportScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('오류 제보')),
-    resizeToAvoidBottomInset: true,
-    body: SafeArea(
+  Widget build(BuildContext context) {
+    final content = SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
           20,
-          12,
+          widget.asBottomSheet ? 0 : 12,
           20,
           MediaQuery.viewInsetsOf(context).bottom + 20,
         ),
@@ -751,8 +765,14 @@ class _BugReportScreenState extends ConsumerState<BugReportScreen> {
           ],
         ),
       ),
-    ),
-  );
+    );
+    if (widget.asBottomSheet) return content;
+    return Scaffold(
+      appBar: AppBar(title: const Text('오류 제보')),
+      resizeToAvoidBottomInset: true,
+      body: content,
+    );
+  }
 
   Future<void> _openMail() async {
     final report = _controller.text.trim();
@@ -776,6 +796,10 @@ class _BugReportScreenState extends ConsumerState<BugReportScreen> {
       if (!mounted) return;
       setState(() => _opening = false);
       _controller.clear();
+      if (widget.asBottomSheet) {
+        Navigator.of(context).pop(true);
+        return;
+      }
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(

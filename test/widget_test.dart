@@ -395,6 +395,25 @@ void main() {
     expect(find.text('다시 잠그기'), findsOneWidget);
   });
 
+  testWidgets('오류 제보는 개인 탭 아래에서 시트로 열린다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _signedInApp(
+        const ProfileScreen(),
+        lockerState: LockerState(isReady: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('오류 제보'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.text('어떤 문제가 있었나요?'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+  });
+
   test('홈커밍 문자 URI는 공백과 줄바꿈을 + 없이 인코딩한다', () {
     final uri = buildHomecomingSmsUri(
       phone: '010-1234-5678',
