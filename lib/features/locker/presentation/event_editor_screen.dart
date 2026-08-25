@@ -1,4 +1,4 @@
-part of 'event_screens.dart';
+part of 'locker_shell.dart';
 
 class EventEditorScreen extends ConsumerStatefulWidget {
   const EventEditorScreen({super.key, this.eventId});

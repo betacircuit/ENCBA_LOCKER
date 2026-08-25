@@ -45,3 +45,31 @@ jobs:
           --dart-define=SUPABASE_URL=https://example.supabase.co
           --dart-define=SUPABASE_PUBLISHABLE_KEY=ci-placeholder
           --dart-define=YOUTUBE_API_KEY=ci-placeholder
+
+  # RLS·RPC 등 서버 로직의 회귀를 잡는 자동 점검. 저장소 Settings → Secrets에
+  # SUPABASE_PROJECT_REF와 SUPABASE_ACCESS_TOKEN이 있을 때만 실행된다.
+  # 시크릿이 없으면 이 잡은 건너뛰어지고, 나머지 Flutter 점검에는 영향이 없다.
+  supabase-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: analyze-and-test
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    env:
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Skip when Supabase secrets are not configured
+        if: env.SUPABASE_PROJECT_REF == '' || env.SUPABASE_ACCESS_TOKEN == ''
+        run: echo "Supabase secrets not configured - skipping db lint."
+
+      - name: Checkout
+        if: env.SUPABASE_PROJECT_REF != '' && env.SUPABASE_ACCESS_TOKEN != ''
+        uses: actions/checkout@v4
+
+      - name: Link project and lint migrations
+        if: env.SUPABASE_PROJECT_REF != '' && env.SUPABASE_ACCESS_TOKEN != ''
+        run: |
+          npx --yes supabase@latest login --token "$SUPABASE_ACCESS_TOKEN"
+          npx --yes supabase@latest link --project-ref "$SUPABASE_PROJECT_REF"
+          npx --yes supabase@latest db lint --linked --level error
+

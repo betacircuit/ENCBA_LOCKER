@@ -170,6 +170,12 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
           onTap: () => context.push('/members?pending=1'),
         ),
         _MenuTile(
+          icon: Icons.report_outlined,
+          title: '오류 제보함',
+          subtitle: '부원들이 보낸 오류 제보를 읽고 처리',
+          onTap: () => context.push('/error-reports'),
+        ),
+        _MenuTile(
           icon: Icons.upload_file_outlined,
           title: _operationsImporting ? 'IB 운영표 가져오는 중…' : 'IB 운영표 가져오기',
           subtitle: '학기 초 엑셀로 운영 배정을 새로 등록',
@@ -700,7 +706,7 @@ class _BugReportScreenState extends ConsumerState<BugReportScreen> {
             ),
             const SizedBox(height: 7),
             const Text(
-              '작성자와 실행 환경은 메일 본문에 자동으로 포함됩니다.',
+              '작성자와 실행 환경은 자동으로 함께 기록됩니다. 관리자가 앱 안에서 바로 확인합니다.',
               style: TextStyle(color: EncbaColors.muted),
             ),
             const SizedBox(height: 16),
@@ -730,8 +736,8 @@ class _BugReportScreenState extends ConsumerState<BugReportScreen> {
                         color: Colors.white,
                       ),
                     )
-                  : const Icon(Icons.mail_outline_rounded),
-              label: Text(_opening ? '오류 제보 전송 중…' : '오류 제보 보내기'),
+                  : const Icon(Icons.send_rounded),
+              label: Text(_opening ? '오류 제보 보내는 중…' : '오류 제보 보내기'),
             ),
           ],
         ),
@@ -749,56 +755,232 @@ class _BugReportScreenState extends ConsumerState<BugReportScreen> {
     }
     setState(() => _opening = true);
     final user = ref.read(authControllerProvider).user;
-    final body =
-        '''작성자: ${user?.visibleName ?? '확인 불가'}
-학번: ${user?.studentId ?? '확인 불가'}
-계정: ${user?.email ?? '확인 불가'}
-실행 환경: ${kIsWeb ? '웹' : defaultTargetPlatform.name}
-
-[오류 내용]
-$report''';
     try {
-      await sendErrorReport(client: Supabase.instance.client, body: body);
+      await ref
+          .read(lockerControllerProvider.notifier)
+          .submitErrorReport(
+            body: report,
+            studentId: user?.studentId,
+            email: user?.email,
+            environment: kIsWeb ? '웹' : defaultTargetPlatform.name,
+          );
       if (!mounted) return;
       setState(() => _opening = false);
       _controller.clear();
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(const SnackBar(content: Text('오류 제보를 전송했습니다.')));
-      return;
-    } on Object {
-      // 서버 메일 설정 전이거나 일시 장애면 작성 내용이 사라지지 않도록 메일 앱으로 넘긴다.
-    }
-    final uri = buildErrorReportUri(body: body, isWeb: kIsWeb);
-    var opened = false;
-    try {
-      opened = await launchUrl(
-        uri,
-        mode: kIsWeb
-            ? LaunchMode.platformDefault
-            : LaunchMode.externalApplication,
-        webOnlyWindowName: '_blank',
-      );
-    } on Object {
-      opened = false;
-    }
-    if (!mounted) return;
-    setState(() => _opening = false);
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            opened
-                ? kIsWeb
-                      ? '자동 전송에 실패해 Gmail 작성창을 열었습니다.'
-                      : '자동 전송에 실패해 메일 앱을 열었습니다.'
-                : kIsWeb
-                ? 'Gmail을 열지 못했습니다. 팝업 차단을 확인해 주세요.'
-                : '메일 앱을 열지 못했습니다. legojmon@snu.ac.kr로 보내 주세요.',
+        ..showSnackBar(
+          const SnackBar(content: Text('오류 제보를 보냈습니다. 관리자가 확인합니다.')),
+        );
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA error report submit failed: $error\n$stackTrace');
+      if (!mounted) return;
+      setState(() => _opening = false);
+      // 저장에 실패해도 작성 내용은 남겨 둔다. 다시 누르면 그대로 보낼 수 있다.
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('제보를 저장하지 못했습니다. 연결을 확인하고 다시 눌러 주세요.'),
           ),
+        );
+    }
+  }
+}
+
+/// 관리자만 여는 오류 제보함. 읽음 표시와 삭제로 처리 상태를 관리한다.
+class ErrorReportInboxScreen extends ConsumerStatefulWidget {
+  const ErrorReportInboxScreen({super.key});
+
+  @override
+  ConsumerState<ErrorReportInboxScreen> createState() =>
+      _ErrorReportInboxScreenState();
+}
+
+class _ErrorReportInboxScreenState
+    extends ConsumerState<ErrorReportInboxScreen> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(
+      () => ref.read(lockerControllerProvider.notifier).loadErrorReports(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reports = ref.watch(
+      lockerControllerProvider.select((state) => state.errorReports),
+    );
+    final unread = reports.where((report) => !report.isRead).length;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('오류 제보함'),
+        actions: [
+          IconButton(
+            tooltip: '새로고침',
+            onPressed: () =>
+                ref.read(lockerControllerProvider.notifier).loadErrorReports(),
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: reports.isEmpty
+            ? const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(28),
+                  child: Text('아직 들어온 오류 제보가 없습니다.'),
+                ),
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                itemCount: reports.length + 1,
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        unread == 0
+                            ? '전체 ${reports.length}건 · 모두 읽음'
+                            : '전체 ${reports.length}건 · 안 읽음 $unread건',
+                        style: const TextStyle(color: EncbaColors.muted),
+                      ),
+                    );
+                  }
+                  return _ErrorReportCard(report: reports[index - 1]);
+                },
+              ),
+      ),
+    );
+  }
+}
+
+class _ErrorReportCard extends ConsumerWidget {
+  const _ErrorReportCard({required this.report});
+
+  final ErrorReportItem report;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(lockerControllerProvider.notifier);
+    final meta = [
+      report.reporter,
+      if (report.studentId != null && report.studentId!.isNotEmpty)
+        report.studentId!,
+      if (report.environment != null && report.environment!.isNotEmpty)
+        report.environment!,
+    ].join(' · ');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      decoration: BoxDecoration(
+        color: report.isRead ? const Color(0xFFF7F8FA) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: report.isRead ? EncbaColors.line : EncbaColors.snuBlue,
         ),
-      );
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (!report.isRead) ...[
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: const BoxDecoration(
+                    color: EncbaColors.snuBlue,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  meta,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: report.isRead ? EncbaColors.muted : EncbaColors.navy,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            '${report.createdAt.year}.'
+            '${report.createdAt.month}.${report.createdAt.day} · '
+            '${_relativeTime(report.createdAt)}',
+            style: const TextStyle(color: EncbaColors.muted, fontSize: 12),
+          ),
+          if (report.email != null && report.email!.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              report.email!,
+              style: const TextStyle(color: EncbaColors.muted, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 10),
+          SelectableText(report.body, style: const TextStyle(height: 1.5)),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton.icon(
+                  onPressed: () => controller.setErrorReportRead(
+                    report.id,
+                    isRead: !report.isRead,
+                  ),
+                  icon: Icon(
+                    report.isRead
+                        ? Icons.mark_email_unread_outlined
+                        : Icons.mark_email_read_outlined,
+                    size: 18,
+                  ),
+                  label: Text(report.isRead ? '안 읽음으로' : '읽음'),
+                ),
+                TextButton.icon(
+                  onPressed: () => _confirmDelete(context, controller),
+                  style: TextButton.styleFrom(
+                    foregroundColor: EncbaColors.absent,
+                  ),
+                  icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                  label: const Text('삭제'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(
+    BuildContext context,
+    LockerController controller,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('제보를 삭제할까요?'),
+        content: Text('${report.reporter}님이 보낸 제보가 영구히 사라집니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: EncbaColors.absent),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed ?? false) await controller.deleteErrorReport(report.id);
   }
 }
 

@@ -83,6 +83,7 @@ class LockerOperationsState {
     this.operationExchangeBoard = const [],
     this.operationSwapRequests = const [],
     this.auditEntries = const [],
+    this.errorReports = const [],
   });
 
   final List<AnnouncementItem> announcements;
@@ -92,6 +93,9 @@ class LockerOperationsState {
   final List<OperationAssignment> operationExchangeBoard;
   final List<OperationSwapRequest> operationSwapRequests;
   final List<AuditEntry> auditEntries;
+
+  /// 관리자만 읽는 오류 제보 목록.
+  final List<ErrorReportItem> errorReports;
 }
 
 class LockerState {
@@ -118,6 +122,7 @@ class LockerState {
     List<OperationAssignment> operationExchangeBoard = const [],
     List<OperationSwapRequest> operationSwapRequests = const [],
     List<AuditEntry> auditEntries = const [],
+    List<ErrorReportItem> errorReports = const [],
     AttendanceRates attendanceRates = const AttendanceRates(),
     bool hasMoreEvents = false,
     bool isLoadingMoreEvents = false,
@@ -159,6 +164,7 @@ class LockerState {
          operationExchangeBoard: operationExchangeBoard,
          operationSwapRequests: operationSwapRequests,
          auditEntries: auditEntries,
+         errorReports: errorReports,
        );
 
   LockerState._({
@@ -210,6 +216,7 @@ class LockerState {
   List<OperationSwapRequest> get operationSwapRequests =>
       operationsState.operationSwapRequests;
   List<AuditEntry> get auditEntries => operationsState.auditEntries;
+  List<ErrorReportItem> get errorReports => operationsState.errorReports;
 
   List<LockerEvent> get plannerEvents =>
       eventsState.plannerEventsWith(operationsState);
@@ -238,6 +245,7 @@ class LockerState {
     List<OperationAssignment>? operationExchangeBoard,
     List<OperationSwapRequest>? operationSwapRequests,
     List<AuditEntry>? auditEntries,
+    List<ErrorReportItem>? errorReports,
     AttendanceRates? attendanceRates,
     bool? hasMoreEvents,
     bool? isLoadingMoreEvents,
@@ -277,7 +285,8 @@ class LockerState {
         clearHomecomingCampaign ||
         operationExchangeBoard != null ||
         operationSwapRequests != null ||
-        auditEntries != null;
+        auditEntries != null ||
+        errorReports != null;
 
     return LockerState._(
       ui: uiChanged
@@ -330,6 +339,7 @@ class LockerState {
               operationSwapRequests:
                   operationSwapRequests ?? this.operationSwapRequests,
               auditEntries: auditEntries ?? this.auditEntries,
+              errorReports: errorReports ?? this.errorReports,
             )
           : operationsState,
     );

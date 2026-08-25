@@ -3,7 +3,6 @@ import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/presentation/auth_screen.dart';
 import 'package:encba_locker/features/auth/presentation/edit_profile_screen.dart';
-import 'package:encba_locker/features/locker/presentation/event_screens.dart';
 import 'package:encba_locker/features/locker/presentation/locker_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -153,6 +152,10 @@ final List<RouteBase> lockerRoutes = [
   GoRoute(
     path: '/bug-report',
     builder: (context, state) => const BugReportScreen(),
+  ),
+  GoRoute(
+    path: '/error-reports',
+    builder: (context, state) => const ErrorReportInboxScreen(),
   ),
 ];
 

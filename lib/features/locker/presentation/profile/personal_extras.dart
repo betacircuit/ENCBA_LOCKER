@@ -162,7 +162,7 @@ _MyAttendanceStats _computeMyAttendance(
       final raw = entry.absenceReason?.trim() ?? '';
       final label = raw.isEmpty
           ? '사유 미기재'
-          : (absenceReasonPresets.contains(raw) ? raw : '직접 입력');
+          : (absenceReasonPresetOf(raw) ?? '직접 입력');
       reasonCounts[label] = (reasonCounts[label] ?? 0) + 1;
     }
   }

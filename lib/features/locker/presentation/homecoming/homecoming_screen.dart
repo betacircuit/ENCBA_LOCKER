@@ -233,7 +233,7 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
                   items: [
                     const DropdownMenuItem(value: '', child: Text('담당 미지정')),
                     for (final member in members)
-                      if (member.id != null && member.isActive)
+                      if (member.id != null && member.isActiveMember)
                         DropdownMenuItem(
                           value: member.id,
                           child: Text(member.name),
@@ -740,7 +740,7 @@ class _HomecomingContactDetailSheet extends ConsumerWidget {
                   ),
                   title: Text(member.name),
                   subtitle: Text(
-                    '${member.studentId} · ${member.isActive ? '활성' : '비활성'}',
+                    '${member.studentId} · ${member.isActiveMember ? '활성' : '비활성'}',
                   ),
                   onTap: () => Navigator.pop(
                     dialogContext,

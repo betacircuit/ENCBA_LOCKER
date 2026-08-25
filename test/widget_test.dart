@@ -5,7 +5,6 @@ import 'package:encba_locker/features/auth/domain/user_profile.dart';
 import 'package:encba_locker/features/auth/presentation/auth_screen.dart';
 import 'package:encba_locker/features/locker/application/locker_controller.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
-import 'package:encba_locker/features/locker/presentation/event_screens.dart';
 import 'package:encba_locker/features/locker/presentation/locker_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1481,14 +1480,16 @@ void main() {
     expect(find.text('김철수'), findsNothing);
     expect(find.text('이비활'), findsNothing);
 
-    // 다시 끄고 "비활성" 칩을 켜면 비활성 인원만 남아야 한다.
+    // 다시 끄고 "비활성" 칩을 켜면 활동에서 빠진 인원이 모인다.
+    // 군 휴학·교환학생·유학·비활동은 모두 비활성으로 취급하므로
+    // 박군인도 함께 보인다.
     await tester.tap(find.text('군대'), warnIfMissed: false);
     await tester.pumpAndSettle();
     await tester.tap(find.text('비활성'));
     await tester.pumpAndSettle();
     expect(find.text('이비활'), findsOneWidget);
+    expect(find.text('박군인'), findsOneWidget);
     expect(find.text('김철수'), findsNothing);
-    expect(find.text('박군인'), findsNothing);
   });
 
   testWidgets('영상 정렬 메뉴는 좋아요순을 제공한다', (tester) async {

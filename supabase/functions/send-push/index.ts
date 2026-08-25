@@ -63,9 +63,9 @@ Deno.serve(async (request) => {
   if (!webhookSecret) {
     return json({ error: 'Server configuration incomplete' }, 503)
   }
-  if (request.headers.get('x-push-secret') !== webhookSecret) {
-    return json({ error: 'Unauthorized' }, 401)
-  }
+  // 웹훅·크론은 공유 시크릿으로, 앱에서 온 응답 독촉 요청은 호출자 JWT로
+  // 신뢰를 확인한다. 두 경로가 섞이지 않게 아래에서 kind별로 강제한다.
+  const viaWebhook = request.headers.get('x-push-secret') === webhookSecret
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
@@ -82,8 +82,22 @@ Deno.serve(async (request) => {
   }
 
   const invocation = classifyInvocation(payloadResult.value)
-  if (invocation.kind === 'invalid') {
-    return json({ error: 'Unsupported push invocation' }, 400)
+
+  if (viaWebhook) {
+    if (invocation.kind === 'invalid') {
+      return json({ error: 'Unsupported push invocation' }, 400)
+    }
+    if (invocation.kind === 'reminder') {
+      return json({ error: 'Reminder requires an authenticated admin' }, 403)
+    }
+  } else {
+    if (invocation.kind !== 'reminder') {
+      return json({ error: 'Unauthorized' }, 401)
+    }
+    const adminProfileId = await authenticateAdmin(request, supabaseUrl, serviceRoleKey)
+    if (adminProfileId === null) {
+      return json({ error: 'Unauthorized' }, 401)
+    }
   }
 
   const admin: AdminContext = {
@@ -98,7 +112,9 @@ Deno.serve(async (request) => {
   try {
     const candidates = invocation.kind === 'announcement'
       ? announcementWebhookCandidates(invocation.record)
-      : await cronCandidates(admin)
+      : invocation.kind === 'reminder'
+        ? await reminderCandidates(admin, invocation.eventId)
+        : await cronCandidates(admin)
 
     if (candidates === null) {
       return json({ error: 'Invalid announcement webhook' }, 400)
@@ -174,9 +190,14 @@ function parsePayload(rawBody: string): { ok: true; value: unknown } | { ok: fal
 function classifyInvocation(payload: unknown):
   | { kind: 'cron' }
   | { kind: 'announcement'; record: JsonRecord }
+  | { kind: 'reminder'; eventId: string }
   | { kind: 'invalid' } {
   if (payload === null) return { kind: 'cron' }
   if (!isRecord(payload)) return { kind: 'invalid' }
+  if (payload.kind === 'response_reminder') {
+    const eventId = stringValue(payload.event_id)
+    return eventId ? { kind: 'reminder', eventId } : { kind: 'invalid' }
+  }
   if (Object.keys(payload).length === 0 || payload.type === 'cron' || payload.source === 'cron') {
     return { kind: 'cron' }
   }
@@ -184,6 +205,63 @@ function classifyInvocation(payload: unknown):
     return { kind: 'announcement', record: payload.record }
   }
   return { kind: 'invalid' }
+}
+
+/// 앱에서 온 요청이 관리자·주장(canAdminister와 같은 기준)인지 확인한다.
+/// 성공하면 프로필 ID를, 아니면 null을 돌려준다.
+async function authenticateAdmin(
+  request: Request,
+  supabaseUrl: string,
+  serviceRoleKey: string,
+): Promise<string | null> {
+  const authorization = request.headers.get('Authorization')
+  if (!authorization?.startsWith('Bearer ')) return null
+  const token = authorization.slice('Bearer '.length).trim()
+  if (!token) return null
+  const response = await fetch(`${supabaseUrl.replace(/\/$/u, '')}/auth/v1/user`, {
+    headers: { Authorization: `Bearer ${token}`, apikey: serviceRoleKey },
+  })
+  if (!response.ok) return null
+  const user = await response.json().catch(() => null)
+  if (!isRecord(user) || typeof user.id !== 'string') return null
+
+  const profileRows = await getRowsWith(supabaseUrl, serviceRoleKey, 'profiles', {
+    select: 'id,is_admin,leadership_role',
+    id: `eq.${user.id}`,
+    is_active: 'eq.true',
+    limit: '1',
+  })
+  const profile = profileRows[0]
+  if (!profile) return null
+  if (profile.is_admin === true) return user.id
+  const role = stringValue(profile.leadership_role)
+  return role === 'admin' || role === 'captain' ? user.id : null
+}
+
+/// 관리자가 "응답 독촉하기"를 누른 일정의 후보 알림. 미응답 필터링은
+/// buildDispatchTasks가 이미 하고 있으므로 여기서는 일정만 검증한다.
+async function reminderCandidates(admin: AdminContext, eventId: string): Promise<PushCandidate[]> {
+  const nowIso = new Date().toISOString()
+  const rows = await getRows(admin, 'events', {
+    select: 'id,title,response_deadline,starts_at,target_team,visibility',
+    id: `eq.${eventId}`,
+    response_enabled: 'eq.true',
+    cancelled_at: 'is.null',
+    starts_at: `gt.${nowIso}`,
+    limit: '1',
+  })
+  const event = rows.length > 0 ? eventFromRow(rows[0]) : null
+  if (!event) return []
+  // 수동 발송은 몇 번을 눌러도 반복 보낼 수 있어야 하므로 dedupe 키에 시각을 넣는다.
+  return [{
+    category: 'events',
+    id: event.id,
+    title: '출결 응답 부탁드려요',
+    body: clipped(`${event.title} · 아직 응답하지 않았어요. 참석 여부를 알려 주세요!`, 240),
+    path: `/schedule/${encodeURIComponent(event.id)}`,
+    dedupeKey: `attendance:${event.id}:manual-${Date.now()}`,
+    event,
+  }]
 }
 
 function announcementWebhookCandidates(record: JsonRecord): PushCandidate[] | null {
@@ -530,6 +608,24 @@ async function getRows(
   const value = await response.json()
   if (!Array.isArray(value)) throw new Error('database response invalid')
   return value.filter(isRecord)
+}
+
+/// AdminContext를 아직 만들기 전(인증 확인 단계)에 쓰는 읽기 헬퍼.
+async function getRowsWith(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  table: string,
+  params: Record<string, string>,
+): Promise<JsonRecord[]> {
+  const admin: AdminContext = {
+    supabaseUrl: supabaseUrl.replace(/\/$/u, ''),
+    headers: {
+      Authorization: `Bearer ${serviceRoleKey}`,
+      apikey: serviceRoleKey,
+      'Content-Type': 'application/json',
+    },
+  }
+  return getRows(admin, table, params)
 }
 
 function restUrl(

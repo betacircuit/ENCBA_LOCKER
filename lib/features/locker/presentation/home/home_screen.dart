@@ -33,6 +33,7 @@ class HomeScreen extends ConsumerWidget {
         action: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            const _AppDemandButton(),
             if (user.canAdminister)
               IconButton(
                 tooltip: '공지 등록',
@@ -110,6 +111,92 @@ class HomeScreen extends ConsumerWidget {
 
 void _openNotice(BuildContext context, String announcementId) =>
     context.push('/announcements/${Uri.encodeComponent(announcementId)}');
+
+/// 홈 화면의 앱 수요조사 별 버튼. 모든 부원이 눌러 수요를 표시하고,
+/// 관리자에게만 지금까지 쌓인 수요 합계가 배지 숫자로 보인다.
+class _AppDemandButton extends ConsumerStatefulWidget {
+  const _AppDemandButton();
+
+  @override
+  ConsumerState<_AppDemandButton> createState() => _AppDemandButtonState();
+}
+
+class _AppDemandButtonState extends ConsumerState<_AppDemandButton> {
+  bool _voted = false;
+  bool _busy = false;
+
+  /// 관리자에게만 채워지는 수요 합계. 부원은 null이라 숫자가 안 보인다.
+  int? _count;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() async {
+      final voted = await ref
+          .read(lockerControllerProvider.notifier)
+          .loadAppDemandVote();
+      if (!mounted) return;
+      setState(() => _voted = voted);
+      final isAdmin =
+          ref.read(authControllerProvider).user?.canAdminister ?? false;
+      if (!isAdmin) return;
+      final count = await ref
+          .read(lockerControllerProvider.notifier)
+          .loadAppDemandCount();
+      if (!mounted || count == null) return;
+      setState(() => _count = count);
+    });
+  }
+
+  Future<void> _toggle() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final voted = await ref
+          .read(lockerControllerProvider.notifier)
+          .toggleAppDemand();
+      if (!mounted) return;
+      setState(() {
+        _voted = voted;
+        final count = _count;
+        if (count != null) _count = count + (voted ? 1 : -1);
+      });
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(voted ? '앱 수요조사에 참여했습니다!' : '참여를 취소했습니다.'),
+          ),
+        );
+    } on Object {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(content: Text('처리하지 못했습니다. 다시 시도해 주세요.')),
+        );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final count = _count;
+    return IconButton(
+      tooltip: '앱 수요조사',
+      onPressed: _busy ? null : _toggle,
+      icon: Badge(
+        isLabelVisible: count != null && count > 0,
+        label: Text('$count'),
+        child: Icon(
+          _voted ? Icons.star_rounded : Icons.star_outline_rounded,
+          color: _voted ? EncbaColors.late : null,
+        ),
+      ),
+    );
+  }
+}
 
 class AnnouncementDetailScreen extends ConsumerStatefulWidget {
   const AnnouncementDetailScreen({super.key, required this.announcementId});
@@ -1162,7 +1249,7 @@ Future<void> _showAnnouncementPollVoters(
                     snapshot.data!.members
                         .where(
                           (member) =>
-                              member.isActive &&
+                              member.isActiveMember &&
                               member.id != null &&
                               !votedIds.contains(member.id),
                         )

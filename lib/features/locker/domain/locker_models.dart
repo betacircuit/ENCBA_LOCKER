@@ -293,6 +293,22 @@ class MemberProfile {
   /// 명단 전용 ID는 아직 Auth 계정과 연결되지 않은 사람이다.
   bool get hasRegisteredAccount => id != null && !id!.startsWith('allowlist:');
 
+  /// 군 휴학·교환학생·유학·비활동은 활동 명단 계산에서 비활성으로 취급한다.
+  /// 로그인 가능 여부(isActive)와는 별개의 개념이다.
+  static const Set<String> leaveStatuses = <String>{
+    'MILITARY_LEAVE',
+    'EXCHANGE_STUDENT',
+    'STUDY_ABROAD',
+    'INACTIVE',
+  };
+
+  /// 휴면·이탈 상태(군 휴학, 교환학생, 유학, 비활동)인지를 나타낸다.
+  bool get isOnLeave => leaveStatuses.contains(status);
+
+  /// 실제 활동에 참여하는 부원인지를 나타낸다. 명단 필터·로스터·응답 대상
+  /// 집계 등 "활동 부원"이 필요한 곳에서는 isActive 대신 이 값을 쓴다.
+  bool get isActiveMember => isActive && !isOnLeave;
+
   String? get leadershipLabel => switch (leadershipRole) {
     'admin' => '관리자',
     'captain' => '주장',
@@ -682,6 +698,42 @@ class AuditEntry {
   final String action;
   final String actor;
   final DateTime createdAt;
+}
+
+/// 부원이 보낸 오류 제보 한 건. 메일 대신 앱 안에서 관리자가 읽고 지운다.
+class ErrorReportItem {
+  const ErrorReportItem({
+    required this.id,
+    required this.body,
+    required this.reporter,
+    required this.createdAt,
+    required this.isRead,
+    this.studentId,
+    this.email,
+    this.environment,
+  });
+
+  final String id;
+  final String body;
+  final String reporter;
+  final DateTime createdAt;
+  final bool isRead;
+  final String? studentId;
+  final String? email;
+
+  /// 제보 당시 실행 환경(웹·android·ios 등). 재현할 때 단서가 된다.
+  final String? environment;
+
+  ErrorReportItem copyWith({bool? isRead}) => ErrorReportItem(
+    id: id,
+    body: body,
+    reporter: reporter,
+    createdAt: createdAt,
+    isRead: isRead ?? this.isRead,
+    studentId: studentId,
+    email: email,
+    environment: environment,
+  );
 }
 
 class VideoTaggedMember {
