@@ -57,6 +57,14 @@ class _EventDetailViewState extends ConsumerState<_EventDetailView> {
     final responses = eventState.responses ?? const <AttendanceResponse>[];
     final isAdmin =
         ref.watch(authControllerProvider).user?.canAdminister ?? false;
+    final user = ref.watch(authControllerProvider).user;
+    // 응답 독촉은 관리자가 스스로 '참석' 응답을 마친 뒤에만 쓸 수 있다.
+    final myChoice = user == null
+        ? null
+        : responses
+              .where((response) => response.profileId == user.id)
+              .map((response) => response.choice)
+              .firstOrNull;
     if (event.isLocked) {
       return Scaffold(
         appBar: AppBar(title: const Text('외부 경기')),
@@ -192,7 +200,10 @@ class _EventDetailViewState extends ConsumerState<_EventDetailView> {
             ),
             if (isAdmin) ...[
               const SizedBox(height: 10),
-              _ResponseReminderButton(eventId: event.id),
+              _ResponseReminderButton(
+                eventId: event.id,
+                enabled: myChoice == '참석',
+              ),
             ],
           ],
           const SizedBox(height: 24),
@@ -230,9 +241,13 @@ class _EventDetailViewState extends ConsumerState<_EventDetailView> {
 /// 관리자 전용 응답 독촉 버튼. 아직 응답하지 않은 활동 부원의 구독에
 /// 푸시를 일괄 발송한다(send-push 엣지 함수의 response_reminder 호출).
 class _ResponseReminderButton extends ConsumerStatefulWidget {
-  const _ResponseReminderButton({required this.eventId});
+  const _ResponseReminderButton({required this.eventId, this.enabled = true});
 
   final String eventId;
+
+  /// 관리자가 스스로 '참석' 응답을 마쳤을 때만 true. false면 버튼이
+  /// 비활성화되고 이유를 툴팁으로 알려 준다.
+  final bool enabled;
 
   @override
   ConsumerState<_ResponseReminderButton> createState() =>
@@ -244,7 +259,7 @@ class _ResponseReminderButtonState
   bool _sending = false;
 
   Future<void> _send() async {
-    if (_sending) return;
+    if (_sending || !widget.enabled) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -277,19 +292,30 @@ class _ResponseReminderButtonState
   }
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: double.infinity,
-    child: OutlinedButton.icon(
-      onPressed: _sending ? null : _send,
-      icon: _sending
-          ? const SizedBox.square(
-              dimension: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : const Icon(Icons.notifications_active_outlined),
-      label: const Text('응답 독촉하기'),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final button = SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: _sending || !widget.enabled ? null : _send,
+        icon: _sending
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.notifications_active_outlined),
+        label: Text(
+          widget.enabled
+              ? '응답 독촉하기'
+              : '응답 독촉하기 — 내 응답(참석)을 먼저 눌러 주세요',
+        ),
+      ),
+    );
+    if (widget.enabled) return button;
+    return Tooltip(
+      message: '응답 독촉은 내 응답을 참석으로 누른 뒤에 사용할 수 있습니다.',
+      child: button,
+    );
+  }
 }
 
 class _AttendanceResponseCard extends StatelessWidget {

@@ -16,6 +16,13 @@ class ProfileScreen extends ConsumerWidget {
         (state) => state.operationsState.homecomingCampaign,
       ),
     );
+    // IB 운영표가 올라오기 전에는 IB 메뉴가 잠긴다.
+    final ibLocked =
+        ref.watch(
+          lockerControllerProvider.select(
+            (state) => state.operationsState.operations,
+          ),
+        ).isEmpty;
     return _Page(
       header: _Header(
         eyebrow: 'MY LOCKER',
@@ -71,7 +78,10 @@ class ProfileScreen extends ConsumerWidget {
         _MenuTile(
           icon: Icons.assignment_outlined,
           title: 'IB 운영 일정',
-          subtitle: '학기 초 업로드된 엑셀 기준',
+          subtitle: ibLocked
+              ? '관리자가 이번 학기 IB 운영표를 올리기 전입니다'
+              : '학기 초 업로드된 엑셀 기준',
+          locked: ibLocked,
           onTap: () => context.push('/operations'),
         ),
         _MenuTile(
@@ -80,6 +90,7 @@ class ProfileScreen extends ConsumerWidget {
           subtitle: homecomingCampaign == null
               ? '관리자가 이번 학기 이벤트를 열기 전입니다'
               : '${homecomingCampaign.eventDate.month}.${homecomingCampaign.eventDate.day} 진행',
+          locked: homecomingCampaign == null,
           onTap: () => context.push('/homecoming'),
         ),
         _MenuTile(
@@ -694,6 +705,7 @@ class _BugReportScreenState extends ConsumerState<BugReportScreen> {
           MediaQuery.viewInsetsOf(context).bottom + 20,
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
@@ -710,19 +722,16 @@ class _BugReportScreenState extends ConsumerState<BugReportScreen> {
               style: TextStyle(color: EncbaColors.muted),
             ),
             const SizedBox(height: 16),
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                autofocus: true,
-                expands: true,
-                minLines: null,
-                maxLines: null,
-                textAlignVertical: TextAlignVertical.top,
-                scrollPadding: const EdgeInsets.only(bottom: 120),
-                decoration: const InputDecoration(
-                  hintText: '오류가 난 화면과 직전에 한 행동을 적어 주세요.',
-                  alignLabelWithHint: true,
-                ),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              minLines: 4,
+              maxLines: 7,
+              textAlignVertical: TextAlignVertical.top,
+              scrollPadding: const EdgeInsets.only(bottom: 120),
+              decoration: const InputDecoration(
+                hintText: '오류가 난 화면과 직전에 한 행동을 적어 주세요.',
+                alignLabelWithHint: true,
               ),
             ),
             const SizedBox(height: 14),
@@ -1097,25 +1106,40 @@ class _MenuTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.locked = false,
   });
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+
+  /// 잠긴 메뉴(홈커밍 미오픈·IB 운영표 미업로드). 반투명하게 깜깜해지고
+  /// 자물쇠가 걸리며, 탭해도 아무 일도 일어나지 않는다.
+  final bool locked;
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 9),
-    child: Card(
+  Widget build(BuildContext context) {
+    Widget tile = Card(
       child: ListTile(
-        onTap: onTap,
+        onTap: locked ? null : onTap,
         contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-        leading: Icon(icon, color: EncbaColors.snuBlue),
+        leading: Icon(
+          icon,
+          color: locked ? EncbaColors.muted : EncbaColors.snuBlue,
+        ),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
         subtitle: Text(subtitle, style: const TextStyle(fontSize: 11)),
-        trailing: const Icon(Icons.chevron_right_rounded),
+        trailing: Icon(
+          locked ? Icons.lock_rounded : Icons.chevron_right_rounded,
+          color: locked ? EncbaColors.muted : null,
+        ),
       ),
-    ),
-  );
+    );
+    if (locked) tile = Opacity(opacity: .45, child: tile);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: tile,
+    );
+  }
 }
 
 Future<void> _confirmSignOut(BuildContext context, WidgetRef ref) async {

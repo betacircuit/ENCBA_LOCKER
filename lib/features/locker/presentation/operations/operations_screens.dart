@@ -125,25 +125,27 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
                     onTap: () => _requestSwap(item),
                   ),
                 ),
-          if (ref.watch(authControllerProvider).user?.canAdminister ?? false)
-            ..._adminSection(),
+            ..._allAssignmentsSection(
+              canEdit:
+                  ref.watch(authControllerProvider).user?.canAdminister ?? false,
+            ),
         ],
       ),
     );
   }
 
-  /// 관리자 전용: 학기 전체 운영 배정을 보고 시간·장소·메모를 고친다.
+  /// 학기 전체 운영 배정. 모두가 볼 수 있고, 수정은 관리자만 허용된다.
   /// 부원 화면과 같은 목록 위젯을 재사용해 두 화면이 어긋나지 않게 한다.
-  List<Widget> _adminSection() {
+  List<Widget> _allAssignmentsSection({required bool canEdit}) {
     final assignments = _allAssignments;
     return [
       const SizedBox(height: 28),
       Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
-              '전체 운영 일정 (관리자)',
-              style: TextStyle(
+              canEdit ? '전체 운영 일정 (관리자)' : '전체 운영 일정',
+              style: const TextStyle(
                 fontFamily: 'Jua',
                 fontSize: 27,
                 color: EncbaColors.navy,
@@ -170,8 +172,12 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
       const SizedBox(height: 6),
       Text(
         _timelineView
-            ? '학기 전체 운영 흐름을 한눈에 봅니다. 항목을 누르면 수정합니다.'
-            : '모든 부원의 IB 운영 배정을 확인하고 시간·장소·메모를 바로 수정합니다.',
+            ? canEdit
+                ? '학기 전체 운영 흐름을 한눈에 봅니다. 항목을 누르면 수정합니다.'
+                : '학기 전체 운영 흐름을 한눈에 봅니다.'
+            : canEdit
+            ? '모든 부원의 IB 운영 배정을 확인하고 시간·장소·메모를 바로 수정합니다.'
+            : '모든 부원의 IB 운영 배정을 확인할 수 있습니다. 수정은 관리자만 할 수 있어요.',
         style: const TextStyle(color: EncbaColors.muted),
       ),
       const SizedBox(height: 12),
@@ -192,21 +198,24 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
           title: '등록된 운영 배정이 없습니다',
         )
       else if (_timelineView)
-        ..._buildSemesterTimeline(assignments)
+        ..._buildSemesterTimeline(assignments, canEdit: canEdit)
       else
         ...assignments.map(
           (item) => _TaskTile(
             date: '${item.start.month}/${item.start.day}',
             title: '${item.title} · ${item.assigneeName}',
             place: '${time(item.start)} · ${item.location}',
-            onTap: () => _editAssignment(item),
+            onTap: canEdit ? () => _editAssignment(item) : null,
           ),
         ),
     ];
   }
 
   /// 학기 타임라인: 월별로 묶어 왼쪽 점선 축에 날짜를 찍어 보여 준다.
-  List<Widget> _buildSemesterTimeline(List<OperationAssignment> items) {
+  List<Widget> _buildSemesterTimeline(
+    List<OperationAssignment> items, {
+    required bool canEdit,
+  }) {
     final byMonth = <String, List<OperationAssignment>>{};
     for (final item in items) {
       byMonth.putIfAbsent('${item.start.year}.${item.start.month}', () => []).add(item);
@@ -244,7 +253,7 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
         widgets.add(
           InkWell(
             borderRadius: BorderRadius.circular(14),
-            onTap: () => _editAssignment(item),
+            onTap: canEdit ? () => _editAssignment(item) : null,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: IntrinsicHeight(
@@ -765,7 +774,7 @@ class _TaskTile extends StatelessWidget {
   final String date;
   final String title;
   final String place;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
