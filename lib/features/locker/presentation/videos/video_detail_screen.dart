@@ -324,6 +324,30 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
     }
   }
 
+  Future<void> _deleteComment(VideoCommentItem comment) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('댓글을 삭제할까요?'),
+        content: const Text('삭제한 댓글은 복구할 수 없습니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await ref
+        .read(lockerControllerProvider.notifier)
+        .deleteVideoComment(videoId: video.id, commentId: comment.id);
+  }
+
   /// 커서 바로 앞의 "@토큰"을 찾아 이름이 일치하는 멤버로 후보를 좁힌다.
   /// "@" 뒤로 공백이 나오면 이미 완성된 언급이라 후보를 접는다.
   void _onCommentChanged(String value) {
@@ -342,10 +366,11 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
     final members = ref.read(lockerControllerProvider).membersState.members;
     // 이름 앞 6명만 자르던 예전 방식은 이름 가나다순 정렬 특성상 흔한 성(김 등)을
     // 가진 사람만 보이는 것처럼 느껴졌다. 후보 목록은 스크롤되므로 자르지 않는다.
-    final matches = (query.isEmpty
-            ? members
-            : members.where((member) => member.name.contains(query)))
-        .toList(growable: false);
+    final matches =
+        (query.isEmpty
+                ? members
+                : members.where((member) => member.name.contains(query)))
+            .toList(growable: false);
     _mentionStart = at;
     _updateMentionMatches(matches);
   }
@@ -575,8 +600,7 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          if (displayed.category == '복기' ||
-              displayed.category == '하이라이트') ...[
+          if (displayed.category == '복기' || displayed.category == '하이라이트') ...[
             if (displayed.reviewPlayers.isNotEmpty) ...[
               Text('출전 선수', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
@@ -598,6 +622,10 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
                 author: item.author,
                 quarterNumber: item.quarterNumber,
                 targetPlayers: item.targetPlayers,
+                onDelete:
+                    item.profileId == user?.id || user?.canAdminister == true
+                    ? () => unawaited(_deleteComment(item))
+                    : null,
                 onTimestampTap: () =>
                     unawaited(_seekToComment(item.timestampSeconds)),
               ),
@@ -821,6 +849,7 @@ class _Comment extends StatelessWidget {
     required this.text,
     required this.author,
     required this.onTimestampTap,
+    this.onDelete,
     this.quarterNumber,
     this.targetPlayers = const [],
   });
@@ -828,6 +857,7 @@ class _Comment extends StatelessWidget {
   final String text;
   final String author;
   final VoidCallback onTimestampTap;
+  final VoidCallback? onDelete;
   final int? quarterNumber;
   final List<VideoTaggedMember> targetPlayers;
   @override
@@ -851,6 +881,13 @@ class _Comment extends StatelessWidget {
             '피드백: ${(targetPlayers.toList()..sort(compareTaggedMembers)).map((member) => member.label).join(', ')}',
         ].join('\n'),
       ),
+      trailing: onDelete == null
+          ? null
+          : IconButton(
+              tooltip: '댓글 삭제',
+              onPressed: onDelete,
+              icon: const Icon(Icons.delete_outline_rounded),
+            ),
     ),
   );
 }

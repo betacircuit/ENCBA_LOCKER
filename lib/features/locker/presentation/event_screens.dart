@@ -265,6 +265,35 @@ class EventTicket extends ConsumerWidget {
                                   ),
                                 ],
                               ),
+                              if (event.isCancelled) ...[
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 11,
+                                    vertical: 9,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: EncbaColors.absent.withValues(
+                                      alpha: .12,
+                                    ),
+                                    borderRadius: BorderRadius.circular(11),
+                                  ),
+                                  child: Text(
+                                    [
+                                      '일정이 취소되었습니다.',
+                                      if (event.cancellationReason?.trim()
+                                          case final String reason
+                                          when reason.isNotEmpty)
+                                        reason,
+                                    ].join(' '),
+                                    style: const TextStyle(
+                                      color: EncbaColors.absent,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(height: compact ? 9 : 12),
+                              ],
                               SizedBox(height: compact ? 10 : 16),
                               _UniformCardForeground(
                                 decoration: uniformDecoration,
@@ -340,7 +369,7 @@ class EventTicket extends ConsumerWidget {
               ),
             ),
           ),
-          if (event.responseEnabled) ...[
+          if (event.responseEnabled && !event.isCancelled) ...[
             const Divider(height: 1),
             AttendanceSelector(event: event, compact: true, flush: true),
           ],

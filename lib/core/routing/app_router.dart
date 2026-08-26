@@ -1,5 +1,6 @@
 import 'package:encba_locker/core/routing/locker_tab.dart';
 import 'package:encba_locker/core/theme/app_theme.dart';
+import 'package:encba_locker/core/widgets/gentle_back_swipe.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/presentation/auth_screen.dart';
 import 'package:encba_locker/features/auth/presentation/edit_profile_screen.dart';
@@ -67,97 +68,136 @@ const _signInPath = '/sign-in';
 final List<RouteBase> lockerRoutes = [
   GoRoute(
     path: '/schedule/new',
-    builder: (context, state) => const EventEditorScreen(),
+    pageBuilder: (context, state) =>
+        _gentlePage(state: state, child: const EventEditorScreen()),
   ),
   GoRoute(
     path: '/schedule/:eventId',
-    pageBuilder: (context, state) => CustomTransitionPage(
+    pageBuilder: (context, state) => _gentlePage(
+      state: state,
       child: EventDetailScreen(eventId: state.pathParameters['eventId']!),
-      transitionDuration: const Duration(milliseconds: 420),
-      reverseTransitionDuration: const Duration(milliseconds: 300),
-      transitionsBuilder: (context, animation, secondaryAnimation, child) {
-        final curve = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-        );
-        return FadeTransition(
-          opacity: curve,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: .94, end: 1).animate(curve),
-            alignment: Alignment.topCenter,
-            child: child,
-          ),
-        );
-      },
     ),
     routes: [
       GoRoute(
         path: 'edit',
-        builder: (context, state) =>
-            EventEditorScreen(eventId: state.pathParameters['eventId']!),
+        pageBuilder: (context, state) => _gentlePage(
+          state: state,
+          child: EventEditorScreen(eventId: state.pathParameters['eventId']!),
+        ),
       ),
       GoRoute(
         path: 'roster',
-        builder: (context, state) =>
-            EventRosterScreen(eventId: state.pathParameters['eventId']!),
+        pageBuilder: (context, state) => _gentlePage(
+          state: state,
+          child: EventRosterScreen(eventId: state.pathParameters['eventId']!),
+        ),
       ),
     ],
   ),
   GoRoute(
     path: '/profile/edit',
-    builder: (context, state) => const EditProfileScreen(),
+    pageBuilder: (context, state) =>
+        _gentlePage(state: state, child: const EditProfileScreen()),
   ),
   GoRoute(
     path: '/reservations',
-    builder: (context, state) => const CourtReservationScreen(),
+    pageBuilder: (context, state) =>
+        _gentlePage(state: state, child: const CourtReservationScreen()),
   ),
   GoRoute(
     path: '/members',
-    builder: (context, state) => MemberDirectoryScreen(
-      startWithPendingOnly:
-          state.uri.queryParameters['pending'] == '1',
+    pageBuilder: (context, state) => _gentlePage(
+      state: state,
+      child: MemberDirectoryScreen(
+        startWithPendingOnly: state.uri.queryParameters['pending'] == '1',
+      ),
     ),
     routes: [
       GoRoute(
         path: 'report',
-        builder: (context, state) => const AttendanceReportScreen(),
+        pageBuilder: (context, state) =>
+            _gentlePage(state: state, child: const AttendanceReportScreen()),
       ),
       GoRoute(
         path: ':memberId',
-        builder: (context, state) =>
-            MemberDetailScreen(memberId: state.pathParameters['memberId']!),
+        pageBuilder: (context, state) => _gentlePage(
+          state: state,
+          child: MemberDetailScreen(
+            memberId: state.pathParameters['memberId']!,
+          ),
+        ),
       ),
     ],
   ),
   GoRoute(
     path: '/videos/:videoId',
-    builder: (context, state) =>
-        VideoDetailScreen(videoId: state.pathParameters['videoId']!),
+    pageBuilder: (context, state) => _gentlePage(
+      state: state,
+      child: VideoDetailScreen(videoId: state.pathParameters['videoId']!),
+    ),
   ),
   GoRoute(
     path: '/announcements/:announcementId',
-    builder: (context, state) => AnnouncementDetailScreen(
-      announcementId: state.pathParameters['announcementId']!,
+    pageBuilder: (context, state) => _gentlePage(
+      state: state,
+      child: AnnouncementDetailScreen(
+        announcementId: state.pathParameters['announcementId']!,
+      ),
     ),
   ),
   GoRoute(
     path: '/operations',
-    builder: (context, state) => const OperationsScreen(),
+    pageBuilder: (context, state) =>
+        _gentlePage(state: state, child: const OperationsScreen()),
   ),
   GoRoute(
     path: '/homecoming',
-    builder: (context, state) => const HomecomingScreen(),
+    pageBuilder: (context, state) =>
+        _gentlePage(state: state, child: const HomecomingScreen()),
   ),
-  GoRoute(path: '/audit', builder: (context, state) => const AuditLogScreen()),
+  GoRoute(
+    path: '/audit',
+    pageBuilder: (context, state) =>
+        _gentlePage(state: state, child: const AuditLogScreen()),
+  ),
   GoRoute(
     path: '/bug-report',
-    builder: (context, state) => const BugReportScreen(),
+    pageBuilder: (context, state) =>
+        _gentlePage(state: state, child: const BugReportScreen()),
   ),
   GoRoute(
     path: '/error-reports',
-    builder: (context, state) => const ErrorReportInboxScreen(),
+    pageBuilder: (context, state) =>
+        _gentlePage(state: state, child: const ErrorReportInboxScreen()),
   ),
 ];
+
+CustomTransitionPage<void> _gentlePage({
+  required GoRouterState state,
+  required Widget child,
+}) => CustomTransitionPage<void>(
+  key: state.pageKey,
+  transitionDuration: const Duration(milliseconds: 420),
+  reverseTransitionDuration: const Duration(milliseconds: 480),
+  child: GentleBackSwipe(child: child),
+  transitionsBuilder: (context, animation, secondaryAnimation, child) {
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInOutCubic,
+    );
+    return FadeTransition(
+      opacity: curved,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(.10, 0),
+          end: Offset.zero,
+        ).animate(curved),
+        child: child,
+      ),
+    );
+  },
+);
 
 class _RouteNotFoundScreen extends StatelessWidget {
   const _RouteNotFoundScreen();

@@ -37,7 +37,6 @@ mixin EventsApi on RepoCore {
         .from('events')
         .select(_eventSelection)
         .eq('id', id)
-        .isFilter('cancelled_at', null)
         .limit(1);
     if (rows.isEmpty) return null;
 
@@ -81,7 +80,6 @@ mixin EventsApi on RepoCore {
         .from('events')
         .select(_eventSelection)
         .gte('ends_at', todayStartsAt)
-        .isFilter('cancelled_at', null)
         .order('starts_at')
         .order('id')
         .range(offset, offset + limit - 1);
@@ -136,6 +134,27 @@ mixin EventsApi on RepoCore {
           .toList(growable: false);
     }
     return (events: events, hasMore: normalRows.length == limit);
+  }
+
+  Future<List<LockerEvent>> _loadPastEvents({
+    required String todayStartsAt,
+  }) async {
+    const pageSize = 500;
+    final events = <LockerEvent>[];
+    for (var offset = 0; ; offset += pageSize) {
+      final rows = await _client
+          .from('events')
+          .select(_eventSelection)
+          .lt('ends_at', todayStartsAt)
+          .order('starts_at')
+          .order('id')
+          .range(offset, offset + pageSize - 1);
+      events.addAll(
+        rows.map((row) => _eventFromRow(Map<String, dynamic>.from(row as Map))),
+      );
+      if (rows.length < pageSize) break;
+    }
+    return events;
   }
 
   Future<List<AttendanceReportRow>> loadAttendanceReport({
@@ -324,6 +343,20 @@ mixin EventsApi on RepoCore {
     await _client.from('events').delete().eq('id', id);
   }
 
+  Future<LockerEvent> cancelEvent(String id, String reason) async {
+    final row = await _client
+        .from('events')
+        .update({
+          'cancelled_at': DateTime.now().toUtc().toIso8601String(),
+          'cancellation_reason': reason.trim(),
+          'updated_by': _userId,
+        })
+        .eq('id', id)
+        .select(_eventSelection)
+        .single();
+    return _eventFromRow(Map<String, dynamic>.from(row));
+  }
+
   Future<EventStrategy> loadEventStrategy(String eventId) async {
     final rows = await _client
         .from('event_strategies')
@@ -449,6 +482,10 @@ mixin EventsApi on RepoCore {
           (row['opponents'] as List?)?.cast<String>() ??
           (row['opponent'] == null ? const [] : [row['opponent'] as String]),
       mapReference: row['map_reference'] as String?,
+      cancelledAt: row['cancelled_at'] == null
+          ? null
+          : DateTime.parse(row['cancelled_at'] as String).toLocal(),
+      cancellationReason: row['cancellation_reason'] as String?,
     );
   }
 }

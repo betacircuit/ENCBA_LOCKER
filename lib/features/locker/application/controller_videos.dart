@@ -3,10 +3,10 @@ part of 'locker_controller.dart';
 /// VideosApi - 컨트롤러를 도메인별로 나눈 조각.
 /// 본체 클래스가 이 믹스인들을 조합해 완성된다.
 mixin VideosApi on StateNotifier<LockerState>, ControllerCore {
-void selectVideoSegment(int index) =>
+  void selectVideoSegment(int index) =>
       state = state.copyWith(videoSegment: index);
 
-Future<void> toggleVideoLike(String id) async {
+  Future<void> toggleVideoLike(String id) async {
     final previousVideos = state.videos;
     final previousLikes = state.likedVideoIds;
     final liked = {...state.likedVideoIds};
@@ -35,7 +35,7 @@ Future<void> toggleVideoLike(String id) async {
     }
   }
 
-void upsertVideoFromRealtime(VideoItem video) {
+  void upsertVideoFromRealtime(VideoItem video) {
     final next = [...state.videos];
     final index = next.indexWhere((item) => item.id == video.id);
     if (index == -1) {
@@ -50,7 +50,7 @@ void upsertVideoFromRealtime(VideoItem video) {
     state = state.copyWith(videos: next, clearError: true);
   }
 
-void removeVideoFromRealtime(String id) {
+  void removeVideoFromRealtime(String id) {
     if (!state.videos.any((video) => video.id == id)) return;
     state = state.copyWith(
       videos: state.videos.where((video) => video.id != id).toList(),
@@ -59,7 +59,7 @@ void removeVideoFromRealtime(String id) {
     );
   }
 
-Future<void> refreshVideo(String id) async {
+  Future<void> refreshVideo(String id) async {
     final repository = _repository;
     if (repository == null) return;
     try {
@@ -74,7 +74,7 @@ Future<void> refreshVideo(String id) async {
     }
   }
 
-/// 초기 영상 페이지에 없는 항목도 공유 주소의 ID로 읽어 현재 상태에 합친다.
+  /// 초기 영상 페이지에 없는 항목도 공유 주소의 ID로 읽어 현재 상태에 합친다.
   Future<bool> ensureVideo(String id) async {
     if (state.videos.any((video) => video.id == id)) return true;
     final repository = _repository;
@@ -85,7 +85,7 @@ Future<void> refreshVideo(String id) async {
     return true;
   }
 
-Future<bool> addVideo(VideoItem video) async {
+  Future<bool> addVideo(VideoItem video) async {
     try {
       final saved = await _repository?.addVideo(video) ?? video;
       final videos = [saved, ...state.videos];
@@ -97,7 +97,7 @@ Future<bool> addVideo(VideoItem video) async {
     }
   }
 
-Future<bool> updateVideo(VideoItem video) async {
+  Future<bool> updateVideo(VideoItem video) async {
     try {
       final saved = await _repository?.updateVideo(video) ?? video;
       state = state.copyWith(
@@ -113,7 +113,7 @@ Future<bool> updateVideo(VideoItem video) async {
     }
   }
 
-Future<bool> deleteVideo(String id) async {
+  Future<bool> deleteVideo(String id) async {
     try {
       await _repository?.deleteVideo(id);
       state = state.copyWith(
@@ -127,7 +127,7 @@ Future<bool> deleteVideo(String id) async {
     }
   }
 
-Future<void> loadVideoComments(String videoId) async {
+  Future<void> loadVideoComments(String videoId) async {
     if (_repository == null) return;
     try {
       final comments = await _repository.loadVideoComments(videoId);
@@ -140,7 +140,7 @@ Future<void> loadVideoComments(String videoId) async {
     }
   }
 
-Future<bool> addVideoComment({
+  Future<bool> addVideoComment({
     required String videoId,
     required int? quarterNumber,
     required int? linkId,
@@ -172,6 +172,30 @@ Future<bool> addVideoComment({
       // 디버그 빌드에서는 실제 서버 사유를 함께 보여준다.
       final detail = kDebugMode ? '\n(${error.toString()})' : '';
       state = state.copyWith(error: '영상 코멘트를 저장하지 못했습니다.$detail');
+      return false;
+    }
+  }
+
+  Future<bool> deleteVideoComment({
+    required String videoId,
+    required int commentId,
+  }) async {
+    if (_repository == null) return false;
+    try {
+      await _repository.deleteVideoComment(commentId);
+      state = state.copyWith(
+        videoComments: {
+          ...state.videoComments,
+          videoId: (state.videoComments[videoId] ?? const <VideoCommentItem>[])
+              .where((comment) => comment.id != commentId)
+              .toList(growable: false),
+        },
+        clearError: true,
+      );
+      return true;
+    } on Object catch (error) {
+      debugPrint('ENCBA video comment delete failed: $error');
+      state = state.copyWith(error: '영상 코멘트를 삭제하지 못했습니다.');
       return false;
     }
   }

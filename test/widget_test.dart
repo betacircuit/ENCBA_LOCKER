@@ -1,8 +1,11 @@
+import 'dart:convert';
+
 import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:encba_locker/core/routing/locker_tab.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/domain/user_profile.dart';
 import 'package:encba_locker/features/auth/presentation/auth_screen.dart';
+import 'package:encba_locker/features/auth/presentation/profile_photo_crop_screen.dart';
 import 'package:encba_locker/features/locker/application/locker_controller.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/presentation/locker_shell.dart';
@@ -30,6 +33,22 @@ void main() {
     expect(encbaFontFor('PLANNER', display: true), 'BlackHanSans');
     expect(encbaFontFor('ENCBA'), 'BlackHanSans');
     expect(encbaFontFor('일정'), 'Jua');
+  });
+
+  testWidgets('프로필 사진 맞춤 화면은 원형 점선 가이드와 회색 여백을 제공한다', (tester) async {
+    final pixel = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    );
+    await tester.pumpWidget(
+      MaterialApp(home: ProfilePhotoCropScreen(bytes: pixel)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('프로필 사진 맞추기'), findsOneWidget);
+    expect(find.textContaining('점선 원 안에 얼굴'), findsOneWidget);
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    expect(find.byType(CustomPaint), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('첫 진입에서는 선택한 탭만 만들고 방문한 탭은 유지한다', (tester) async {
@@ -311,7 +330,8 @@ void main() {
     await tester.ensureVisible(find.text('참석').first);
     await tester.tap(find.text('참석').first);
     await tester.pump(const Duration(milliseconds: 260));
-    expect(find.textContaining('저장했습니다'), findsOneWidget);
+    expect(find.text('참석 확정!'), findsOneWidget);
+    expect(find.textContaining('저장했습니다'), findsNothing);
 
     await tester.tap(find.text('일정').last);
     await tester.pump();
@@ -350,6 +370,20 @@ void main() {
     expect(find.text('사진 첨부'), findsOneWidget);
     expect(find.text('사진 선택'), findsOneWidget);
     expect(find.text('투표 첨부'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(SwitchListTile, '투표 첨부'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('투표 항목 1'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.byIcon(Icons.remove_circle_outline_rounded), findsNWidgets(2));
+    await tester.tap(find.byIcon(Icons.remove_circle_outline_rounded).first);
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.remove_circle_outline_rounded).first);
+    await tester.pump();
+    expect(find.byIcon(Icons.remove_circle_outline_rounded), findsNothing);
   });
 
   testWidgets('활성 홈커밍은 관리자에게 다시 잠그기를 제공한다', (tester) async {
@@ -1297,6 +1331,96 @@ void main() {
     expect(after, greaterThan(before));
     expect(find.text('${target.month}.${target.day}'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('과거 날짜의 IB 운영 일정도 일정 없음으로 처리하지 않는다', (tester) async {
+    final past = DateTime.now().subtract(const Duration(days: 5));
+    final operation = OperationAssignment(
+      id: 'past-operation',
+      title: 'IB 운영 2경기',
+      start: DateTime(past.year, past.month, past.day, 14),
+      end: DateTime(past.year, past.month, past.day, 15),
+      location: '종합체육관',
+      memo: '',
+    );
+    await tester.pumpWidget(
+      _signedInApp(
+        const ScheduleScreen(),
+        lockerState: LockerState(isReady: true, operations: [operation]),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('달력 펼치기'));
+    await tester.pumpAndSettle();
+    if (past.month != DateTime.now().month) {
+      await tester.tap(find.byTooltip('이전 달'));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byType(GridView),
+            matching: find.text('${past.day}'),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('IB 운영 2경기'), findsOneWidget);
+    expect(find.textContaining('과거 포함 일정'), findsOneWidget);
+    expect(find.text('이 날짜에는 일정이 없습니다.'), findsNothing);
+  });
+
+  testWidgets('홈커밍 일정 카드는 읽기 쉬운 짙은 붉은 배경을 쓴다', (tester) async {
+    final event = LockerEvent(
+      id: 'homecoming-test',
+      title: '2026 홈커밍',
+      start: DateTime.now().add(const Duration(days: 30)),
+      end: DateTime.now().add(const Duration(days: 30, hours: 4)),
+      place: '기숙사체육관',
+      kind: EventKind.homecoming,
+      memo: '',
+      responseEnabled: false,
+    );
+    await tester.pumpWidget(
+      _signedInApp(EventTicket(event: event, heroTag: 'test', onTap: () {})),
+    );
+    await tester.pumpAndSettle();
+
+    final decorations = tester
+        .widgetList<Ink>(find.byType(Ink))
+        .map((ink) => ink.decoration)
+        .whereType<BoxDecoration>();
+    expect(
+      decorations.any(
+        (decoration) => decoration.color == const Color(0xFF9B1C31),
+      ),
+      isTrue,
+    );
+    expect(find.text('2026 홈커밍'), findsOneWidget);
+  });
+
+  testWidgets('취소된 일정은 사유만 안내하고 참석 선택을 감춘다', (tester) async {
+    final event = LockerEvent(
+      id: 'cancelled-test',
+      title: '정기 훈련',
+      start: DateTime.now().add(const Duration(days: 1)),
+      end: DateTime.now().add(const Duration(days: 1, hours: 2)),
+      place: '71동',
+      kind: EventKind.training,
+      memo: '',
+      cancelledAt: DateTime.now(),
+      cancellationReason: '인원 부족으로 취소되었습니다.',
+    );
+    await tester.pumpWidget(
+      _signedInApp(EventTicket(event: event, heroTag: 'test', onTap: () {})),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('일정이 취소되었습니다.'), findsOneWidget);
+    expect(find.textContaining('인원 부족으로 취소되었습니다.'), findsOneWidget);
+    expect(find.byType(AttendanceSelector), findsNothing);
   });
 
   testWidgets('복기 추가는 재생 시간 없이 YouTube 썸네일을 미리 본다', (tester) async {

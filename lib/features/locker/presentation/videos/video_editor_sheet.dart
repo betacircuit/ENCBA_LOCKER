@@ -40,6 +40,10 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
   late Set<String> _audienceValues;
   late Set<String> _reviewPlayerIds;
   bool _saving = false;
+  bool _loadingDuration = false;
+  bool _durationWasEdited = false;
+  Timer? _metadataDebounce;
+  int _metadataRevision = 0;
   String? _saveError;
 
   static const _maxQuarter = 12;
@@ -51,6 +55,7 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
     _url.text = existing?.url ?? '';
     _title.text = existing?.title ?? '';
     _duration.text = existing?.durationLabel ?? '';
+    _durationWasEdited = _duration.text.trim().isNotEmpty;
     final saved = sortedVideoLinks(existing?.links ?? const []);
     _links = saved.isEmpty
         ? [
@@ -73,10 +78,16 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
     _reviewPlayerIds =
         existing?.reviewPlayers.map((member) => member.directoryId).toSet() ??
         <String>{};
+    if (widget.category == '공유' && !_durationWasEdited) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scheduleDurationLoad(_url.text);
+      });
+    }
   }
 
   @override
   void dispose() {
+    _metadataDebounce?.cancel();
     _url.dispose();
     _title.dispose();
     _duration.dispose();
@@ -84,6 +95,30 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
       field.controller.dispose();
     }
     super.dispose();
+  }
+
+  void _scheduleDurationLoad(String url) {
+    _metadataDebounce?.cancel();
+    final revision = ++_metadataRevision;
+    final videoId = _youtubeIdFrom(url.trim());
+    if (widget.category != '공유' || videoId == null || _durationWasEdited) {
+      if (_loadingDuration) setState(() => _loadingDuration = false);
+      return;
+    }
+    setState(() => _loadingDuration = true);
+    _metadataDebounce = Timer(const Duration(milliseconds: 400), () async {
+      final metadata = await YoutubeThumbnailService.instance.loadMetadata(
+        videoId,
+      );
+      if (!mounted || revision != _metadataRevision) return;
+      final seconds = metadata?.durationSeconds;
+      setState(() {
+        _loadingDuration = false;
+        if (seconds != null && !_durationWasEdited) {
+          _duration.text = formatVideoDurationLabel(seconds);
+        }
+      });
+    });
   }
 
   /// 아직 쓰지 않은 가장 작은 쿼터 번호를 붙여 한 줄 늘린다.
@@ -383,7 +418,10 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
                   TextFormField(
                     controller: _url,
                     keyboardType: TextInputType.url,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (value) {
+                      setState(() {});
+                      _scheduleDurationLoad(value);
+                    },
                     decoration: InputDecoration(
                       labelText: widget.category == '하이라이트'
                           ? 'YouTube 또는 Instagram Reel 링크'
@@ -446,10 +484,36 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
                   TextFormField(
                     controller: _duration,
                     keyboardType: TextInputType.datetime,
-                    decoration: const InputDecoration(
+                    onChanged: (value) {
+                      _durationWasEdited = value.trim().isNotEmpty;
+                      _metadataDebounce?.cancel();
+                      if (_loadingDuration) {
+                        setState(() => _loadingDuration = false);
+                      }
+                      if (!_durationWasEdited) {
+                        _scheduleDurationLoad(_url.text);
+                      }
+                    },
+                    decoration: InputDecoration(
                       labelText: '재생 시간',
                       hintText: '예: 08:24',
+                      helperText: widget.category == '공유'
+                          ? 'YouTube에서 자동으로 불러옵니다. 실패하면 분:초로 입력하세요.'
+                          : null,
+                      suffixIcon: _loadingDuration
+                          ? const Padding(
+                              padding: EdgeInsets.all(13),
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : null,
                     ),
+                    validator: (value) {
+                      final text = value?.trim() ?? '';
+                      if (text.isEmpty) return null;
+                      return parseVideoDurationLabel(text) == null
+                          ? '분:초 형식으로 입력해 주세요. (예: 08:24)'
+                          : null;
+                    },
                   ),
                 ],
                 if (_saveError case final error?) ...[
@@ -743,7 +807,8 @@ const _bundledReelShortcodes = {
 /// 취급돼 host가 비어 있어 정상적인 링크도 Reel로 인식되지 않았다.
 Uri? _normalizedInstagramUri(String input) {
   final trimmed = input.trim();
-  final withScheme = RegExp(r'^https?://', caseSensitive: false).hasMatch(trimmed)
+  final withScheme =
+      RegExp(r'^https?://', caseSensitive: false).hasMatch(trimmed)
       ? trimmed
       : 'https://$trimmed';
   return Uri.tryParse(withScheme);

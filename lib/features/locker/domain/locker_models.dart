@@ -79,6 +79,8 @@ class LockerEvent {
     this.starterNames = const [],
     this.mapReference,
     this.obParticipantCount = 0,
+    this.cancelledAt,
+    this.cancellationReason,
   });
 
   final String id;
@@ -106,8 +108,11 @@ class LockerEvent {
   final List<String> starterNames;
   final String? mapReference;
   final int obParticipantCount;
+  final DateTime? cancelledAt;
+  final String? cancellationReason;
 
   bool get isBattle => kind.isBattle;
+  bool get isCancelled => cancelledAt != null;
 
   String get fullPlace =>
       court == null || court!.isEmpty ? place : '$place · $court';
@@ -125,6 +130,8 @@ class LockerEvent {
     List<String>? starterNames,
     String? mapReference,
     int? obParticipantCount,
+    DateTime? cancelledAt,
+    String? cancellationReason,
   }) => LockerEvent(
     id: id,
     title: title,
@@ -151,6 +158,8 @@ class LockerEvent {
     starterNames: starterNames ?? this.starterNames,
     mapReference: mapReference ?? this.mapReference,
     obParticipantCount: obParticipantCount ?? this.obParticipantCount,
+    cancelledAt: cancelledAt ?? this.cancelledAt,
+    cancellationReason: cancellationReason ?? this.cancellationReason,
   );
 
   Map<String, dynamic> toJson() => {
@@ -179,6 +188,8 @@ class LockerEvent {
     'starterNames': starterNames,
     'mapReference': mapReference,
     'obParticipantCount': obParticipantCount,
+    'cancelledAt': cancelledAt?.toIso8601String(),
+    'cancellationReason': cancellationReason,
   };
 
   factory LockerEvent.fromJson(Map<String, dynamic> json) => LockerEvent(
@@ -216,6 +227,10 @@ class LockerEvent {
     starterNames: List<String>.from(json['starterNames'] as List? ?? const []),
     mapReference: json['mapReference'] as String?,
     obParticipantCount: (json['obParticipantCount'] as num?)?.toInt() ?? 0,
+    cancelledAt: json['cancelledAt'] == null
+        ? null
+        : DateTime.parse(json['cancelledAt'] as String),
+    cancellationReason: json['cancellationReason'] as String?,
   );
 }
 
@@ -667,6 +682,33 @@ class HomecomingCampaign {
   final bool isActive;
   final String afterpartyNote;
   final String? sourceFileName;
+
+  LockerEvent toPlannerEvent() {
+    DateTime at(String value) {
+      final parts = value.split(':').map(int.parse).toList(growable: false);
+      return DateTime(
+        eventDate.year,
+        eventDate.month,
+        eventDate.day,
+        parts.elementAtOrNull(0) ?? 0,
+        parts.elementAtOrNull(1) ?? 0,
+        parts.elementAtOrNull(2) ?? 0,
+      );
+    }
+
+    return LockerEvent(
+      id: 'homecoming-$id',
+      title: title,
+      start: at(startsAt),
+      end: at(endsAt),
+      place: venue.trim().isEmpty ? '장소 미정' : venue,
+      kind: EventKind.homecoming,
+      memo: afterpartyNote,
+      targetTeam: '전체',
+      createdBy: '홈커밍 연락 보드',
+      responseEnabled: false,
+    );
+  }
 }
 
 class EventRosterMember {
@@ -981,6 +1023,7 @@ class VideoCommentItem {
   const VideoCommentItem({
     required this.id,
     required this.videoId,
+    required this.profileId,
     required this.timestampSeconds,
     required this.body,
     required this.author,
@@ -993,6 +1036,7 @@ class VideoCommentItem {
 
   final int id;
   final String videoId;
+  final String profileId;
   final int timestampSeconds;
   final String body;
   final String author;

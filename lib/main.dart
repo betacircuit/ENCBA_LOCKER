@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:encba_locker/core/config/app_config.dart';
 import 'package:flutter/material.dart';
+import 'package:encba_locker/core/widgets/gentle_scroll_behavior.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:encba_locker/core/routing/app_router.dart';
+import 'package:encba_locker/features/locker/application/locker_controller.dart';
 import 'package:encba_locker/features/locker/services/push_notification_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -71,18 +73,22 @@ class _RoutedApp extends ConsumerWidget {
       theme: AppTheme.lightTheme,
       routerConfig: router,
       debugShowCheckedModeBanner: false,
+      scrollBehavior: const GentleScrollBehavior(),
       locale: const Locale('ko', 'KR'),
       supportedLocales: const [Locale('ko', 'KR')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
-        final fontSafeChild = DefaultTextStyle.merge(
-          style: const TextStyle(fontFamilyFallback: encbaFontFallback),
-          child: child,
+        final refreshableChild = RefreshIndicator.adaptive(
+          onRefresh: () => ref.read(lockerControllerProvider.notifier).reload(),
+          child: DefaultTextStyle.merge(
+            style: const TextStyle(fontFamilyFallback: encbaFontFallback),
+            child: child,
+          ),
         );
         return LayoutBuilder(
           builder: (context, constraints) {
-            if (constraints.maxWidth < 600) return fontSafeChild;
+            if (constraints.maxWidth < 600) return refreshableChild;
 
             final frameHeight = constraints.maxHeight > 900
                 ? 900.0
@@ -110,7 +116,7 @@ class _RoutedApp extends ConsumerWidget {
                     data: MediaQuery.of(
                       context,
                     ).copyWith(size: Size(430, frameHeight)),
-                    child: fontSafeChild,
+                    child: refreshableChild,
                   ),
                 ),
               ),

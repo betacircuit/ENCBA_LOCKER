@@ -112,7 +112,9 @@ class _EventDetailViewState extends ConsumerState<_EventDetailView> {
       appBar: AppBar(
         title: const Text('일정 상세'),
         actions: [
-          if (isAdmin && event.kind != EventKind.operations)
+          if (isAdmin &&
+              event.kind != EventKind.operations &&
+              !event.isCancelled)
             IconButton(
               tooltip: '일정 수정',
               onPressed: () => context.push(
@@ -129,6 +131,38 @@ class _EventDetailViewState extends ConsumerState<_EventDetailView> {
             color: Colors.transparent,
             child: _ExpandedTicket(event: event),
           ),
+          if (event.isCancelled) ...[
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFE4E8),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: EncbaColors.absent.withValues(alpha: .35),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '일정이 취소되었습니다.',
+                    style: TextStyle(
+                      color: EncbaColors.absent,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
+                  if (event.cancellationReason?.trim() case final String reason
+                      when reason.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    Text(reason),
+                  ],
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 18),
           _EventDetailFacts(event: event),
           if (event.memo.trim().isNotEmpty) ...[
@@ -161,26 +195,28 @@ class _EventDetailViewState extends ConsumerState<_EventDetailView> {
               strategy: eventState.strategy ?? EventStrategy(eventId: event.id),
             ),
           ],
-          const SizedBox(height: 22),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: () => _openMap(context, event),
-                  icon: const Icon(Icons.near_me_outlined),
-                  label: const Text('네이버 지도'),
+          if (!event.isCancelled) ...[
+            const SizedBox(height: 22),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _openMap(context, event),
+                    icon: const Icon(Icons.near_me_outlined),
+                    label: const Text('네이버 지도'),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: () => _addCalendar(context, event),
-                  icon: const Icon(Icons.calendar_month_outlined),
-                  label: const Text('캘린더에 추가'),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _addCalendar(context, event),
+                    icon: const Icon(Icons.calendar_month_outlined),
+                    label: const Text('캘린더에 추가'),
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
           if (isAdmin && event.kind == EventKind.external) ...[
             const SizedBox(height: 10),
             OutlinedButton.icon(
@@ -191,7 +227,7 @@ class _EventDetailViewState extends ConsumerState<_EventDetailView> {
               label: const Text('출전 명단 확정'),
             ),
           ],
-          if (event.responseEnabled) ...[
+          if (event.responseEnabled && !event.isCancelled) ...[
             const SizedBox(height: 22),
             _AttendanceResponseCard(
               event: event,
@@ -304,9 +340,7 @@ class _ResponseReminderButtonState
               )
             : const Icon(Icons.notifications_active_outlined),
         label: Text(
-          widget.enabled
-              ? '응답 독촉하기'
-              : '응답 독촉하기 — 내 응답(참석)을 먼저 눌러 주세요',
+          widget.enabled ? '응답 독촉하기' : '응답 독촉하기 — 내 응답(참석)을 먼저 눌러 주세요',
         ),
       ),
     );

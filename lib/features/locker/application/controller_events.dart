@@ -3,7 +3,7 @@ part of 'locker_controller.dart';
 /// EventsApi - 컨트롤러를 도메인별로 나눈 조각.
 /// 본체 클래스가 이 믹스인들을 조합해 완성된다.
 mixin EventsApi on StateNotifier<LockerState>, ControllerCore {
-Future<void> loadMoreEvents() async {
+  Future<void> loadMoreEvents() async {
     final repository = _repository;
     if (repository == null ||
         !state.hasMoreEvents ||
@@ -12,7 +12,12 @@ Future<void> loadMoreEvents() async {
     }
     state = state.copyWith(isLoadingMoreEvents: true);
     try {
-      final offset = state.events.where((event) => !event.isLocked).length;
+      final today = encbaDayStartsAtUtc(DateTime.now());
+      final offset = state.events
+          .where(
+            (event) => !event.isLocked && !event.end.toUtc().isBefore(today),
+          )
+          .length;
       final page = await repository.loadMoreEvents(offset: offset);
       final byId = {for (final event in state.events) event.id: event};
       for (final event in page.events) {
@@ -38,7 +43,7 @@ Future<void> loadMoreEvents() async {
     }
   }
 
-/// 초기 페이지에 없는 일정도 공유 주소의 ID로 읽어 현재 상태에 합친다.
+  /// 초기 페이지에 없는 일정도 공유 주소의 ID로 읽어 현재 상태에 합친다.
   Future<bool> ensureEvent(String id) async {
     if (state.plannerEvents.any((event) => event.id == id)) return true;
     final repository = _repository;
@@ -58,7 +63,7 @@ Future<void> loadMoreEvents() async {
     return true;
   }
 
-Future<void> loadEventAttendance(String eventId) async {
+  Future<void> loadEventAttendance(String eventId) async {
     final repository = _repository;
     if (repository == null) return;
     try {
@@ -73,7 +78,7 @@ Future<void> loadEventAttendance(String eventId) async {
     }
   }
 
-Future<bool> vote(
+  Future<bool> vote(
     String eventId,
     String value, {
     String? absenceReason,
@@ -122,7 +127,7 @@ Future<bool> vote(
     }
   }
 
-Future<bool> applyExternalEvent(String eventId) async {
+  Future<bool> applyExternalEvent(String eventId) async {
     try {
       await _repository?.applyExternalEvent(eventId);
       return true;
@@ -132,7 +137,7 @@ Future<bool> applyExternalEvent(String eventId) async {
     }
   }
 
-Future<void> loadEventRoster(String eventId) async {
+  Future<void> loadEventRoster(String eventId) async {
     if (_repository == null) return;
     try {
       final roster = await _repository.loadEventRoster(eventId);
@@ -144,7 +149,7 @@ Future<void> loadEventRoster(String eventId) async {
     }
   }
 
-Future<bool> setEventRosterStatus({
+  Future<bool> setEventRosterStatus({
     required String eventId,
     required EventRosterMember member,
     required String status,
@@ -177,7 +182,7 @@ Future<bool> setEventRosterStatus({
     }
   }
 
-Future<bool> saveEvent(LockerEvent event) async {
+  Future<bool> saveEvent(LockerEvent event) async {
     try {
       final saved = await _repository?.saveEvent(event) ?? event;
       final index = state.events.indexWhere((item) => item.id == event.id);
@@ -217,7 +222,7 @@ Future<bool> saveEvent(LockerEvent event) async {
     }
   }
 
-Future<List<AttendanceReportRow>> loadAttendanceReport({
+  Future<List<AttendanceReportRow>> loadAttendanceReport({
     required DateTime from,
     required DateTime to,
     required bool freshmenOnly,
@@ -231,7 +236,7 @@ Future<List<AttendanceReportRow>> loadAttendanceReport({
     );
   }
 
-Future<void> loadEventStrategy(String eventId) async {
+  Future<void> loadEventStrategy(String eventId) async {
     if (state.eventStrategies.containsKey(eventId)) return;
     try {
       final strategy =
@@ -250,7 +255,7 @@ Future<void> loadEventStrategy(String eventId) async {
     }
   }
 
-Future<bool> saveEventStrategy(EventStrategy strategy) async {
+  Future<bool> saveEventStrategy(EventStrategy strategy) async {
     try {
       final saved = await _repository?.saveEventStrategy(strategy) ?? strategy;
       state = state.copyWith(
@@ -264,7 +269,7 @@ Future<bool> saveEventStrategy(EventStrategy strategy) async {
     }
   }
 
-Future<bool> deleteEvent(String id) async {
+  Future<bool> deleteEvent(String id) async {
     try {
       await _repository?.deleteEvent(id);
       final next = state.events.where((event) => event.id != id).toList();
@@ -272,6 +277,24 @@ Future<bool> deleteEvent(String id) async {
       return true;
     } on Object {
       state = state.copyWith(error: '일정을 삭제하지 못했습니다.');
+      return false;
+    }
+  }
+
+  Future<bool> cancelEvent(String id, String reason) async {
+    try {
+      final saved = await _repository?.cancelEvent(id, reason);
+      if (saved == null) return false;
+      state = state.copyWith(
+        events: state.events
+            .map((event) => event.id == id ? saved : event)
+            .toList(growable: false),
+        clearError: true,
+      );
+      return true;
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA event cancellation failed: $error\n$stackTrace');
+      state = state.copyWith(error: '일정을 취소하지 못했습니다.');
       return false;
     }
   }

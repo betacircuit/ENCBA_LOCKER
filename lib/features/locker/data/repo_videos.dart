@@ -174,16 +174,16 @@ mixin VideosApi on RepoCore {
       _client.from('videos').delete().eq('id', id);
 
   static const _commentSelection =
-      'id,video_id,quarter_number,link_id,timestamp_seconds,'
+      'id,video_id,profile_id,quarter_number,link_id,timestamp_seconds,'
       'end_timestamp_seconds,body,created_at,'
       'profiles!video_comments_profile_id_fkey(name)';
 
   static const _commentSelectionWithoutRange =
-      'id,video_id,quarter_number,link_id,timestamp_seconds,body,created_at,'
+      'id,video_id,profile_id,quarter_number,link_id,timestamp_seconds,body,created_at,'
       'profiles!video_comments_profile_id_fkey(name)';
 
   static const _legacyCommentSelection =
-      'id,video_id,quarter_number,timestamp_seconds,body,created_at,'
+      'id,video_id,profile_id,quarter_number,timestamp_seconds,body,created_at,'
       'profiles!video_comments_profile_id_fkey(name)';
 
   Future<List<VideoCommentItem>> loadVideoComments(String videoId) async {
@@ -285,6 +285,7 @@ mixin VideosApi on RepoCore {
     return VideoCommentItem(
       id: saved.id,
       videoId: saved.videoId,
+      profileId: saved.profileId,
       timestampSeconds: saved.timestampSeconds,
       body: saved.body,
       author: saved.author,
@@ -366,6 +367,7 @@ mixin VideosApi on RepoCore {
           (comment) => VideoCommentItem(
             id: comment.id,
             videoId: comment.videoId,
+            profileId: comment.profileId,
             timestampSeconds: comment.timestampSeconds,
             body: comment.body,
             author: comment.author,
@@ -420,11 +422,15 @@ mixin VideosApi on RepoCore {
     }
   }
 
+  Future<void> deleteVideoComment(int id) =>
+      _client.from('video_comments').delete().eq('id', id);
+
   VideoCommentItem _videoCommentFromRow(Map<String, dynamic> row) {
     final profile = row['profiles'] as Map?;
     return VideoCommentItem(
       id: row['id'] as int,
       videoId: row['video_id'] as String,
+      profileId: row['profile_id'] as String,
       quarterNumber: row['quarter_number'] as int?,
       linkId: _databaseInt(row['link_id']),
       timestampSeconds: row['timestamp_seconds'] as int? ?? 0,

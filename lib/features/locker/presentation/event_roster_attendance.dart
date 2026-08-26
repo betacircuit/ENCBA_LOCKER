@@ -342,10 +342,11 @@ class AttendanceSelector extends ConsumerWidget {
                           if (_attendanceUiRevisions[event.id] != revision) {
                             return;
                           }
+                          if (!context.mounted) return;
+                          final showedConfirmation =
+                              saved && choice.$1 == '참석' && !active;
                           if (saved) {
-                            if (choice.$1 == '참석' &&
-                                !active &&
-                                context.mounted) {
+                            if (showedConfirmation) {
                               unawaited(HapticFeedback.mediumImpact());
                               _showAttendanceCelebration(context);
                             }
@@ -353,7 +354,7 @@ class AttendanceSelector extends ConsumerWidget {
                                 .read(lockerControllerProvider.notifier)
                                 .loadEventAttendance(event.id);
                           }
-                          if (context.mounted) {
+                          if (context.mounted && !showedConfirmation) {
                             ScaffoldMessenger.of(context)
                               ..clearSnackBars()
                               ..showSnackBar(
@@ -507,8 +508,7 @@ class _AbsenceReasonDialogState extends State<_AbsenceReasonDialog> {
     return typed.isEmpty ? null : typed;
   }
 
-  bool get _confirmed =>
-      _confirmController.text.trim() == absenceConfirmPhrase;
+  bool get _confirmed => _confirmController.text.trim() == absenceConfirmPhrase;
 
   @override
   Widget build(BuildContext context) {
@@ -528,7 +528,10 @@ class _AbsenceReasonDialogState extends State<_AbsenceReasonDialog> {
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 10),
-              for (final label in [...absenceReasonPresets, _absenceCustomLabel])
+              for (final label in [
+                ...absenceReasonPresets,
+                _absenceCustomLabel,
+              ])
                 _reasonTile(label),
               if (_selected == _absenceCustomLabel) ...[
                 const SizedBox(height: 4),
@@ -830,11 +833,27 @@ Color _kindColor(EventKind kind) => switch (kind) {
   EventKind.threeWay ||
   EventKind.external => EncbaColors.absent,
   EventKind.operations => EncbaColors.late,
-  EventKind.homecoming => const Color(0xFFB06C20),
+  EventKind.homecoming => const Color(0xFFC6283D),
 };
 
 ({Color? color, Gradient? gradient, bool dark, bool split})
 _uniformCardDecoration(LockerEvent event) {
+  if (event.isCancelled) {
+    return (
+      color: const Color(0xFFFFECEF),
+      gradient: null,
+      dark: false,
+      split: false,
+    );
+  }
+  if (event.kind == EventKind.homecoming) {
+    return (
+      color: const Color(0xFF9B1C31),
+      gradient: null,
+      dark: true,
+      split: false,
+    );
+  }
   return (color: Colors.white, gradient: null, dark: false, split: false);
 }
 

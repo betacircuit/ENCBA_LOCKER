@@ -517,11 +517,8 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                             label: Text(option),
                             avatar: const Icon(Icons.edit_outlined, size: 15),
                             onPressed: () => _editPollOption(option),
-                            onDeleted: _pollOptions.length <= 2
-                                ? null
-                                : () => setState(
-                                    () => _pollOptions.remove(option),
-                                  ),
+                            onDeleted: () =>
+                                setState(() => _pollOptions.remove(option)),
                           ),
                         )
                         .toList(),
@@ -627,13 +624,20 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                   ),
                   if (editing) ...[
                     const SizedBox(height: 10),
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        foregroundColor: EncbaColors.absent,
+                    if (widget.existing!.isCancelled)
+                      const Text(
+                        '이미 취소된 일정입니다.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: EncbaColors.muted),
+                      )
+                    else
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: EncbaColors.absent,
+                        ),
+                        onPressed: _cancelEvent,
+                        child: const Text('일정 취소'),
                       ),
-                      onPressed: _delete,
-                      child: const Text('일정 삭제'),
-                    ),
                   ],
                 ],
               ),
@@ -885,7 +889,9 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
     if (!_end.isAfter(_start)) {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(const SnackBar(content: Text('종료 시간은 시작 시간보다 늦어야 합니다.')));
+        ..showSnackBar(
+          const SnackBar(content: Text('종료 시간은 시작 시간보다 늦어야 합니다.')),
+        );
       return;
     }
     if (_responseDeadline.isAfter(_start)) {
@@ -900,7 +906,17 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
         _uniforms.isEmpty) {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(const SnackBar(content: Text('경기 유니폼 색을 하나 이상 선택해 주세요.')));
+        ..showSnackBar(
+          const SnackBar(content: Text('경기 유니폼 색을 하나 이상 선택해 주세요.')),
+        );
+      return;
+    }
+    if (_responseEnabled && _pollOptions.length < 2) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(content: Text('저장하려면 투표 항목을 두 개 이상 추가해 주세요.')),
+        );
       return;
     }
     setState(() => _saving = true);
@@ -1041,30 +1057,54 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
     );
   }
 
-  Future<void> _delete() async {
-    final approved = await showDialog<bool>(
+  Future<void> _cancelEvent() async {
+    final reasonController = TextEditingController();
+    var canSubmit = false;
+    final reason = await showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('일정을 삭제할까요?'),
-        content: const Text('이 기기에 저장된 일정과 참석 응답이 더 이상 표시되지 않습니다.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('취소'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('일정을 취소할까요?'),
+          content: TextField(
+            controller: reasonController,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 4,
+            maxLength: 500,
+            onChanged: (value) =>
+                setDialogState(() => canSubmit = value.trim().isNotEmpty),
+            decoration: const InputDecoration(
+              labelText: '취소 사유 *',
+              hintText: '예: 참석 인원이 부족해 일정이 취소되었습니다.',
+            ),
           ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: EncbaColors.absent),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('삭제'),
-          ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('돌아가기'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: EncbaColors.absent,
+              ),
+              onPressed: canSubmit
+                  ? () => Navigator.pop(
+                      dialogContext,
+                      reasonController.text.trim(),
+                    )
+                  : null,
+              child: const Text('일정 취소'),
+            ),
+          ],
+        ),
       ),
     );
-    if (approved != true) return;
-    final deleted = await ref
+    reasonController.dispose();
+    if (reason == null) return;
+    final cancelled = await ref
         .read(lockerControllerProvider.notifier)
-        .deleteEvent(widget.existing!.id);
-    if (mounted && deleted) {
+        .cancelEvent(widget.existing!.id, reason);
+    if (mounted && cancelled) {
       Navigator.pop(context);
       Navigator.pop(context);
     }

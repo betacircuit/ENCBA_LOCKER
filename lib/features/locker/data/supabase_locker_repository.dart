@@ -17,33 +17,33 @@ const int eventPageSize = 20;
 const int videoPageSize = 30;
 const _initialReadTimeout = Duration(seconds: 6);
 const _announcementSelection =
-      'id,title,body,pinned,is_urgent,published_at,image_url,poll_options,'
-      'poll_question,'
-      'profiles!announcements_created_by_fkey(name,display_name),'
-      'announcement_event_links(event_id),'
-      'announcement_poll_votes(profile_id,option_index)';
+    'id,title,body,pinned,is_urgent,published_at,image_url,poll_options,'
+    'poll_question,'
+    'profiles!announcements_created_by_fkey(name,display_name),'
+    'announcement_event_links(event_id),'
+    'announcement_poll_votes(profile_id,option_index)';
 const _legacyAnnouncementSelection =
-      'id,title,body,pinned,published_at,'
-      'profiles!announcements_created_by_fkey(name,display_name),'
-      'announcement_event_links(event_id)';
+    'id,title,body,pinned,published_at,'
+    'profiles!announcements_created_by_fkey(name,display_name),'
+    'announcement_event_links(event_id)';
 const _eventSelection =
-      'id,title,starts_at,ends_at,place_label,court,kind,memo,'
-      'uniform_colors,capacity,attending_count,target_team,updated_at,'
-      'ob_participant_count,'
-      'recurrence_rule,response_enabled,response_deadline,poll_options,'
-      'visibility,opponent,opponents,map_reference,'
-      'places(name),profiles!events_created_by_fkey(name)';
+    'id,title,starts_at,ends_at,place_label,court,kind,memo,'
+    'uniform_colors,capacity,attending_count,target_team,updated_at,'
+    'ob_participant_count,'
+    'recurrence_rule,response_enabled,response_deadline,poll_options,'
+    'visibility,opponent,opponents,map_reference,cancelled_at,cancellation_reason,'
+    'places(name),profiles!events_created_by_fkey(name)';
 const _videoSelection =
-      'id,title,category,source_url,youtube_id,source_type,'
-      'quarter_1_url,quarter_2_url,quarter_3_url,quarter_4_url,'
-      'audience_type,audience_values,duration_seconds,created_at,like_count,'
-      'recorded_on,video_links(id,quarter_number,url,sort_order),'
-      'profiles!videos_uploaded_by_fkey(name,display_name)';
+    'id,title,category,source_url,youtube_id,source_type,'
+    'quarter_1_url,quarter_2_url,quarter_3_url,quarter_4_url,'
+    'audience_type,audience_values,duration_seconds,created_at,like_count,'
+    'recorded_on,video_links(id,quarter_number,url,sort_order),'
+    'profiles!videos_uploaded_by_fkey(name,display_name)';
 const _legacyVideoSelection =
-      'id,title,category,source_url,youtube_id,source_type,'
-      'quarter_1_url,quarter_2_url,quarter_3_url,quarter_4_url,'
-      'audience_type,audience_values,duration_seconds,created_at,like_count,'
-      'profiles!videos_uploaded_by_fkey(name,display_name)';
+    'id,title,category,source_url,youtube_id,source_type,'
+    'quarter_1_url,quarter_2_url,quarter_3_url,quarter_4_url,'
+    'audience_type,audience_values,duration_seconds,created_at,like_count,'
+    'profiles!videos_uploaded_by_fkey(name,display_name)';
 
 const _encbaUtcOffset = Duration(hours: 9);
 
@@ -52,7 +52,6 @@ const _encbaUtcOffset = Duration(hours: 9);
 /// Schedules are operated in Korea even when a member opens the app while the
 /// device is set to another time zone. Keeping this calculation independent of
 /// the device locale also makes the server query boundary deterministic.
-@visibleForTesting
 DateTime encbaDayStartsAtUtc(DateTime now) {
   final koreaNow = now.toUtc().add(_encbaUtcOffset);
   return DateTime.utc(
@@ -87,7 +86,6 @@ class LockerSnapshot {
   final bool hasMoreEvents;
   final bool fromCache;
 }
-
 
 /// 모든 도메인 파트가 의존하는 공통 접근자와 공유 헬퍼.
 mixin RepoCore {
@@ -165,7 +163,16 @@ mixin RepoCore {
   }
 }
 
-class SupabaseLockerRepository with RepoCore, MembersApi, EventsApi, VideosApi, ContentApi, OperationsApi, HomecomingApi, MiscApi {
+class SupabaseLockerRepository
+    with
+        RepoCore,
+        MembersApi,
+        EventsApi,
+        VideosApi,
+        ContentApi,
+        OperationsApi,
+        HomecomingApi,
+        MiscApi {
   @override
   final SupabaseClient _client;
 
@@ -175,7 +182,8 @@ class SupabaseLockerRepository with RepoCore, MembersApi, EventsApi, VideosApi, 
   SupabaseLockerRepository(this._client, this._store);
 
   @override
-  String get _userId => _client.auth.currentUser?.id ?? (throw StateError('로그인이 필요합니다.'));
+  String get _userId =>
+      _client.auth.currentUser?.id ?? (throw StateError('로그인이 필요합니다.'));
 
   Future<LockerSnapshot?> loadCached() => _readCache();
 
@@ -198,6 +206,19 @@ class SupabaseLockerRepository with RepoCore, MembersApi, EventsApi, VideosApi, 
       debugLabel: 'events',
       onFallback: markFallback,
     );
+    final pastEventFuture = _orFallback<List<LockerEvent>>(
+      _loadPastEvents(
+        todayStartsAt: todayStartsAt,
+      ).timeout(_initialReadTimeout),
+      (cached?.events ?? const <LockerEvent>[])
+          .where(
+            (event) =>
+                event.end.toUtc().isBefore(DateTime.parse(todayStartsAt)),
+          )
+          .toList(growable: false),
+      debugLabel: 'past events',
+      onFallback: markFallback,
+    );
     final attendanceFuture = _orFallback<Map<String, String>>(
       _loadMyAttendance().timeout(_initialReadTimeout),
       cached?.attendance ?? const <String, String>{},
@@ -216,11 +237,18 @@ class SupabaseLockerRepository with RepoCore, MembersApi, EventsApi, VideosApi, 
     );
 
     final eventPage = await eventFuture;
+    final pastEvents = await pastEventFuture;
     final attendance = await attendanceFuture;
     final videos = await videosFuture;
     final likes = await likesFuture;
+    final eventsById = <String, LockerEvent>{
+      for (final event in pastEvents) event.id: event,
+      for (final event in eventPage.events) event.id: event,
+    };
+    final events = eventsById.values.toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
     final snapshot = LockerSnapshot(
-      events: eventPage.events,
+      events: events,
       attendance: attendance,
       videos: videos,
       likedVideoIds: likes,
@@ -288,9 +316,12 @@ int? _databaseInt(Object? value) => switch (value) {
 };
 
 int? _durationToSeconds(String value) {
-  final parts = value.split(':').map(int.tryParse).toList();
+  final parts = value.trim().split(':').map(int.tryParse).toList();
   if (parts.length != 2 || parts.any((item) => item == null)) return null;
-  return parts[0]! * 60 + parts[1]!;
+  final minutes = parts[0]!;
+  final seconds = parts[1]!;
+  if (minutes < 0 || seconds < 0 || seconds >= 60) return null;
+  return minutes * 60 + seconds;
 }
 
 bool _isMissingVideoPlayerFeature(PostgrestException error) =>

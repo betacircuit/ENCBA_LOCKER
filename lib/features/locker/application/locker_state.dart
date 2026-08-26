@@ -51,6 +51,8 @@ class LockerEventsState {
       ...operationsState.operations.map(
         (assignment) => assignment.toPlannerEvent(),
       ),
+      if (operationsState.homecomingCampaign case final campaign?)
+        campaign.toPlannerEvent(),
     ]..sort((a, b) => a.start.compareTo(b.start));
     return merged;
   }

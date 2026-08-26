@@ -354,14 +354,14 @@ class SupabaseAuthRepository {
         previousAvatarPath = current['avatar_path'] as String?;
         final bytes = base64Decode(profile.photoBase64!);
         avatarPath =
-            '${user.id}/profile-${DateTime.now().microsecondsSinceEpoch}.jpg';
+            '${user.id}/profile-${DateTime.now().microsecondsSinceEpoch}.png';
         await _client.storage
             .from('avatars')
             .uploadBinary(
               avatarPath,
               bytes,
               fileOptions: const supabase.FileOptions(
-                contentType: 'image/jpeg',
+                contentType: 'image/png',
                 upsert: true,
                 cacheControl: '3600',
               ),

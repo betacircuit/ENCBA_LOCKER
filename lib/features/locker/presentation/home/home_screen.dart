@@ -164,9 +164,7 @@ class _AppDemandButtonState extends ConsumerState<_AppDemandButton> {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(
-          SnackBar(
-            content: Text(voted ? '앱 수요조사에 참여했습니다!' : '참여를 취소했습니다.'),
-          ),
+          SnackBar(content: Text(voted ? '앱 수요조사에 참여했습니다!' : '참여를 취소했습니다.')),
         );
     } on Object {
       if (!mounted) return;
@@ -996,9 +994,7 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
                   ),
                   IconButton(
                     tooltip: '항목 삭제',
-                    onPressed: _pollOptions.length <= 2
-                        ? null
-                        : () => _removePollOption(index),
+                    onPressed: () => _removePollOption(index),
                     icon: const Icon(Icons.remove_circle_outline_rounded),
                   ),
                 ],

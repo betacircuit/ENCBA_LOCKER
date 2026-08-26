@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:encba_locker/core/widgets/wheel_picker_field.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
+import 'package:encba_locker/features/auth/presentation/profile_photo_crop_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -258,15 +260,20 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   Future<void> _pickPhoto() async {
     final image = await ImagePicker().pickImage(
       source: ImageSource.gallery,
-      maxWidth: 512,
-      maxHeight: 512,
-      imageQuality: 72,
+      maxWidth: 2048,
+      maxHeight: 2048,
+      imageQuality: 90,
     );
     if (image == null) return;
     final bytes = await image.readAsBytes();
     if (!mounted) return;
+    final cropped = await Navigator.push<Uint8List>(
+      context,
+      MaterialPageRoute(builder: (_) => ProfilePhotoCropScreen(bytes: bytes)),
+    );
+    if (cropped == null || !mounted) return;
     setState(() {
-      _photoBase64 = base64Encode(bytes);
+      _photoBase64 = base64Encode(cropped);
       _photoChanged = true;
     });
   }

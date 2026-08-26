@@ -67,6 +67,24 @@ void main() {
     expect(video.likeCount, 4);
   });
 
+  test('댓글 삭제는 해당 댓글 ID만 DELETE 요청한다', () async {
+    final httpClient = MockClient((request) async {
+      expect(request.method, 'DELETE');
+      expect(request.url.path, '/rest/v1/video_comments');
+      expect(request.url.queryParameters['id'], 'eq.17');
+      return http.Response('', 204, request: request);
+    });
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'test-anon-key',
+      httpClient: httpClient,
+    );
+    addTearDown(client.dispose);
+    final repository = SupabaseLockerRepository(client, LocalStore());
+
+    await repository.deleteVideoComment(17);
+  });
+
   test('홈커밍 연락망은 원자적 교체 RPC 한 번으로 전송한다', () async {
     final httpClient = MockClient((request) async {
       expect(request.method, 'POST');

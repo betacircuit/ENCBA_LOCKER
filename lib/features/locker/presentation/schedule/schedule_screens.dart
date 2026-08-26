@@ -26,24 +26,24 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
     final plannerState = ref.watch(
       lockerControllerProvider.select(
         (state) => (
-          events: state.eventsState.events,
-          operations: state.operationsState.operations,
+          events: state.plannerEvents,
           hasMore: state.eventsState.hasMoreEvents,
           isLoadingMore: state.eventsState.isLoadingMoreEvents,
         ),
       ),
     );
-    final allEvents = <LockerEvent>[
-      ...plannerState.events,
-      ...plannerState.operations.map((item) => item.toPlannerEvent()),
-    ]..sort((a, b) => a.start.compareTo(b.start));
+    final allEvents = [...plannerState.events]
+      ..sort((a, b) => a.start.compareTo(b.start));
     final user = ref.watch(authControllerProvider).user!;
     final today = DateUtils.dateOnly(DateTime.now());
     final futureEvents = allEvents
         .where((event) => !DateUtils.dateOnly(event.start).isBefore(today))
         .toList();
-    final visible = futureEvents.take(_visibleCount).toList();
-    final canRevealMore = visible.length < futureEvents.length;
+    final showingHistory =
+        _selectedDate != null && _selectedDate!.isBefore(today);
+    final listedEvents = showingHistory ? allEvents : futureEvents;
+    final visible = listedEvents.take(_visibleCount).toList();
+    final canRevealMore = visible.length < listedEvents.length;
     final canLoadMore = canRevealMore || plannerState.hasMore;
 
     return NotificationListener<ScrollNotification>(
@@ -110,7 +110,11 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                   ),
           ),
           const SizedBox(height: 20),
-          _SectionHeader(title: '오늘 이후 일정 ${futureEvents.length}개'),
+          _SectionHeader(
+            title: showingHistory
+                ? '과거 포함 일정 ${listedEvents.length}개'
+                : '오늘 이후 일정 ${futureEvents.length}개',
+          ),
           const SizedBox(height: 11),
           if (visible.isEmpty)
             _EmptyState(
@@ -141,11 +145,13 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                     event: event,
                     heroTag: 'schedule-${event.id}',
                     compact: true,
-                    onTap: () => openEventDetail(
-                      context,
-                      event.id,
-                      heroTagPrefix: 'schedule',
-                    ),
+                    onTap: () => event.kind == EventKind.homecoming
+                        ? context.push('/homecoming')
+                        : openEventDetail(
+                            context,
+                            event.id,
+                            heroTagPrefix: 'schedule',
+                          ),
                   ),
                 ),
               ];
@@ -179,10 +185,14 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
     final today = DateUtils.dateOnly(DateTime.now());
     final events = [...ref.read(lockerControllerProvider).plannerEvents]
       ..sort((a, b) => a.start.compareTo(b.start));
-    final futureEvents = events
-        .where((event) => !DateUtils.dateOnly(event.start).isBefore(today))
-        .toList();
-    final targetIndex = futureEvents.indexWhere(
+    final listedEvents = DateUtils.dateOnly(date).isBefore(today)
+        ? events
+        : events
+              .where(
+                (event) => !DateUtils.dateOnly(event.start).isBefore(today),
+              )
+              .toList();
+    final targetIndex = listedEvents.indexWhere(
       (event) => DateUtils.isSameDay(event.start, date),
     );
     setState(() {
@@ -199,7 +209,7 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_scrollToDate(date, targetIndex, futureEvents.length));
+      unawaited(_scrollToDate(date, targetIndex, listedEvents.length));
     });
   }
 
