@@ -1,6 +1,6 @@
 import 'package:encba_locker/core/widgets/gentle_scroll_behavior.dart';
-import 'package:encba_locker/core/widgets/gentle_back_swipe.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -54,7 +54,9 @@ void main() {
     expect(physics.carriedMomentum(20000), lessThanOrEqualTo(1200));
   });
 
-  testWidgets('가장자리 뒤로가기는 짧은 드래그를 무시하고 충분한 이동만 허용한다', (tester) async {
+  testWidgets('iOS 기본 뒤로가기는 짧은 드래그를 취소하고 한 번만 화면을 닫는다', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     await tester.binding.setSurfaceSize(const Size(400, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -66,9 +68,8 @@ void main() {
                 onPressed: () => Navigator.push<void>(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const GentleBackSwipe(
-                      child: Scaffold(body: Center(child: Text('상세 화면'))),
-                    ),
+                    builder: (_) =>
+                        const Scaffold(body: Center(child: Text('상세 화면'))),
                   ),
                 ),
                 child: const Text('열기'),
@@ -81,25 +82,22 @@ void main() {
     await tester.tap(find.text('열기'));
     await tester.pumpAndSettle();
 
-    final backSwipe = find.descendant(
-      of: find.byType(GentleBackSwipe),
-      matching: find.byType(GestureDetector),
-    );
-    await tester.timedDrag(
-      backSwipe,
+    await tester.timedDragFrom(
+      const Offset(5, 400),
       const Offset(70, 0),
       const Duration(milliseconds: 250),
     );
     await tester.pumpAndSettle();
     expect(find.text('상세 화면'), findsOneWidget);
 
-    await tester.timedDrag(
-      backSwipe,
+    await tester.timedDragFrom(
+      const Offset(5, 400),
       const Offset(300, 0),
       const Duration(milliseconds: 250),
     );
     await tester.pumpAndSettle();
     expect(find.text('상세 화면'), findsNothing);
     expect(find.text('열기'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
   });
 }

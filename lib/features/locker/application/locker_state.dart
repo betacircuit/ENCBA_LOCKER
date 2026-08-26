@@ -3,7 +3,7 @@ import 'package:encba_locker/features/locker/domain/locker_models.dart';
 class LockerUiState {
   const LockerUiState({
     this.isReady = false,
-    this.gameSegment = 1,
+    this.gameSegment = 0,
     this.gameSubSegment = 0,
     this.videoSegment = 0,
     this.memberSegment = 0,
@@ -106,7 +106,7 @@ class LockerOperationsState {
 class LockerState {
   LockerState({
     bool isReady = false,
-    int gameSegment = 1,
+    int gameSegment = 0,
     int gameSubSegment = 0,
     int videoSegment = 0,
     int memberSegment = 0,

@@ -9,6 +9,7 @@ import 'package:encba_locker/features/auth/presentation/profile_photo_crop_scree
 import 'package:encba_locker/features/locker/application/locker_controller.dart';
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/presentation/locker_shell.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:encba_locker/core/routing/app_router.dart';
@@ -33,6 +34,38 @@ void main() {
     expect(encbaFontFor('PLANNER', display: true), 'BlackHanSans');
     expect(encbaFontFor('ENCBA'), 'BlackHanSans');
     expect(encbaFontFor('일정'), 'Jua');
+  });
+
+  test('GAME 첫 진입은 내부 아농을 선택한다', () {
+    final state = LockerState(isReady: true);
+
+    expect(state.gameSegment, 0);
+    expect(state.gameSubSegment, 0);
+  });
+
+  testWidgets('실제 상세 라우트의 iOS 엣지 스와이프는 한 번만 뒤로 간다', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_signedInApp(const LockerShell()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('개인').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('농구장 예약'));
+    await tester.pumpAndSettle();
+    expect(find.byType(CourtReservationScreen), findsOneWidget);
+
+    await tester.timedDragFrom(
+      const Offset(5, 450),
+      const Offset(320, 0),
+      const Duration(milliseconds: 300),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CourtReservationScreen), findsNothing);
+    expect(find.byType(ProfileScreen), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('프로필 사진 맞춤 화면은 원형 점선 가이드와 회색 여백을 제공한다', (tester) async {
@@ -943,13 +976,19 @@ void main() {
     expect(find.byTooltip('일정 수정'), findsNothing);
   });
 
-  testWidgets('홈에는 바로 하기가 없고 경기에는 2단 카테고리가 표시된다', (tester) async {
+  testWidgets('홈에는 바로 하기가 없고 경기는 내부 아농부터 표시된다', (tester) async {
     await tester.pumpWidget(_signedInApp(const LockerShell()));
     await tester.pumpAndSettle();
 
     expect(find.text('바로 하기'), findsNothing);
 
     await tester.tap(find.text('경기').last);
+    await tester.pump();
+    expect(find.text('아농'), findsWidgets);
+    expect(find.text('자개'), findsOneWidget);
+    expect(find.text('픽업게임'), findsOneWidget);
+
+    await tester.tap(find.text('IB'));
     await tester.pump();
     expect(find.text('1부'), findsOneWidget);
     expect(find.text('2부'), findsOneWidget);

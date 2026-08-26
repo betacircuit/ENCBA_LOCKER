@@ -1,6 +1,5 @@
 import 'package:encba_locker/core/routing/locker_tab.dart';
 import 'package:encba_locker/core/theme/app_theme.dart';
-import 'package:encba_locker/core/widgets/gentle_back_swipe.dart';
 import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/presentation/auth_screen.dart';
 import 'package:encba_locker/features/auth/presentation/edit_profile_screen.dart';
@@ -172,31 +171,13 @@ final List<RouteBase> lockerRoutes = [
   ),
 ];
 
-CustomTransitionPage<void> _gentlePage({
-  required GoRouterState state,
-  required Widget child,
-}) => CustomTransitionPage<void>(
-  key: state.pageKey,
-  transitionDuration: const Duration(milliseconds: 420),
-  reverseTransitionDuration: const Duration(milliseconds: 480),
-  child: GentleBackSwipe(child: child),
-  transitionsBuilder: (context, animation, secondaryAnimation, child) {
-    final curved = CurvedAnimation(
-      parent: animation,
-      curve: Curves.easeOutCubic,
-      reverseCurve: Curves.easeInOutCubic,
-    );
-    // 역방향에서 화면을 동시에 투명하게 만들면 아래 라우트가 너무 일찍
-    // 비쳐 잠깐 되돌아갔다가 다시 오는 것처럼 보인다. 위치 전환만 사용한다.
-    return SlideTransition(
-      position: Tween<Offset>(
-        begin: const Offset(.10, 0),
-        end: Offset.zero,
-      ).animate(curved),
+Page<void> _gentlePage({required GoRouterState state, required Widget child}) =>
+    MaterialPage<void>(
+      key: state.pageKey,
+      // MaterialPage는 iOS에서 Cupertino의 단일 대화형 뒤로가기 전환을 쓴다.
+      // 별도 가장자리 GestureDetector를 겹치지 않아 드래그 뒤 재애니메이션이 없다.
       child: child,
     );
-  },
-);
 
 class _RouteNotFoundScreen extends StatelessWidget {
   const _RouteNotFoundScreen();
