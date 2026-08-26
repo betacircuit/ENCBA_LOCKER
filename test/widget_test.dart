@@ -1286,6 +1286,27 @@ void main() {
     expect(captain.canAdminister, isTrue);
   });
 
+  test('플래너는 개인 배정 대신 공용 IB 일정을 시간순으로 사용한다', () {
+    OperationAssignment operation(String id, int day) => OperationAssignment(
+      id: id,
+      title: 'IB 운영 $day',
+      start: DateTime(2026, 9, day, 14),
+      end: DateTime(2026, 9, day, 15),
+      location: '체육관',
+      memo: '',
+    );
+    final state = LockerState(
+      isReady: true,
+      operations: [operation('mine', 3)],
+      allOperations: [operation('later', 20), operation('earlier', 10)],
+    );
+
+    expect(state.plannerEvents.map((event) => event.id), [
+      'operation-earlier',
+      'operation-later',
+    ]);
+  });
+
   testWidgets('플래너 달력은 펼쳐지고 일정이 있는 날을 표시한다', (tester) async {
     await tester.pumpWidget(_signedInApp(const LockerShell()));
     await tester.pumpAndSettle();
@@ -1368,8 +1389,57 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('IB 운영 2경기'), findsOneWidget);
-    expect(find.textContaining('과거 포함 일정'), findsOneWidget);
+    expect(find.text('${past.month}.${past.day} 일정 1개'), findsOneWidget);
     expect(find.text('이 날짜에는 일정이 없습니다.'), findsNothing);
+  });
+
+  testWidgets('과거 날짜를 누르면 그 날짜 일정만 표시한다', (tester) async {
+    final selected = DateTime.now().subtract(const Duration(days: 5));
+    final older = selected.subtract(const Duration(days: 1));
+    LockerEvent event(String id, String title, DateTime date) => LockerEvent(
+      id: id,
+      title: title,
+      start: DateTime(date.year, date.month, date.day, 14),
+      end: DateTime(date.year, date.month, date.day, 15),
+      place: '체육관',
+      kind: EventKind.training,
+      memo: '',
+    );
+    await tester.pumpWidget(
+      _signedInApp(
+        const ScheduleScreen(),
+        lockerState: LockerState(
+          isReady: true,
+          events: [
+            event('selected', '선택한 날짜 일정', selected),
+            event('older', '다른 과거 일정', older),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('달력 펼치기'));
+    await tester.pumpAndSettle();
+    if (selected.month != DateTime.now().month) {
+      await tester.tap(find.byTooltip('이전 달'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byType(GridView),
+            matching: find.text('${selected.day}'),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('선택한 날짜 일정'), findsOneWidget);
+    expect(find.text('다른 과거 일정'), findsNothing);
+    expect(
+      find.text('${selected.month}.${selected.day} 일정 1개'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('홈커밍 일정 카드는 읽기 쉬운 짙은 붉은 배경을 쓴다', (tester) async {
@@ -1399,6 +1469,32 @@ void main() {
       isTrue,
     );
     expect(find.text('2026 홈커밍'), findsOneWidget);
+  });
+
+  testWidgets('IB 운영 일정 카드도 짙은 붉은 배경을 쓴다', (tester) async {
+    final event = OperationAssignment(
+      id: 'ib-red',
+      title: 'IB 운영',
+      start: DateTime.now().add(const Duration(days: 3)),
+      end: DateTime.now().add(const Duration(days: 3, hours: 1)),
+      location: '체육관',
+      memo: '',
+    ).toPlannerEvent();
+    await tester.pumpWidget(
+      _signedInApp(EventTicket(event: event, heroTag: 'ib-test', onTap: () {})),
+    );
+    await tester.pumpAndSettle();
+
+    final decorations = tester
+        .widgetList<Ink>(find.byType(Ink))
+        .map((ink) => ink.decoration)
+        .whereType<BoxDecoration>();
+    expect(
+      decorations.any(
+        (decoration) => decoration.color == const Color(0xFF9B1C31),
+      ),
+      isTrue,
+    );
   });
 
   testWidgets('취소된 일정은 사유만 안내하고 참석 선택을 감춘다', (tester) async {
@@ -1445,6 +1541,48 @@ void main() {
 
     expect(find.byType(Image), findsWidgets);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('스킴 없는 Instagram 릴스도 하이라이트로 저장하고 열 수 있는 주소로 보정한다', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _signedInApp(
+        const LockerShell(),
+        lockerState: LockerState(isReady: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('영상').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('영상 링크 추가'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, '제목'),
+      '릴스 링크 테스트',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'YouTube 또는 Instagram Reel 링크'),
+      'www.instagram.com/reel/Db2nVhDz4Fq/?igsh=test',
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('등록'));
+    await tester.tap(find.text('등록'));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(VideosScreen)),
+    );
+    final saved = container
+        .read(lockerControllerProvider)
+        .videos
+        .singleWhere((video) => video.title == '릴스 링크 테스트');
+    expect(saved.sourceType, 'instagram');
+    expect(saved.url, startsWith('https://www.instagram.com/reel/'));
+    expect(find.text('올바른 영상 링크를 입력해 주세요.'), findsNothing);
   });
 
   testWidgets('복기 출전 선수는 학번 높은 순이며 등번호를 달고 선택창을 닫을 수 있다', (tester) async {

@@ -46,11 +46,12 @@ class LockerEventsState {
   final bool isLoadingMoreEvents;
 
   List<LockerEvent> plannerEventsWith(LockerOperationsState operationsState) {
+    final visibleOperations = operationsState.allOperations.isNotEmpty
+        ? operationsState.allOperations
+        : operationsState.operations;
     final merged = <LockerEvent>[
       ...events,
-      ...operationsState.operations.map(
-        (assignment) => assignment.toPlannerEvent(),
-      ),
+      ...visibleOperations.map((assignment) => assignment.toPlannerEvent()),
       if (operationsState.homecomingCampaign case final campaign?)
         campaign.toPlannerEvent(),
     ]..sort((a, b) => a.start.compareTo(b.start));
@@ -80,6 +81,7 @@ class LockerOperationsState {
   const LockerOperationsState({
     this.announcements = const [],
     this.operations = const [],
+    this.allOperations = const [],
     this.homecomingContacts = const [],
     this.homecomingCampaign,
     this.operationExchangeBoard = const [],
@@ -90,6 +92,7 @@ class LockerOperationsState {
 
   final List<AnnouncementItem> announcements;
   final List<OperationAssignment> operations;
+  final List<OperationAssignment> allOperations;
   final List<HomecomingContact> homecomingContacts;
   final HomecomingCampaign? homecomingCampaign;
   final List<OperationAssignment> operationExchangeBoard;
@@ -116,6 +119,7 @@ class LockerState {
     List<MemberProfile> members = const [],
     List<AnnouncementItem> announcements = const [],
     List<OperationAssignment> operations = const [],
+    List<OperationAssignment> allOperations = const [],
     List<HomecomingContact> homecomingContacts = const [],
     HomecomingCampaign? homecomingCampaign,
     Map<String, List<EventRosterMember>> eventRosters = const {},
@@ -161,6 +165,7 @@ class LockerState {
        operationsState = LockerOperationsState(
          announcements: announcements,
          operations: operations,
+         allOperations: allOperations,
          homecomingContacts: homecomingContacts,
          homecomingCampaign: homecomingCampaign,
          operationExchangeBoard: operationExchangeBoard,
@@ -209,6 +214,7 @@ class LockerState {
   List<MemberProfile> get members => membersState.members;
   List<AnnouncementItem> get announcements => operationsState.announcements;
   List<OperationAssignment> get operations => operationsState.operations;
+  List<OperationAssignment> get allOperations => operationsState.allOperations;
   List<HomecomingContact> get homecomingContacts =>
       operationsState.homecomingContacts;
   HomecomingCampaign? get homecomingCampaign =>
@@ -238,6 +244,7 @@ class LockerState {
     List<MemberProfile>? members,
     List<AnnouncementItem>? announcements,
     List<OperationAssignment>? operations,
+    List<OperationAssignment>? allOperations,
     List<HomecomingContact>? homecomingContacts,
     HomecomingCampaign? homecomingCampaign,
     bool clearHomecomingCampaign = false,
@@ -282,6 +289,7 @@ class LockerState {
     final operationsChanged =
         announcements != null ||
         operations != null ||
+        allOperations != null ||
         homecomingContacts != null ||
         homecomingCampaign != null ||
         clearHomecomingCampaign ||
@@ -332,6 +340,7 @@ class LockerState {
           ? LockerOperationsState(
               announcements: announcements ?? this.announcements,
               operations: operations ?? this.operations,
+              allOperations: allOperations ?? this.allOperations,
               homecomingContacts: homecomingContacts ?? this.homecomingContacts,
               homecomingCampaign: clearHomecomingCampaign
                   ? null

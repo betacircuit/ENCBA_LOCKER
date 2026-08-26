@@ -95,9 +95,8 @@ mixin OperationsApi on RepoCore {
     params: {'requested_swap_id': requestId, 'requested_accept': accept},
   );
 
-  /// 내 IB 운영 배정이 새로 등록되거나 바뀌면 알려 준다. 관리자가 학기 초
-  /// 엑셀을 올리는 즉시, 재접속 없이 내 일정에 반영되게 하기 위한 구독이다.
-  /// RLS 정책이 내 배정만 보내 주므로 필터만으로 충분하다.
+  /// IB 운영 배정이 새로 등록되거나 바뀌면 알려 준다. 읽기 정책상 모든
+  /// 부원이 전체 배정을 볼 수 있으므로 공용 플래너도 재접속 없이 갱신한다.
   RealtimeChannel subscribeToOperationAssignments(
     void Function(Map<String, dynamic> record) onChange,
   ) => _client
@@ -106,22 +105,12 @@ mixin OperationsApi on RepoCore {
         event: PostgresChangeEvent.insert,
         schema: 'public',
         table: 'operation_assignments',
-        filter: PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'assignee_id',
-          value: _userId,
-        ),
         callback: (payload) => onChange(payload.newRecord),
       )
       .onPostgresChanges(
         event: PostgresChangeEvent.update,
         schema: 'public',
         table: 'operation_assignments',
-        filter: PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'assignee_id',
-          value: _userId,
-        ),
         callback: (payload) => onChange(payload.newRecord),
       )
       .subscribe();
@@ -176,7 +165,7 @@ mixin OperationsApi on RepoCore {
         )
         .order('starts_at')
         .limit(500);
-    return (rows as List<dynamic>)
+    final assignments = (rows as List<dynamic>)
         .map((raw) {
           final row = Map<String, dynamic>.from(raw as Map);
           final profile = row['profiles'] as Map?;
@@ -197,6 +186,11 @@ mixin OperationsApi on RepoCore {
           );
         })
         .toList(growable: false);
+    assignments.sort((a, b) {
+      final byStart = a.start.compareTo(b.start);
+      return byStart != 0 ? byStart : a.id.compareTo(b.id);
+    });
+    return assignments;
   }
 
   /// 관리자가 전체 운영 배정의 시간·장소·메모를 고친다.

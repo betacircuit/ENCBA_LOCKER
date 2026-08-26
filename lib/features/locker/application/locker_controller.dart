@@ -27,36 +27,20 @@ part 'controller_videos.dart';
 
 /// 모든 도메인 파트가 의존하는 내부 상태 접근자.
 mixin ControllerCore on StateNotifier<LockerState> {
-RealtimeChannel? _announcementChannel;
-RealtimeChannel? _operationSwapChannel;
-RealtimeChannel? _operationAssignmentChannel;
-RealtimeChannel? _eventChannel;
-RealtimeChannel? _videoFeedChannel;
-Timer? _undecidedReminderTimer;
-Future<void>? _loadInFlight;
-String _memberMembership = 'ALL';
+  RealtimeChannel? _announcementChannel;
+  RealtimeChannel? _operationSwapChannel;
+  RealtimeChannel? _operationAssignmentChannel;
+  RealtimeChannel? _eventChannel;
+  RealtimeChannel? _videoFeedChannel;
+  Timer? _undecidedReminderTimer;
+  Future<void>? _loadInFlight;
+  String _memberMembership = 'ALL';
 
   SupabaseLockerRepository? get _repository;
-
-
-
-
-
-
-
-
-
-
 
   NotificationCategoryPrefs get _notificationPrefs;
 
   NotificationHistoryService get _notificationHistory;
-
-
-
-
-
-
 
   Future<void>? get _homecomingContactsLoadInFlight;
 
@@ -74,8 +58,6 @@ String _memberMembership = 'ALL';
 
   set _memberQuery(String value);
 
-
-
   Future<T> _orDefault<T>(Future<T> future, T fallback) async {
     try {
       return await future;
@@ -92,7 +74,18 @@ String _memberMembership = 'ALL';
 }
 
 class LockerController extends StateNotifier<LockerState>
-    with ControllerCore, NotificationsApi, RemindersApi, DemandApi, ReportsApi, HomecomingApi, OperationsApi, EventsApi, MembersApi, AnnouncementsApi, VideosApi {
+    with
+        ControllerCore,
+        NotificationsApi,
+        RemindersApi,
+        DemandApi,
+        ReportsApi,
+        HomecomingApi,
+        OperationsApi,
+        EventsApi,
+        MembersApi,
+        AnnouncementsApi,
+        VideosApi {
   LockerController(this._repository) : super(LockerState()) {
     _load();
   }
@@ -112,15 +105,10 @@ class LockerController extends StateNotifier<LockerState>
   @override
   final SupabaseLockerRepository? _repository;
 
-
-
-
-
   @override
   final _notificationPrefs = NotificationCategoryPrefs();
   @override
   final _notificationHistory = NotificationHistoryService();
-
 
   @override
   Future<void>? _homecomingContactsLoadInFlight;
@@ -187,6 +175,10 @@ class LockerController extends StateNotifier<LockerState>
         repository.loadOperations().timeout(_initialSyncTimeout),
         state.operations,
       );
+      final allOperationsFuture = _orDefault(
+        repository.loadAllOperations().timeout(_initialSyncTimeout),
+        state.allOperations,
+      );
       final campaignFuture = _orDefault<HomecomingCampaign?>(
         repository.loadActiveHomecomingCampaign().timeout(_initialSyncTimeout),
         state.homecomingCampaign,
@@ -207,6 +199,7 @@ class LockerController extends StateNotifier<LockerState>
         members: await membersFuture,
         announcements: await announcementsFuture,
         operations: await operationsFuture,
+        allOperations: await allOperationsFuture,
         homecomingCampaign: await campaignFuture,
         attendanceRates: await ratesFuture,
         operationExchangeBoard: await exchangeBoardFuture,
@@ -248,10 +241,7 @@ class LockerController extends StateNotifier<LockerState>
           unreadNotifications: state.unreadNotifications + 1,
         );
         unawaited(
-          _notify(
-            'IB 운영 교환 신청이 왔습니다',
-            'PERSONAL의 IB 운영 일정에서 요청을 확인해 주세요.',
-          ),
+          _notify('IB 운영 교환 신청이 왔습니다', 'PERSONAL의 IB 운영 일정에서 요청을 확인해 주세요.'),
         );
         unawaited(refreshOperationSwaps());
       });
@@ -271,10 +261,6 @@ class LockerController extends StateNotifier<LockerState>
       );
     }
   }
-
-  
-
-  
 
   Future<void> _mergeRealtimeAnnouncement(
     SupabaseLockerRepository repository,
@@ -314,7 +300,7 @@ class LockerController extends StateNotifier<LockerState>
     );
   }
 
-  /// 새로 등록된(또는 시간이 바뀐) 내 운영 배정을 목록에 합친다.
+  /// 새로 등록된(또는 시간이 바뀐) 운영 배정을 개인·공용 목록에 합친다.
   /// 서버에서 전체를 다시 읽어 오는 게 가장 단순하고 안전하다.
   Future<void> _mergeRealtimeOperations(
     SupabaseLockerRepository repository,
@@ -324,15 +310,24 @@ class LockerController extends StateNotifier<LockerState>
       repository.loadOperations(),
       const <OperationAssignment>[],
     );
-    state = state.copyWith(operations: operations);
-    final title = record['title'] as String?;
-    await _notifyIfEnabled(
-      NotificationCategory.events,
-      'IB 운영 일정이 등록됐습니다',
-      title == null || title.isEmpty
-          ? '일정 탭에서 배정을 확인해 주세요.'
-          : '$title · 일정 탭에서 확인해 주세요.',
+    final allOperations = await _orDefault(
+      repository.loadAllOperations(),
+      state.allOperations,
     );
+    state = state.copyWith(
+      operations: operations,
+      allOperations: allOperations,
+    );
+    final title = record['title'] as String?;
+    if (record['profile_id'] == Supabase.instance.client.auth.currentUser?.id) {
+      await _notifyIfEnabled(
+        NotificationCategory.events,
+        'IB 운영 일정이 등록됐습니다',
+        title == null || title.isEmpty
+            ? '일정 탭에서 배정을 확인해 주세요.'
+            : '$title · 일정 탭에서 확인해 주세요.',
+      );
+    }
   }
 
   void _applySnapshot(LockerSnapshot snapshot, {required bool isSyncing}) {
@@ -373,41 +368,14 @@ class LockerController extends StateNotifier<LockerState>
     if (state.error != null) state = state.copyWith(clearError: true);
   }
 
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
   void selectGameSegment(int index) =>
       state = state.copyWith(gameSegment: index, gameSubSegment: 0);
   void selectGameSubSegment(int index) =>
       state = state.copyWith(gameSubSegment: index);
-  
+
   void selectMemberSegment(int index) => _selectMemberSegment(index);
 
   Future<void> reload() => _load();
-
-  
-
-  
-
-  
-  
 
   Future<void> _selectMemberSegment(int index) async {
     state = state.copyWith(memberSegment: index);
@@ -424,68 +392,6 @@ class LockerController extends StateNotifier<LockerState>
     }
   }
 
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
   @override
   Future<DateTime> serverNow() async {
     try {
@@ -494,42 +400,6 @@ class LockerController extends StateNotifier<LockerState>
       return DateTime.now();
     }
   }
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
-
-  
 }
 
 List<VideoItem> _seedVideos() {

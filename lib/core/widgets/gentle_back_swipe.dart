@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -58,12 +56,13 @@ class _GentleBackSwipeState extends State<GentleBackSwipe> {
       _distance = 0;
       return;
     }
+    final navigator = Navigator.of(context);
+    if (!navigator.canPop()) return;
+    // pop 완료 콜백에서 사라지는 라우트를 다시 setState하면 마지막 프레임이
+    // 한 번 더 그려져 이전 화면으로 갔다 돌아오는 것처럼 번쩍일 수 있다.
+    // 한 번만 동기적으로 pop하고 이 라우트는 그대로 폐기한다.
     _popping = true;
-    unawaited(
-      Navigator.of(context).maybePop().whenComplete(() {
-        if (mounted) setState(() => _popping = false);
-      }),
-    );
+    navigator.pop();
   }
 
   @override

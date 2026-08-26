@@ -28,12 +28,14 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
       lockerControllerProvider.select(
         (state) => (
           operations: state.operationsState.operations,
+          allOperations: state.operationsState.allOperations,
           swapRequests: state.operationsState.operationSwapRequests,
           exchangeBoard: state.operationsState.operationExchangeBoard,
         ),
       ),
     );
     final operations = operationsState.operations;
+    final allAssignments = _allAssignments ?? operationsState.allOperations;
     final pendingRequests = operationsState.swapRequests
         .where((request) => request.status == 'pending')
         .toList(growable: false);
@@ -125,10 +127,11 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
                     onTap: () => _requestSwap(item),
                   ),
                 ),
-            ..._allAssignmentsSection(
-              canEdit:
-                  ref.watch(authControllerProvider).user?.canAdminister ?? false,
-            ),
+          ..._allAssignmentsSection(
+            assignments: allAssignments,
+            canEdit:
+                ref.watch(authControllerProvider).user?.canAdminister ?? false,
+          ),
         ],
       ),
     );
@@ -136,8 +139,10 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
 
   /// 학기 전체 운영 배정. 모두가 볼 수 있고, 수정은 관리자만 허용된다.
   /// 부원 화면과 같은 목록 위젯을 재사용해 두 화면이 어긋나지 않게 한다.
-  List<Widget> _allAssignmentsSection({required bool canEdit}) {
-    final assignments = _allAssignments;
+  List<Widget> _allAssignmentsSection({
+    required List<OperationAssignment> assignments,
+    required bool canEdit,
+  }) {
     return [
       const SizedBox(height: 28),
       Row(
@@ -173,26 +178,20 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
       Text(
         _timelineView
             ? canEdit
-                ? '학기 전체 운영 흐름을 한눈에 봅니다. 항목을 누르면 수정합니다.'
-                : '학기 전체 운영 흐름을 한눈에 봅니다.'
+                  ? '학기 전체 운영 흐름을 한눈에 봅니다. 항목을 누르면 수정합니다.'
+                  : '학기 전체 운영 흐름을 한눈에 봅니다.'
             : canEdit
             ? '모든 부원의 IB 운영 배정을 확인하고 시간·장소·메모를 바로 수정합니다.'
             : '모든 부원의 IB 운영 배정을 확인할 수 있습니다. 수정은 관리자만 할 수 있어요.',
         style: const TextStyle(color: EncbaColors.muted),
       ),
       const SizedBox(height: 12),
-      if (assignments == null && !_loadingAll)
-        OutlinedButton.icon(
-          onPressed: _loadAllAssignments,
-          icon: const Icon(Icons.visibility_outlined),
-          label: const Text('전체 배정 불러오기'),
-        )
-      else if (_loadingAll)
+      if (_loadingAll)
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 24),
           child: Center(child: CircularProgressIndicator()),
         )
-      else if (assignments!.isEmpty)
+      else if (assignments.isEmpty)
         const _EmptyState(
           icon: Icons.assignment_late_outlined,
           title: '등록된 운영 배정이 없습니다',
@@ -218,16 +217,22 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
   }) {
     final byMonth = <String, List<OperationAssignment>>{};
     for (final item in items) {
-      byMonth.putIfAbsent('${item.start.year}.${item.start.month}', () => []).add(item);
+      byMonth
+          .putIfAbsent('${item.start.year}.${item.start.month}', () => [])
+          .add(item);
     }
     final widgets = <Widget>[];
     for (final entry in byMonth.entries) {
-      widgets.add(Padding(
+      widgets.add(
+        Padding(
           padding: const EdgeInsets.only(top: 10, bottom: 4),
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 3,
+                ),
                 decoration: BoxDecoration(
                   color: EncbaColors.highlight,
                   borderRadius: BorderRadius.circular(999),
@@ -248,7 +253,8 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
               ),
             ],
           ),
-        ));
+        ),
+      );
       for (final item in entry.value) {
         widgets.add(
           InkWell(
@@ -649,10 +655,9 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
                       : '교환 요청을 거절했습니다.'
                 : '교환 응답을 저장하지 못했습니다.',
           ),
-      ),
-    );
+        ),
+      );
   }
-
 }
 
 class AuditLogScreen extends ConsumerStatefulWidget {

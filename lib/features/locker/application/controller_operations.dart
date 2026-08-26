@@ -3,7 +3,7 @@ part of 'locker_controller.dart';
 /// OperationsApi - 컨트롤러를 도메인별로 나눈 조각.
 /// 본체 클래스가 이 믹스인들을 조합해 완성된다.
 mixin OperationsApi on StateNotifier<LockerState>, ControllerCore {
-Future<({int imported, int unmatched})?> importOperations({
+  Future<({int imported, int unmatched})?> importOperations({
     required String fileName,
     required int academicYear,
     required int term,
@@ -20,8 +20,10 @@ Future<({int imported, int unmatched})?> importOperations({
       );
       final operations = await repository.loadOperations();
       final board = await repository.loadOperationExchangeBoard();
+      final allOperations = await repository.loadAllOperations();
       state = state.copyWith(
         operations: operations,
+        allOperations: allOperations,
         operationExchangeBoard: board,
         clearError: true,
       );
@@ -33,7 +35,7 @@ Future<({int imported, int unmatched})?> importOperations({
     }
   }
 
-/// 관리자용: 학기 전체 IB 운영 배정을 읽어 온다.
+  /// 관리자용: 학기 전체 IB 운영 배정을 읽어 온다.
   Future<List<OperationAssignment>> loadAllOperations() async {
     final repository = _repository;
     if (repository == null) return const [];
@@ -43,7 +45,7 @@ Future<({int imported, int unmatched})?> importOperations({
     );
   }
 
-/// 관리자가 전체 운영 배정을 수정한 뒤 내 일정과 교환 게시판을 새로 읽는다.
+  /// 관리자가 전체 운영 배정을 수정한 뒤 내 일정과 교환 게시판을 새로 읽는다.
   Future<bool> updateOperationAssignment({
     required OperationAssignment assignment,
     required DateTime start,
@@ -72,15 +74,17 @@ Future<({int imported, int unmatched})?> importOperations({
     }
   }
 
-Future<void> refreshOperationSwaps() async {
+  Future<void> refreshOperationSwaps() async {
     final repository = _repository;
     if (repository == null) return;
     try {
       final operationsFuture = repository.loadOperations();
+      final allOperationsFuture = repository.loadAllOperations();
       final boardFuture = repository.loadOperationExchangeBoard();
       final requestsFuture = repository.loadOperationSwapRequests();
       state = state.copyWith(
         operations: await operationsFuture,
+        allOperations: await allOperationsFuture,
         operationExchangeBoard: await boardFuture,
         operationSwapRequests: await requestsFuture,
         clearError: true,
@@ -91,7 +95,7 @@ Future<void> refreshOperationSwaps() async {
     }
   }
 
-Future<bool> requestOperationSwap({
+  Future<bool> requestOperationSwap({
     required String ownAssignmentId,
     required String targetAssignmentId,
     required String message,
@@ -113,7 +117,7 @@ Future<bool> requestOperationSwap({
     }
   }
 
-Future<bool> respondOperationSwap({
+  Future<bool> respondOperationSwap({
     required String requestId,
     required bool accept,
   }) async {

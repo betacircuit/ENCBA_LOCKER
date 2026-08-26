@@ -189,10 +189,11 @@ void _showTask(BuildContext context, String text) => showModalBottomSheet<void>(
 /// 실패하면 스낵바로 알린다. (Instagram 릴스처럼 외부 앱으로 나가는 링크가
 /// 팝업 차단 등으로 막히면 이전에는 탭해도 눈에 보이는 반응이 전혀 없었다.)
 Future<void> _launch(BuildContext context, String raw) async {
-  final uri = Uri.tryParse(raw);
+  final uri = _isInstagramReel(raw)
+      ? _normalizedInstagramUri(raw)
+      : Uri.tryParse(raw);
   final opened =
-      uri != null &&
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      uri != null && await launchUrl(uri, mode: LaunchMode.externalApplication);
   if (!opened && context.mounted) {
     ScaffoldMessenger.of(context)
       ..clearSnackBars()

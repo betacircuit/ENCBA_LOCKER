@@ -177,13 +177,26 @@
       var ESTIMATED_TOTAL_BYTES = 18 * 1024 * 1024;
       var seen = {};
       var loadedBytes = 0;
+      var visualPercent = 4;
+      var startedAt = performance.now();
 
       function render() {
         if (!barEl || !percentEl) return;
-        var percent = Math.max(4, Math.min(99, Math.round((loadedBytes / ESTIMATED_TOTAL_BYTES) * 100)));
+        var bytePercent = Math.round((loadedBytes / ESTIMATED_TOTAL_BYTES) * 100);
+        var percent = Math.max(4, Math.min(100, Math.max(bytePercent, visualPercent)));
         barEl.style.width = percent + '%';
         percentEl.textContent = percent + '%';
       }
+
+      // 캐시된 PWA에서는 transferSize가 0이라 실제로는 빠르게 준비 중이어도
+      // 진행률이 4%에 멈춰 보인다. 약 0.9초 동안 시각 진행률을 100%까지
+      // 채우되, Flutter 첫 프레임이 오기 전에는 로딩 화면 자체를 제거하지 않는다.
+      var visualTimer = window.setInterval(function () {
+        var elapsed = performance.now() - startedAt;
+        visualPercent = Math.min(100, 4 + Math.round((elapsed / 900) * 96));
+        render();
+        if (visualPercent >= 100) window.clearInterval(visualTimer);
+      }, 45);
 
       if (window.PerformanceObserver) {
         try {
@@ -204,6 +217,7 @@
       // 첫 프레임이 뜨면 100%로 채우고 초록색으로 바꿔 "다 됐다"는 걸
       // 짧게 보여준 뒤(작은 도파민 보상) 화면을 없앤다.
       window.addEventListener('flutter-first-frame', function () {
+        window.clearInterval(visualTimer);
         if (barEl && percentEl) {
           barEl.style.width = '100%';
           percentEl.textContent = '100%';

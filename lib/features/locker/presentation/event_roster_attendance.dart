@@ -846,7 +846,8 @@ _uniformCardDecoration(LockerEvent event) {
       split: false,
     );
   }
-  if (event.kind == EventKind.homecoming) {
+  if (event.kind == EventKind.homecoming ||
+      event.kind == EventKind.operations) {
     return (
       color: const Color(0xFF9B1C31),
       gradient: null,

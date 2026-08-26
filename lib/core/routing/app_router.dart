@@ -186,15 +186,14 @@ CustomTransitionPage<void> _gentlePage({
       curve: Curves.easeOutCubic,
       reverseCurve: Curves.easeInOutCubic,
     );
-    return FadeTransition(
-      opacity: curved,
-      child: SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(.10, 0),
-          end: Offset.zero,
-        ).animate(curved),
-        child: child,
-      ),
+    // 역방향에서 화면을 동시에 투명하게 만들면 아래 라우트가 너무 일찍
+    // 비쳐 잠깐 되돌아갔다가 다시 오는 것처럼 보인다. 위치 전환만 사용한다.
+    return SlideTransition(
+      position: Tween<Offset>(
+        begin: const Offset(.10, 0),
+        end: Offset.zero,
+      ).animate(curved),
+      child: child,
     );
   },
 );

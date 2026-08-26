@@ -192,15 +192,18 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
     final isReview = widget.category == '복기';
     final isHighlight = widget.category == '하이라이트';
     final links = _collectedLinks();
-    final sourceUrl = isReview
+    final rawSourceUrl = isReview
         ? (sortedVideoLinks(links).firstOrNull?.url ?? '')
         : _url.text.trim();
-    final youtubeId = _youtubeIdFrom(sourceUrl);
-    final isInstagram = isHighlight && _isInstagramReel(sourceUrl);
+    final youtubeId = _youtubeIdFrom(rawSourceUrl);
+    final isInstagram = isHighlight && _isInstagramReel(rawSourceUrl);
     if (youtubeId == null && !isInstagram) {
       setState(() => _saving = false);
       return;
     }
+    final sourceUrl = isInstagram
+        ? (_normalizedInstagramUri(rawSourceUrl)?.toString() ?? rawSourceUrl)
+        : rawSourceUrl;
     if (widget.category == '공유' &&
         (_audienceType == 'position' || _audienceType == 'student_year') &&
         _audienceValues.isEmpty) {
@@ -818,21 +821,26 @@ String? _instagramShortcode(String input) {
   final uri = _normalizedInstagramUri(input);
   if (uri == null) return null;
   final host = uri.host.toLowerCase();
-  if (host != 'instagram.com' && host != 'www.instagram.com') return null;
-  if (uri.pathSegments.length < 2 ||
-      !const {'reel', 'p'}.contains(uri.pathSegments.first)) {
+  if (host != 'instagram.com' &&
+      host != 'www.instagram.com' &&
+      host != 'm.instagram.com') {
     return null;
   }
-  final shortcode = uri.pathSegments[1];
+  final segments = uri.pathSegments.where((part) => part.isNotEmpty).toList();
+  final markerIndex = segments.indexWhere(
+    (part) => const {'reel', 'reels', 'p'}.contains(part.toLowerCase()),
+  );
+  if (markerIndex < 0 || markerIndex + 1 >= segments.length) return null;
+  final shortcode = segments[markerIndex + 1];
   return RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(shortcode) ? shortcode : null;
 }
 
 bool _isInstagramReel(String input) {
   final uri = _normalizedInstagramUri(input);
-  return uri != null &&
-      uri.pathSegments.isNotEmpty &&
-      uri.pathSegments.first == 'reel' &&
-      _instagramShortcode(input) != null;
+  if (uri == null || _instagramShortcode(input) == null) return false;
+  return uri.pathSegments.any(
+    (part) => const {'reel', 'reels'}.contains(part.toLowerCase()),
+  );
 }
 
 bool _canCreateVideoCategory(UserProfile user, String category) {

@@ -41,10 +41,17 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
         .toList();
     final showingHistory =
         _selectedDate != null && _selectedDate!.isBefore(today);
-    final listedEvents = showingHistory ? allEvents : futureEvents;
-    final visible = listedEvents.take(_visibleCount).toList();
+    final listedEvents = showingHistory
+        ? allEvents
+              .where((event) => DateUtils.isSameDay(event.start, _selectedDate))
+              .toList()
+        : futureEvents;
+    final visible = showingHistory
+        ? listedEvents
+        : listedEvents.take(_visibleCount).toList();
     final canRevealMore = visible.length < listedEvents.length;
-    final canLoadMore = canRevealMore || plannerState.hasMore;
+    final canLoadMore =
+        !showingHistory && (canRevealMore || plannerState.hasMore);
 
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
@@ -112,14 +119,14 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
           const SizedBox(height: 20),
           _SectionHeader(
             title: showingHistory
-                ? '과거 포함 일정 ${listedEvents.length}개'
+                ? '${_selectedDate!.month}.${_selectedDate!.day} 일정 ${listedEvents.length}개'
                 : '오늘 이후 일정 ${futureEvents.length}개',
           ),
           const SizedBox(height: 11),
           if (visible.isEmpty)
             _EmptyState(
               icon: Icons.event_available_outlined,
-              title: '예정된 일정이 없습니다',
+              title: showingHistory ? '이 날짜에는 일정이 없습니다' : '예정된 일정이 없습니다',
               action: '다시 불러오기',
               onTap: () => ref.read(lockerControllerProvider.notifier).reload(),
             )
@@ -185,8 +192,11 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
     final today = DateUtils.dateOnly(DateTime.now());
     final events = [...ref.read(lockerControllerProvider).plannerEvents]
       ..sort((a, b) => a.start.compareTo(b.start));
-    final listedEvents = DateUtils.dateOnly(date).isBefore(today)
+    final isPast = DateUtils.dateOnly(date).isBefore(today);
+    final listedEvents = isPast
         ? events
+              .where((event) => DateUtils.isSameDay(event.start, date))
+              .toList()
         : events
               .where(
                 (event) => !DateUtils.dateOnly(event.start).isBefore(today),
@@ -198,7 +208,7 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
     setState(() {
       _selectedDate = DateUtils.dateOnly(date);
       _visibleMonth = DateTime(date.year, date.month);
-      if (targetIndex >= 0) {
+      if (!isPast && targetIndex >= 0) {
         _visibleCount = math.max(_visibleCount, ((targetIndex ~/ 10) + 1) * 10);
       }
     });
@@ -209,7 +219,19 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_scrollToDate(date, targetIndex, listedEvents.length));
+      if (isPast) {
+        if (_scrollController.hasClients) {
+          unawaited(
+            _scrollController.animateTo(
+              0,
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+            ),
+          );
+        }
+      } else {
+        unawaited(_scrollToDate(date, targetIndex, listedEvents.length));
+      }
     });
   }
 
