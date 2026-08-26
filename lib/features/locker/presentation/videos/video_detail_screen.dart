@@ -88,6 +88,7 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
   final _comment = TextEditingController();
   final _commentFocus = FocusNode();
   final Set<String> _commentTargetIds = <String>{};
+  bool _savingComment = false;
 
   /// "@"를 입력하는 중일 때만 채워지는 멤버 자동완성 후보.
   ///
@@ -293,7 +294,8 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
 
   Future<void> _addComment() async {
     final value = _comment.text.trim();
-    if (value.isEmpty) return;
+    if (value.isEmpty || _savingComment) return;
+    setState(() => _savingComment = true);
     final current = ref
         .read(lockerControllerProvider)
         .videos
@@ -303,24 +305,28 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
         .where((member) => _commentTargetIds.contains(member.directoryId))
         .toList(growable: false);
     final selected = _selectedLink;
-    final saved = await ref
-        .read(lockerControllerProvider.notifier)
-        .addVideoComment(
-          videoId: video.id,
-          quarterNumber: selected?.quarterNumber,
-          linkId: selected?.id,
-          timestampSeconds: _commentSeconds.round(),
-          body: value,
-          targetPlayers: targets,
-        );
-    if (mounted && saved) {
-      _comment.clear();
-      _mentionStart = null;
-      _updateMentionMatches(const []);
-      setState(() {
-        _commentTargetIds.clear();
-        _pinnedSeconds = null;
-      });
+    try {
+      final saved = await ref
+          .read(lockerControllerProvider.notifier)
+          .addVideoComment(
+            videoId: video.id,
+            quarterNumber: selected?.quarterNumber,
+            linkId: selected?.id,
+            timestampSeconds: _commentSeconds.round(),
+            body: value,
+            targetPlayers: targets,
+          );
+      if (mounted && saved) {
+        _comment.clear();
+        _mentionStart = null;
+        _updateMentionMatches(const []);
+        setState(() {
+          _commentTargetIds.clear();
+          _pinnedSeconds = null;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _savingComment = false);
     }
   }
 
@@ -343,9 +349,14 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await ref
+    final deleted = await ref
         .read(lockerControllerProvider.notifier)
         .deleteVideoComment(videoId: video.id, commentId: comment.id);
+    if (mounted && deleted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('댓글을 삭제했습니다.')));
+    }
   }
 
   /// 커서 바로 앞의 "@토큰"을 찾아 이름이 일치하는 멤버로 후보를 좁힌다.
@@ -528,34 +539,34 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
             InkWell(
               onTap: () => _launch(context, displayed.url),
               borderRadius: BorderRadius.circular(16),
-              child: AspectRatio(
-                aspectRatio: 16 / 9,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: _VideoThumbnail(video: displayed),
-                    ),
-                    const ColoredBox(color: Color(0x33000000)),
-                    const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.play_circle_fill_rounded,
-                            color: Colors.white,
-                            size: 52,
-                          ),
-                          SizedBox(height: 8),
-                          Text(
-                            'Instagram에서 릴스 보기',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                        ],
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _VideoThumbnail(video: displayed),
+                      const ColoredBox(color: Color(0x33000000)),
+                      const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.play_circle_fill_rounded,
+                              color: Colors.white,
+                              size: 52,
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Instagram에서 릴스 보기',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -692,8 +703,13 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
                 hintText: '이 장면에 대한 코멘트 · "@"로 멤버 언급',
                 suffixIcon: IconButton(
                   tooltip: '코멘트 등록',
-                  onPressed: _addComment,
-                  icon: const Icon(Icons.send_rounded),
+                  onPressed: _savingComment ? null : _addComment,
+                  icon: _savingComment
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_rounded),
                 ),
               ),
             ),
@@ -886,7 +902,10 @@ class _Comment extends StatelessWidget {
           : IconButton(
               tooltip: '댓글 삭제',
               onPressed: onDelete,
-              icon: const Icon(Icons.delete_outline_rounded),
+              icon: const Icon(
+                Icons.delete_outline_rounded,
+                color: EncbaColors.absent,
+              ),
             ),
     ),
   );

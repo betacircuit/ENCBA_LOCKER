@@ -231,16 +231,14 @@ mixin VideosApi on RepoCore {
     required String body,
     List<VideoTaggedMember> targetPlayers = const [],
   }) async {
-    // 값이 없는 컬럼은 아예 보내지 않는다. 릴스(하이라이트)처럼 쿼터·링크가
-    // 없는 댓글에서 명시적 null이 원인일 수 있는 저장 실패를 줄인다.
     final payload = <String, dynamic>{
       'video_id': videoId,
       'profile_id': _userId,
-      'quarter_number': quarterNumber,
-      'link_id': linkId,
       'timestamp_seconds': timestampSeconds,
-      'end_timestamp_seconds': endTimestampSeconds,
       'body': body,
+      'quarter_number': ?quarterNumber,
+      'link_id': ?linkId,
+      'end_timestamp_seconds': ?endTimestampSeconds,
     };
     Future<Map<String, dynamic>> insert(
       Map<String, dynamic> insertPayload,
@@ -281,7 +279,12 @@ mixin VideosApi on RepoCore {
       }
     }
     final saved = _videoCommentFromRow(Map<String, dynamic>.from(row));
-    await _syncCommentTargets(saved.id, targetPlayers);
+    // 하이라이트 댓글은 피드백 대상을 지원하지 않는다. 빈 목록으로도 복기
+    // 전용 RPC를 호출하면 INSERT 뒤에 예외가 발생해 저장 실패처럼 보이고,
+    // 재시도할 때 같은 댓글이 중복 저장된다.
+    if (targetPlayers.isNotEmpty) {
+      await _syncCommentTargets(saved.id, targetPlayers);
+    }
     return VideoCommentItem(
       id: saved.id,
       videoId: saved.videoId,

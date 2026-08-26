@@ -85,6 +85,74 @@ void main() {
     await repository.deleteVideoComment(17);
   });
 
+  test('하이라이트 댓글은 빈 선택 컬럼과 피드백 RPC 없이 한 번만 저장한다', () async {
+    const userId = 'ca71127f-4a64-4d1d-bbab-0d6b830bc2d6';
+    var requestCount = 0;
+    final httpClient = MockClient((request) async {
+      requestCount += 1;
+      expect(request.method, 'POST');
+      expect(request.url.path, '/rest/v1/video_comments');
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(body, {
+        'video_id': 'highlight-1',
+        'profile_id': userId,
+        'timestamp_seconds': 0,
+        'body': '좋아요',
+      });
+      return http.Response(
+        jsonEncode({
+          'id': 18,
+          'video_id': 'highlight-1',
+          'profile_id': userId,
+          'quarter_number': null,
+          'link_id': null,
+          'timestamp_seconds': 0,
+          'end_timestamp_seconds': null,
+          'body': '좋아요',
+          'created_at': '2026-08-26T04:00:00.000Z',
+          'profiles': {'name': '김민수'},
+        }),
+        201,
+        headers: {'content-type': 'application/json'},
+        request: request,
+      );
+    });
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'test-anon-key',
+      httpClient: httpClient,
+    );
+    addTearDown(client.dispose);
+    await client.auth.recoverSession(
+      jsonEncode({
+        'access_token': _testJwt(userId),
+        'token_type': 'bearer',
+        'refresh_token': 'test-refresh-token',
+        'expires_in': 3600,
+        'user': {
+          'id': userId,
+          'aud': 'authenticated',
+          'app_metadata': <String, dynamic>{},
+          'user_metadata': <String, dynamic>{},
+          'created_at': '2026-08-01T00:00:00.000Z',
+        },
+      }),
+    );
+    final repository = SupabaseLockerRepository(client, LocalStore());
+
+    final saved = await repository.addVideoComment(
+      videoId: 'highlight-1',
+      quarterNumber: null,
+      linkId: null,
+      timestampSeconds: 0,
+      body: '좋아요',
+    );
+
+    expect(saved.id, 18);
+    expect(saved.profileId, userId);
+    expect(requestCount, 1);
+  });
+
   test('홈커밍 연락망은 원자적 교체 RPC 한 번으로 전송한다', () async {
     final httpClient = MockClient((request) async {
       expect(request.method, 'POST');
@@ -132,4 +200,13 @@ void main() {
       ],
     );
   });
+}
+
+String _testJwt(String userId) {
+  String encode(Map<String, dynamic> value) =>
+      base64Url.encode(utf8.encode(jsonEncode(value))).replaceAll('=', '');
+
+  return '${encode({'alg': 'HS256', 'typ': 'JWT'})}.'
+      '${encode({'sub': userId, 'aud': 'authenticated', 'exp': 4102444800})}.'
+      'test-signature';
 }
