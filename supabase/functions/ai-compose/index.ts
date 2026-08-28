@@ -23,9 +23,13 @@ const groqEndpoint = 'https://api.groq.com/openai/v1/chat/completions'
 ///
 /// 무료 한도는 붐빌 때 429·5xx를 자주 뱉는다. 한 모델만 붙들고 있으면 그
 /// 시간대에 기능이 통째로 죽으므로, 막히면 다음 모델로 자동으로 내려간다.
+/// "9월 매주 화요일" 같은 반복 요청을 실제로 돌려 보고 정한 순서다.
+/// gpt-oss-120b와 compound-mini는 다섯 번의 화요일을 정확히 펼쳤고,
+/// qwen3.8-27b는 마지막 주를 빠뜨렸다. gpt-oss-20b는 요일을 틀리거나
+/// JSON 생성 자체에 실패해서 뺐다.
 const defaultModels = [
   'openai/gpt-oss-120b',
-  'openai/gpt-oss-20b',
+  'groq/compound-mini',
   'qwen/qwen3.8-27b',
 ]
 
@@ -135,10 +139,22 @@ Deno.serve(async (request) => {
     lastStatus = attempt.status
     lastDetail = await attempt.text().catch(() => '')
     console.error('groq request failed', model, attempt.status, lastDetail)
-    if (!retryableStatuses.has(attempt.status)) break
+    // 스키마를 못 지켜 400이 나는 건 그 모델의 사정이다. 요청은 멀쩡하니
+    // 다음 모델에서는 될 수 있다.
+    const shouldTryNext =
+      retryableStatuses.has(attempt.status) || isJsonGenerationFailure(lastDetail)
+    if (!shouldTryNext) break
   }
 
   if (response === null) {
+    if (isJsonGenerationFailure(lastDetail)) {
+      return json(
+        {
+          error: 'AI가 형식에 맞는 답을 만들지 못했습니다. 요청을 조금 더 또렷하게 적어 주세요.',
+        },
+        502,
+      )
+    }
     if (lastStatus === 429) {
       return json(
         { error: 'AI 무료 사용량을 넘었습니다. 잠시 뒤 다시 시도해 주세요.' },
@@ -406,6 +422,14 @@ async function authenticateAdmin(
     ? profile.leadership_role
     : ''
   return role === 'admin' || role === 'captain' ? user.id : null
+}
+
+/// Groq이 "Failed to generate JSON"으로 돌려보낸 경우인지 본다. 요청이
+/// 잘못된 게 아니라 그 모델이 스키마를 못 지킨 것이라 다음 모델로 넘긴다.
+function isJsonGenerationFailure(detail: string): boolean {
+  if (!detail) return false
+  return detail.includes('json_validate_failed') ||
+    detail.includes('Failed to generate JSON')
 }
 
 /// 한 칸짜리 배열로 감싸 온 본문을 벗겨 낸다.

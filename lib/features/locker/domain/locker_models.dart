@@ -1202,3 +1202,50 @@ DateTime nextCourtReservationOpening(DateTime now) {
   eve: DateTime(opening.year, opening.month, opening.day - 1, 22),
   morning: DateTime(opening.year, opening.month, opening.day, 9),
 );
+
+
+/// 서버에 남은 알림 한 건. 기기별 기록과 달리 관리자가 전체를 볼 수 있다.
+class NotificationLogEntry {
+  const NotificationLogEntry({
+    required this.id,
+    required this.recipientName,
+    required this.category,
+    required this.title,
+    required this.body,
+    required this.createdAt,
+    this.profileId,
+    this.route,
+  });
+
+  final String id;
+
+  /// 받는 사람 이름. 대상이 전체면 '전체'다.
+  final String recipientName;
+  final String? profileId;
+  final String category;
+  final String title;
+  final String body;
+  final String? route;
+  final DateTime createdAt;
+
+  String get categoryLabel => switch (category) {
+    'announcements' => '공지',
+    'events' => '일정',
+    'videos' => '영상',
+    _ => '알림',
+  };
+
+  static NotificationLogEntry fromRow(Map<String, dynamic> row) =>
+      NotificationLogEntry(
+        id: row['id'] as String,
+        profileId: row['profile_id'] as String?,
+        recipientName: row['recipient_name'] as String? ?? '전체',
+        category: row['category'] as String? ?? 'announcements',
+        title: row['title'] as String? ?? '',
+        body: row['body'] as String? ?? '',
+        route: (row['route'] as String?)?.trim().isEmpty ?? true
+            ? null
+            : row['route'] as String,
+        createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
+      );
+}

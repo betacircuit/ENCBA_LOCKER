@@ -182,6 +182,12 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
         ),
         const _ActivationRequestsTile(),
         _MenuTile(
+          icon: Icons.forum_outlined,
+          title: '알림 발송 기록',
+          subtitle: '부원들에게 나간 알림을 모두 확인',
+          onTap: () => _showNotificationLog(context, ref),
+        ),
+        _MenuTile(
           icon: Icons.report_outlined,
           title: '오류 제보함',
           subtitle: '부원들이 보낸 오류 제보를 읽고 처리',
@@ -1585,6 +1591,132 @@ class _ActivationRequestRowState extends ConsumerState<_ActivationRequestRow> {
               ),
             ),
           ],
+        ),
+      ],
+    ),
+  );
+}
+
+
+/// 관리자 전용 알림 발송 기록. 기기마다 따로 쌓이는 개인 알림함과 달리
+/// 서버에 남은 것을 그대로 보여 준다 - "그 알림이 실제로 나갔나"를
+/// 확인할 수 있는 유일한 자리다.
+Future<void> _showNotificationLog(BuildContext context, WidgetRef ref) async {
+  final entriesFuture = ref
+      .read(lockerControllerProvider.notifier)
+      .loadNotificationLog();
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: FractionallySizedBox(
+        heightFactor: .85,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: FutureBuilder<List<NotificationLogEntry>>(
+            future: entriesFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final entries = snapshot.data ?? const <NotificationLogEntry>[];
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '알림 발송 기록',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    entries.isEmpty
+                        ? '아직 서버에 남은 알림이 없습니다.'
+                        : '최근 ${entries.length}건 · 6개월이 지나면 자동으로 지워집니다.',
+                    style: const TextStyle(
+                      color: EncbaColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: entries.isEmpty
+                        ? const Center(
+                            child: Text(
+                              '보낸 알림이 여기에 쌓입니다.',
+                              style: TextStyle(color: EncbaColors.muted),
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: entries.length,
+                            separatorBuilder: (context, index) =>
+                                const Divider(height: 1, color: EncbaColors.line),
+                            itemBuilder: (context, index) =>
+                                _NotificationLogRow(entry: entries[index]),
+                          ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _NotificationLogRow extends StatelessWidget {
+  const _NotificationLogRow({required this.entry});
+
+  final NotificationLogEntry entry;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 11),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: EncbaColors.snuBlue.withValues(alpha: .1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                entry.categoryLabel,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: EncbaColors.snuBlue,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                entry.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+        if (entry.body.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          Text(
+            entry.body,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13),
+          ),
+        ],
+        const SizedBox(height: 5),
+        Text(
+          '받는 사람 ${entry.recipientName} · ${_relativeTime(entry.createdAt)}',
+          style: const TextStyle(color: EncbaColors.muted, fontSize: 12),
         ),
       ],
     ),

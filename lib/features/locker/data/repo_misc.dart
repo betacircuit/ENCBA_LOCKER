@@ -90,6 +90,40 @@ mixin MiscApi on RepoCore {
     return true;
   }
 
+  /// 관리자 전용: 서버에 남은 알림 기록 전체.
+  Future<List<NotificationLogEntry>> loadNotificationLog({
+    int limit = 200,
+  }) async {
+    final rows = await _client.rpc(
+      'list_notification_log',
+      params: {'requested_limit': limit},
+    );
+    return (rows as List<dynamic>)
+        .map(
+          (raw) =>
+              NotificationLogEntry.fromRow(Map<String, dynamic>.from(raw as Map)),
+        )
+        .toList(growable: false);
+  }
+
+  /// 나에게 온 서버 알림. 기기 기록에 없는 것만 합치려고 시각으로 자른다.
+  Future<List<NotificationLogEntry>> loadMyNotifications({
+    DateTime? since,
+  }) async {
+    final rows = await _client.rpc(
+      'list_my_notifications',
+      params: {'requested_since': since?.toUtc().toIso8601String()},
+    );
+    return (rows as List<dynamic>)
+        .map(
+          (raw) => NotificationLogEntry.fromRow({
+            ...Map<String, dynamic>.from(raw as Map),
+            'recipient_name': '나',
+          }),
+        )
+        .toList(growable: false);
+  }
+
   /// 수요 합계. 관리자만 목록을 읽을 수 있다.
   Future<int> loadAppDemandCount() async {
     final rows = await _client.from('app_demand_votes').select('profile_id');

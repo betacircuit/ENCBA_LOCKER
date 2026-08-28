@@ -3,6 +3,16 @@ part of 'locker_controller.dart';
 /// ReportsApi - 컨트롤러를 도메인별로 나눈 조각.
 /// 본체 클래스가 이 믹스인들을 조합해 완성된다.
 mixin ReportsApi on StateNotifier<LockerState>, ControllerCore {
+  /// 관리자 전용: 서버에 남은 알림 기록 전체를 읽는다.
+  Future<List<NotificationLogEntry>> loadNotificationLog() async {
+    final repository = _repository;
+    if (repository == null) return const [];
+    return _orDefault(
+      repository.loadNotificationLog(),
+      const <NotificationLogEntry>[],
+    );
+  }
+
 /// 감사 로그는 감사 화면에서만 필요하므로 진입 시점까지 네트워크 요청을 미룬다.
   Future<void> loadAuditEntries() {
     final inFlight = _auditEntriesLoadInFlight;
