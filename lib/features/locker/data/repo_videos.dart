@@ -224,6 +224,7 @@ mixin VideosApi on RepoCore {
 
   Future<VideoCommentItem> addVideoComment({
     required String videoId,
+    String? videoTitle,
     required int? quarterNumber,
     required int? linkId,
     required int timestampSeconds,
@@ -284,6 +285,20 @@ mixin VideosApi on RepoCore {
     // 저장된다.
     if (targetPlayers.isNotEmpty) {
       await _syncCommentTargets(saved.id, targetPlayers);
+      // 지목된 사람에게 알림을 남긴다. 알림이 실패해도 댓글은 이미
+      // 저장됐으므로 저장 실패로 보고하지 않는다.
+      try {
+        await _client.rpc(
+          'notify_comment_targets',
+          params: {
+            'requested_comment': saved.id,
+            'requested_video_title': videoTitle ?? '',
+            'requested_route': '/videos/${Uri.encodeComponent(videoId)}',
+          },
+        );
+      } on Object catch (error) {
+        debugPrint('ENCBA comment mention notify failed: $error');
+      }
     }
     return VideoCommentItem(
       id: saved.id,

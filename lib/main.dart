@@ -81,11 +81,14 @@ class _RoutedApp extends ConsumerWidget {
         if (child == null) return const SizedBox.shrink();
         // 목록 맨 위에서 아래로 당기면 새로고침한다. 앱 전체를 감싸 두어야
         // 탭 화면과 상세 화면 어디서든 같은 손짓이 통한다.
+        // 당겨서 새로고침은 그대로 두되 화면 가운데 위에 뜨던 동그란
+        // 표시는 감춘다. 진행 상황은 상단의 동기화 띠가 이미 알려 준다.
         final refreshableChild = RefreshIndicator(
           onRefresh: () => ref.read(lockerControllerProvider.notifier).reload(),
-          color: EncbaColors.snuBlue,
-          backgroundColor: Colors.white,
-          displacement: 32,
+          color: Colors.transparent,
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          displacement: 0,
           child: DefaultTextStyle.merge(
             style: const TextStyle(fontFamilyFallback: encbaFontFallback),
             child: child,

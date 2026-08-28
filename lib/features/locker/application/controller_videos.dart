@@ -144,6 +144,7 @@ mixin VideosApi on StateNotifier<LockerState>, ControllerCore {
 
   Future<bool> addVideoComment({
     required String videoId,
+    String? videoTitle,
     required int? quarterNumber,
     required int? linkId,
     required int timestampSeconds,
@@ -154,6 +155,7 @@ mixin VideosApi on StateNotifier<LockerState>, ControllerCore {
     try {
       final saved = await _repository.addVideoComment(
         videoId: videoId,
+        videoTitle: videoTitle,
         quarterNumber: quarterNumber,
         linkId: linkId,
         timestampSeconds: timestampSeconds,
