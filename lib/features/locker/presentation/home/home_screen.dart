@@ -14,9 +14,6 @@ class HomeScreen extends ConsumerWidget {
         ),
       ),
     );
-    final unreadNotifications = ref.watch(
-      lockerControllerProvider.select((state) => state.unreadNotifications),
-    );
     final user = ref.watch(authControllerProvider).user!;
     final events = <LockerEvent>[
       ...homeState.events,
@@ -34,24 +31,7 @@ class HomeScreen extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             const _AppDemandButton(),
-            if (user.canAdminister)
-              IconButton(
-                tooltip: '공지 등록',
-                onPressed: () => _showAnnouncementEditor(context, ref),
-                icon: const Icon(Icons.add_alert_outlined),
-              ),
-            IconButton(
-              tooltip: '알림',
-              onPressed: () {
-                ref.read(lockerControllerProvider.notifier).readNotifications();
-                _showNotifications(context, ref, user: user);
-              },
-              icon: Badge(
-                isLabelVisible: unreadNotifications > 0,
-                label: Text('$unreadNotifications'),
-                child: const Icon(Icons.notifications_none_rounded),
-              ),
-            ),
+            _NotificationBell(user: user),
           ],
         ),
       ),
@@ -93,17 +73,7 @@ class HomeScreen extends ConsumerWidget {
             title: '등록된 공지가 없습니다',
           )
         else
-          ...homeState.announcements
-              .take(5)
-              .map(
-                (notice) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _NoticeCard(
-                    notice: notice,
-                    onTap: () => _openNotice(context, notice.id),
-                  ),
-                ),
-              ),
+          _NoticeList(notices: homeState.announcements.take(5).toList()),
       ],
     );
   }
@@ -1702,4 +1672,121 @@ String? _instagramThumbnailUrl(String sourceUrl) {
   return shortcode == null
       ? null
       : 'https://www.instagram.com/p/$shortcode/media/?size=l';
+}
+
+
+/// 홈의 공지 목록. 읽은 공지를 흐리게 보여 준다.
+///
+/// 읽음 표시는 기기에 남는다. 목록을 그릴 때 한 번 읽어 오고, 공지를 열면
+/// 그 자리에서 갱신해 돌아왔을 때 바로 흐려져 있게 한다.
+class _NoticeList extends StatefulWidget {
+  const _NoticeList({required this.notices});
+
+  final List<AnnouncementItem> notices;
+
+  @override
+  State<_NoticeList> createState() => _NoticeListState();
+}
+
+class _NoticeListState extends State<_NoticeList> {
+  final _store = AnnouncementReadStore();
+  Set<String> _read = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refresh());
+  }
+
+  Future<void> _refresh() async {
+    final read = await _store.load();
+    if (mounted) setState(() => _read = read);
+  }
+
+  Future<void> _open(String id) async {
+    await _store.markRead(id);
+    if (!mounted) return;
+    setState(() => _read = {..._read, id});
+    if (mounted) _openNotice(context, id);
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (final notice in widget.notices)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _NoticeCard(
+            notice: notice,
+            isRead: _read.contains(notice.id),
+            onTap: () => unawaited(_open(notice.id)),
+          ),
+        ),
+    ],
+  );
+}
+
+
+/// 알림 종. 아직 안 읽은 알림 수를 빨간 원 안에 흰 숫자로 얹는다.
+///
+/// 숫자는 메모리 카운터가 아니라 알림 기록의 "안 읽음" 개수에서 온다.
+/// 그래야 앱을 껐다 켜도 남아 있고, 목록에서 점이 붙은 줄 수와 정확히
+/// 같은 숫자가 나온다.
+class _NotificationBell extends ConsumerStatefulWidget {
+  const _NotificationBell({required this.user});
+
+  final UserProfile user;
+
+  @override
+  ConsumerState<_NotificationBell> createState() => _NotificationBellState();
+}
+
+class _NotificationBellState extends ConsumerState<_NotificationBell> {
+  final _history = NotificationHistoryService();
+  int _unread = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refresh());
+  }
+
+  Future<void> _refresh() async {
+    final entries = await _history.load();
+    final unread = entries.where((entry) => !entry.isRead).length;
+    if (mounted && unread != _unread) setState(() => _unread = unread);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 새 알림이 도착하면 컨트롤러의 카운터가 올라간다. 그 변화를 신호로
+    // 삼아 기록을 다시 세고, 배지 숫자는 기록에서만 가져온다.
+    ref.listen<int>(
+      lockerControllerProvider.select((state) => state.unreadNotifications),
+      (previous, next) => unawaited(_refresh()),
+    );
+    return IconButton(
+      tooltip: _unread > 0 ? '알림 $_unread개' : '알림',
+      onPressed: () async {
+        ref.read(lockerControllerProvider.notifier).readNotifications();
+        await _showNotifications(context, ref, user: widget.user);
+        await _refresh();
+      },
+      icon: Badge(
+        isLabelVisible: _unread > 0,
+        backgroundColor: const Color(0xFFE5342A),
+        textColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 5),
+        textStyle: const TextStyle(
+          fontSize: 10,
+          height: 1.2,
+          fontWeight: FontWeight.w900,
+        ),
+        // 세 자리가 되면 원이 길어져 종을 가린다.
+        label: Text(_unread > 99 ? '99+' : '$_unread'),
+        child: const Icon(Icons.notifications_none_rounded),
+      ),
+    );
+  }
 }

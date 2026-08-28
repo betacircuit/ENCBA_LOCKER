@@ -16,6 +16,7 @@ import 'package:encba_locker/features/locker/services/ib_operation_import_servic
 import 'package:encba_locker/features/locker/services/notification_category_prefs.dart';
 import 'package:encba_locker/features/locker/services/calendar_service.dart';
 import 'package:encba_locker/features/locker/services/notification_history_service.dart';
+import 'package:encba_locker/features/locker/services/announcement_read_store.dart';
 import 'package:encba_locker/features/locker/services/attendance_report_service.dart';
 import 'package:encba_locker/features/locker/services/ai_compose_service.dart';
 import 'package:encba_locker/features/locker/services/web_notification_service.dart';

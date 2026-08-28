@@ -82,7 +82,14 @@ class NotificationHistoryService {
   static const _duplicateWindow = Duration(minutes: 5);
 
   Future<List<NotificationHistoryEntry>> load() async {
-    final raw = await _store.getString(_key);
+    // 기기 저장소를 못 쓰는 자리도 있다(시크릿 창, 사이트 데이터 차단,
+    // 위젯 테스트). 기록이 없는 것으로 보고 화면은 그대로 그린다.
+    final String? raw;
+    try {
+      raw = await _store.getString(_key);
+    } on Object {
+      return const [];
+    }
     if (raw == null || raw.isEmpty) return const [];
     List<dynamic> decoded;
     try {
@@ -191,10 +198,16 @@ class NotificationHistoryService {
   Future<void> _write(List<NotificationHistoryEntry> entries) async {
     final sorted = [...entries]
       ..sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
-    await _store.setString(
-      _key,
-      jsonEncode([for (final entry in sorted.take(maxEntries)) entry.toJson()]),
-    );
+    try {
+      await _store.setString(
+        _key,
+        jsonEncode([
+          for (final entry in sorted.take(maxEntries)) entry.toJson(),
+        ]),
+      );
+    } on Object {
+      // 저장하지 못해도 알림 자체는 이미 떴다. 기록만 남지 않는다.
+    }
   }
 
   Future<void> clear() => _store.remove(_key);

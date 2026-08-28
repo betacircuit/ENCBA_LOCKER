@@ -4,6 +4,7 @@ import 'package:encba_locker/features/auth/application/auth_controller.dart';
 import 'package:encba_locker/features/auth/presentation/auth_screen.dart';
 import 'package:encba_locker/features/auth/presentation/edit_profile_screen.dart';
 import 'package:encba_locker/features/locker/presentation/locker_shell.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -199,14 +200,20 @@ final List<RouteBase> lockerRoutes = [
   ),
 ];
 
-Page<void> _gentlePage({required GoRouterState state, required Widget child}) =>
-    MaterialPage<void>(
-      key: state.pageKey,
-      // 전환 방식은 테마의 pageTransitionsTheme 한 곳에서만 정한다.
-      // 웹에서는 뒤로가기 제스처가 없는 전환을 써서 브라우저의 가장자리
-      // 스와이프와 겹치지 않게 한다(한 번 드래그에 두 화면이 넘어가던 문제).
-      child: child,
-    );
+Page<void> _gentlePage({required GoRouterState state, required Widget child}) {
+  // 웹에서는 화면 전환 애니메이션을 아예 쓰지 않는다.
+  //
+  // 브라우저 뒤로가기(가장자리 스와이프)는 히스토리를 먼저 되돌리고, 그
+  // 결과가 라우터로 전달되면서 화면 구성이 다시 맞춰진다. 이 두 단계 사이에
+  // 전환 애니메이션이 끼면 닫히던 화면이 잠깐 다시 그려졌다가 또 닫히는
+  // 것처럼 보인다 - "한 번 드래그했는데 모션이 두 번" 나던 정체가 이것이다.
+  //
+  // 애니메이션이 없으면 중간 상태가 눈에 남지 않아 어떤 순서로 정리되든
+  // 화면은 한 번만 바뀐다. 브라우저가 이미 자기 전환을 그려 주기도 한다.
+  // 네이티브 빌드는 OS 제스처와 전환이 한 몸이라 그대로 둔다.
+  if (kIsWeb) return NoTransitionPage<void>(key: state.pageKey, child: child);
+  return MaterialPage<void>(key: state.pageKey, child: child);
+}
 
 class _RouteNotFoundScreen extends StatelessWidget {
   const _RouteNotFoundScreen();

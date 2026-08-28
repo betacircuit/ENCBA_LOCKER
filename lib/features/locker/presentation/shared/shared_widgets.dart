@@ -77,11 +77,23 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _NoticeCard extends StatelessWidget {
-  const _NoticeCard({required this.notice, required this.onTap});
+  const _NoticeCard({
+    required this.notice,
+    required this.onTap,
+    this.isRead = false,
+  });
   final AnnouncementItem notice;
   final VoidCallback onTap;
+
+  /// 한 번 열어 본 공지. 흐리게 보여 아직 안 읽은 공지가 눈에 띄게 한다.
+  final bool isRead;
   @override
-  Widget build(BuildContext context) => Card(
+  Widget build(BuildContext context) => Opacity(
+    opacity: isRead ? .45 : 1,
+    child: _card(context),
+  );
+
+  Widget _card(BuildContext context) => Card(
     child: ListTile(
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),

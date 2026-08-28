@@ -110,18 +110,20 @@ class AppTheme {
       textTheme: text,
       pageTransitionsTheme: kIsWeb
           ? const PageTransitionsTheme(
-              // 웹에서는 Flutter가 스스로 뒤로가기 제스처를 달면 안 된다.
-              // 브라우저의 가장자리 스와이프가 이미 히스토리를 되돌리는데
-              // Cupertino/Predictive 전환이 같은 손짓으로 라우트를 한 번 더
-              // 팝해서, 한 번 드래그하면 두 화면이 넘어갔다. 제스처가 없는
-              // 전환만 써서 브라우저에게 뒤로가기를 온전히 맡긴다.
+              // 웹에서는 화면 전환을 그리지 않는다.
+              //
+              // 브라우저 뒤로가기는 히스토리를 먼저 되돌리고 그 결과가
+              // 라우터로 전달된다. 그 사이에 전환 애니메이션이 끼면 닫히던
+              // 화면이 잠깐 되살아났다가 다시 닫히는 것처럼 보인다. 한 번
+              // 드래그했는데 모션이 두 번 나던 정체가 이것이다. 애니메이션이
+              // 없으면 중간 상태가 눈에 남지 않는다.
               builders: {
-                TargetPlatform.android: _WebSlidePageTransitionsBuilder(),
-                TargetPlatform.fuchsia: _WebSlidePageTransitionsBuilder(),
-                TargetPlatform.iOS: _WebSlidePageTransitionsBuilder(),
-                TargetPlatform.linux: _WebSlidePageTransitionsBuilder(),
-                TargetPlatform.macOS: _WebSlidePageTransitionsBuilder(),
-                TargetPlatform.windows: _WebSlidePageTransitionsBuilder(),
+                TargetPlatform.android: _InstantPageTransitionsBuilder(),
+                TargetPlatform.fuchsia: _InstantPageTransitionsBuilder(),
+                TargetPlatform.iOS: _InstantPageTransitionsBuilder(),
+                TargetPlatform.linux: _InstantPageTransitionsBuilder(),
+                TargetPlatform.macOS: _InstantPageTransitionsBuilder(),
+                TargetPlatform.windows: _InstantPageTransitionsBuilder(),
               },
             )
           : const PageTransitionsTheme(
@@ -261,10 +263,13 @@ class AppTheme {
 }
 
 
-/// 뒤로가기 제스처가 없는 가로 슬라이드 전환. 모양은 iOS 전환과 비슷하지만
-/// 가장자리 드래그를 가로채지 않아 웹에서 브라우저 뒤로가기와 겹치지 않는다.
-class _WebSlidePageTransitionsBuilder extends PageTransitionsBuilder {
-  const _WebSlidePageTransitionsBuilder();
+/// 전환을 그리지 않는 빌더. 웹에서만 쓴다.
+///
+/// 뒤로가기 제스처도, 슬라이드도 없다. 브라우저가 히스토리를 되돌리는
+/// 동안 Flutter가 따로 애니메이션을 그리면 두 움직임이 겹쳐 보이므로,
+/// 웹에서는 화면을 즉시 갈아 끼우고 전환은 브라우저에 맡긴다.
+class _InstantPageTransitionsBuilder extends PageTransitionsBuilder {
+  const _InstantPageTransitionsBuilder();
 
   @override
   Widget buildTransitions<T>(
@@ -273,20 +278,5 @@ class _WebSlidePageTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> animation,
     Animation<double> secondaryAnimation,
     Widget child,
-  ) {
-    const curve = Curves.easeOutCubic;
-    return SlideTransition(
-      position: Tween<Offset>(
-        begin: const Offset(1, 0),
-        end: Offset.zero,
-      ).animate(CurvedAnimation(parent: animation, curve: curve)),
-      child: SlideTransition(
-        position: Tween<Offset>(
-          begin: Offset.zero,
-          end: const Offset(-.22, 0),
-        ).animate(CurvedAnimation(parent: secondaryAnimation, curve: curve)),
-        child: child,
-      ),
-    );
-  }
+  ) => child;
 }
