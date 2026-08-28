@@ -79,6 +79,8 @@ class LockerEvent {
     this.starterNames = const [],
     this.mapReference,
     this.obParticipantCount = 0,
+    this.obParticipantsUnknown = false,
+    this.audienceProfileIds = const [],
     this.cancelledAt,
     this.cancellationReason,
   });
@@ -108,6 +110,12 @@ class LockerEvent {
   final List<String> starterNames;
   final String? mapReference;
   final int obParticipantCount;
+
+  /// OB가 오긴 하는데 몇 명인지 모를 때. 인원 0(=안 옴)과 구분한다.
+  final bool obParticipantsUnknown;
+
+  /// 공개 대상이 '직접 선택'일 때 이 일정을 볼 사람들.
+  final List<String> audienceProfileIds;
   final DateTime? cancelledAt;
   final String? cancellationReason;
 
@@ -117,8 +125,14 @@ class LockerEvent {
   String get fullPlace =>
       court == null || court!.isEmpty ? place : '$place · $court';
 
-  Duration get responseBuffer =>
-      kind.isMatch ? const Duration(hours: 3) : const Duration(hours: 1);
+  /// 응답 마감 기본값. 유형과 무관하게 일정 시작 2시간 전이다.
+  static const defaultResponseBuffer = Duration(hours: 2);
+
+  Duration get responseBuffer => defaultResponseBuffer;
+
+  /// OB 참여 여부. 인원을 밝히지 않아도 참여로 센다.
+  bool get hasObParticipants =>
+      obParticipantsUnknown || obParticipantCount > 0;
 
   DateTime get responseDeadline =>
       responseDeadlineOverride ?? start.subtract(responseBuffer);
@@ -158,6 +172,8 @@ class LockerEvent {
     starterNames: starterNames ?? this.starterNames,
     mapReference: mapReference ?? this.mapReference,
     obParticipantCount: obParticipantCount ?? this.obParticipantCount,
+    obParticipantsUnknown: obParticipantsUnknown,
+    audienceProfileIds: audienceProfileIds,
     cancelledAt: cancelledAt ?? this.cancelledAt,
     cancellationReason: cancellationReason ?? this.cancellationReason,
   );
@@ -391,6 +407,7 @@ class AnnouncementItem {
     this.pollOptions = const [],
     this.pollQuestion = '',
     this.pollVotes = const {},
+    this.pollOptionLimits = const [],
     this.myPollOption,
   });
   final String id;
@@ -409,7 +426,22 @@ class AnnouncementItem {
   /// 둔다. 투표가 없으면 빈 문자열이다.
   final String pollQuestion;
   final Map<int, int> pollVotes;
+
+  /// 항목별 정원. [pollOptions]와 같은 길이이고 0이면 제한 없음.
+  /// 비어 있으면 어떤 항목에도 제한이 없다는 뜻이다.
+  final List<int> pollOptionLimits;
   final int? myPollOption;
+
+  /// [index] 항목의 정원. 0이면 제한 없음.
+  int limitFor(int index) =>
+      index >= 0 && index < pollOptionLimits.length ? pollOptionLimits[index] : 0;
+
+  /// [index] 항목이 정원까지 찼는지. 내가 이미 고른 항목은 찼다고 보지 않는다.
+  bool isOptionFull(int index) {
+    final limit = limitFor(index);
+    if (limit <= 0 || myPollOption == index) return false;
+    return (pollVotes[index] ?? 0) >= limit;
+  }
 
   AnnouncementItem copyWith({
     String? imageUrl,
@@ -417,6 +449,7 @@ class AnnouncementItem {
     List<String>? pollOptions,
     String? pollQuestion,
     Map<int, int>? pollVotes,
+    List<int>? pollOptionLimits,
     int? myPollOption,
     bool clearMyPollOption = false,
   }) => AnnouncementItem(
@@ -432,6 +465,7 @@ class AnnouncementItem {
     pollOptions: pollOptions ?? this.pollOptions,
     pollQuestion: pollQuestion ?? this.pollQuestion,
     pollVotes: pollVotes ?? this.pollVotes,
+    pollOptionLimits: pollOptionLimits ?? this.pollOptionLimits,
     myPollOption: clearMyPollOption ? null : myPollOption ?? this.myPollOption,
   );
 }

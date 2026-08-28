@@ -262,6 +262,10 @@ mixin EventsApi on RepoCore {
       'memo': event.memo,
       'capacity': event.capacity,
       'ob_participant_count': event.obParticipantCount,
+      'ob_participants_unknown': event.obParticipantsUnknown,
+      'audience_profile_ids': event.targetTeam == '직접 선택'
+          ? event.audienceProfileIds
+          : const <String>[],
       'response_enabled': event.responseEnabled,
       'response_deadline': event.responseDeadline.toUtc().toIso8601String(),
       'recurrence_rule': event.isRecurring
@@ -341,6 +345,21 @@ mixin EventsApi on RepoCore {
 
   Future<void> deleteEvent(String id) async {
     await _client.from('events').delete().eq('id', id);
+  }
+
+  /// 취소를 되돌린다. 관리자가 잘못 눌렀거나 일정이 되살아났을 때 쓴다.
+  Future<LockerEvent> restoreEvent(String id) async {
+    final row = await _client
+        .from('events')
+        .update({
+          'cancelled_at': null,
+          'cancellation_reason': null,
+          'updated_by': _userId,
+        })
+        .eq('id', id)
+        .select(_eventSelection)
+        .single();
+    return _eventFromRow(Map<String, dynamic>.from(row));
   }
 
   Future<LockerEvent> cancelEvent(String id, String reason) async {
@@ -464,6 +483,9 @@ mixin EventsApi on RepoCore {
           .toList(),
       capacity: _databaseInt(row['capacity']),
       obParticipantCount: _databaseInt(row['ob_participant_count']) ?? 0,
+      obParticipantsUnknown: row['ob_participants_unknown'] as bool? ?? false,
+      audienceProfileIds:
+          (row['audience_profile_ids'] as List?)?.cast<String>() ?? const [],
       attending: _databaseInt(row['attending_count']) ?? 0,
       targetTeam: row['target_team'] as String? ?? '전체',
       createdBy: creator?['name'] as String? ?? '운영진',

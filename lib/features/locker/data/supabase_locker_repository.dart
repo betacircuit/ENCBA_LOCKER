@@ -18,7 +18,7 @@ const int videoPageSize = 30;
 const _initialReadTimeout = Duration(seconds: 6);
 const _announcementSelection =
     'id,title,body,pinned,is_urgent,published_at,image_url,poll_options,'
-    'poll_question,'
+    'poll_question,poll_option_limits,'
     'profiles!announcements_created_by_fkey(name,display_name),'
     'announcement_event_links(event_id),'
     'announcement_poll_votes(profile_id,option_index)';
@@ -29,7 +29,7 @@ const _legacyAnnouncementSelection =
 const _eventSelection =
     'id,title,starts_at,ends_at,place_label,court,kind,memo,'
     'uniform_colors,capacity,attending_count,target_team,updated_at,'
-    'ob_participant_count,'
+    'ob_participant_count,ob_participants_unknown,audience_profile_ids,'
     'recurrence_rule,response_enabled,response_deadline,poll_options,'
     'visibility,opponent,opponents,map_reference,cancelled_at,cancellation_reason,'
     'places(name),profiles!events_created_by_fkey(name)';

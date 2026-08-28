@@ -40,6 +40,7 @@ mixin ContentApi on RepoCore {
     String? imageName,
     List<String> pollOptions = const [],
     String pollQuestion = '',
+    List<int> pollOptionLimits = const [],
   }) async {
     String? uploadedPath;
     String? imageUrl;
@@ -56,6 +57,7 @@ mixin ContentApi on RepoCore {
       'image_url': imageUrl,
       'poll_options': pollOptions,
       'poll_question': pollQuestion,
+      'poll_option_limits': pollOptionLimits,
       'created_by': _userId,
       'updated_by': _userId,
     };
@@ -74,7 +76,8 @@ mixin ContentApi on RepoCore {
                 ..remove('is_urgent')
                 ..remove('image_url')
                 ..remove('poll_options')
-                ..remove('poll_question'),
+                ..remove('poll_question')
+                ..remove('poll_option_limits'),
             )
             .select(_legacyAnnouncementSelection)
             .single(),
@@ -115,6 +118,7 @@ mixin ContentApi on RepoCore {
     bool removeImage = false,
     List<String> pollOptions = const [],
     String pollQuestion = '',
+    List<int> pollOptionLimits = const [],
   }) async {
     String? uploadedPath;
     var imageUrl = removeImage ? null : existingImageUrl;
@@ -131,6 +135,7 @@ mixin ContentApi on RepoCore {
       'image_url': imageUrl,
       'poll_options': pollOptions,
       'poll_question': pollQuestion,
+      'poll_option_limits': pollOptionLimits,
       'updated_by': _userId,
     };
     final Map<String, dynamic> row;
@@ -149,7 +154,8 @@ mixin ContentApi on RepoCore {
                 ..remove('is_urgent')
                 ..remove('image_url')
                 ..remove('poll_options')
-                ..remove('poll_question'),
+                ..remove('poll_question')
+                ..remove('poll_option_limits'),
             )
             .eq('id', id)
             .select(_legacyAnnouncementSelection)
@@ -244,6 +250,11 @@ mixin ContentApi on RepoCore {
       pollOptions: (row['poll_options'] as List?)?.cast<String>() ?? const [],
       pollQuestion: row['poll_question'] as String? ?? '',
       pollVotes: counts,
+      pollOptionLimits:
+          (row['poll_option_limits'] as List?)
+              ?.map((value) => (value as num).toInt())
+              .toList(growable: false) ??
+          const [],
       myPollOption: myPollOption,
     );
   }
@@ -323,13 +334,16 @@ mixin ContentApi on RepoCore {
     if (imageUrl != null) await _tryRemoveAnnouncementImage(imageUrl);
   }
 
+  /// 정원이 있는 항목은 서버가 최종 판정해야 두 사람이 동시에 눌러도
+  /// 정원을 넘기지 않는다. 그래서 직접 upsert하지 않고 RPC를 부른다.
   Future<void> voteAnnouncement(String announcementId, int optionIndex) =>
-      _client.from('announcement_poll_votes').upsert({
-        'announcement_id': announcementId,
-        'profile_id': _userId,
-        'option_index': optionIndex,
-        'voted_at': DateTime.now().toUtc().toIso8601String(),
-      });
+      _client.rpc(
+        'vote_announcement_poll',
+        params: {
+          'requested_announcement': announcementId,
+          'requested_option': optionIndex,
+        },
+      );
 
   /// 공지 투표 항목별로 "누가" 골랐는지 개별 응답자를 읽는다. 집계 카운트만
   /// 담는 `_announcementSelection`과 달리 투표 현황 화면 전용으로 필요할

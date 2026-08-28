@@ -281,6 +281,25 @@ mixin EventsApi on StateNotifier<LockerState>, ControllerCore {
     }
   }
 
+  /// 취소된 일정을 되살린다.
+  Future<bool> restoreEvent(String id) async {
+    try {
+      final saved = await _repository?.restoreEvent(id);
+      if (saved == null) return false;
+      state = state.copyWith(
+        events: state.events
+            .map((event) => event.id == id ? saved : event)
+            .toList(growable: false),
+        clearError: true,
+      );
+      return true;
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA event restore failed: $error''\n''$stackTrace');
+      state = state.copyWith(error: '일정 취소를 되돌리지 못했습니다.');
+      return false;
+    }
+  }
+
   Future<bool> cancelEvent(String id, String reason) async {
     try {
       final saved = await _repository?.cancelEvent(id, reason);

@@ -5,8 +5,8 @@
 // 두고, 앱(브라우저)에는 절대 내려보내지 않는다.
 //
 // 필요한 환경변수
-//   OPENROUTER_API_KEY - openrouter.ai에서 발급한 키
-//   OPENROUTER_MODEL   - (선택) 기본값 z-ai/glm-5.2:free
+//   GEMINI_API_KEY - Google AI Studio(aistudio.google.com/apikey)에서 발급한 키
+//   GEMINI_MODEL   - (선택) 기본값 gemini-3.7-flash (무료 티어 중 성능이 가장 높다)
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY - 호출자 권한 확인용
 
 const corsHeaders = {
@@ -15,8 +15,10 @@ const corsHeaders = {
     'authorization, apikey, content-type, x-client-info',
 }
 
-const openRouterEndpoint = 'https://openrouter.ai/api/v1/chat/completions'
-const defaultModel = 'z-ai/glm-5.2:free'
+// Gemini Interactions API. 예전 generateContent 대신 이 엔드포인트를 쓴다.
+const geminiEndpoint =
+  'https://generativelanguage.googleapis.com/v1beta/interactions'
+const defaultModel = 'gemini-3.7-flash'
 const maxPromptLength = 2000
 const maxEvents = 60
 
@@ -32,7 +34,7 @@ Deno.serve(async (request) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-  const apiKey = Deno.env.get('OPENROUTER_API_KEY')
+  const apiKey = Deno.env.get('GEMINI_API_KEY')
   if (!supabaseUrl || !serviceRoleKey) {
     return json({ error: '서버 설정이 완료되지 않았습니다.' }, 503)
   }
@@ -66,58 +68,48 @@ Deno.serve(async (request) => {
   const schema = kind === 'events' ? eventSchema() : announcementSchema()
 
   const body = {
-    model: Deno.env.get('OPENROUTER_MODEL') ?? defaultModel,
-    max_tokens: 16000,
-    // 무료 모델은 response_format을 무시하기도 한다. 시스템 프롬프트에도
-    // 스키마를 그대로 적어 두고, 아래 parseJsonPayload가 코드펜스와 앞뒤
-    // 군더더기를 걷어내며 방어적으로 읽는다.
+    model: Deno.env.get('GEMINI_MODEL') ?? defaultModel,
+    system_instruction: [
+      kind === 'events' ? eventSystemPrompt() : announcementSystemPrompt(),
+      '',
+      '스키마를 정확히 따르는 JSON 객체 하나만 출력합니다.',
+      '설명, 인사말, 코드펜스는 붙이지 않습니다.',
+    ].join('\n'),
+    input: [
+      `오늘은 ${todayInKorea()} (한국 시간) 입니다.`,
+      `참고 정보: ${JSON.stringify(context)}`,
+      '',
+      '요청:',
+      prompt,
+    ].join('\n'),
+    // 스키마를 강제해도 드물게 군더더기가 섞여 오므로 parseJsonPayload가
+    // 앞뒤를 걷어내며 방어적으로 읽는다.
     response_format: {
-      type: 'json_schema',
-      json_schema: { name: 'encba_fill', strict: true, schema },
+      type: 'text',
+      mime_type: 'application/json',
+      schema,
     },
-    messages: [
-      {
-        role: 'system',
-        content: [
-          kind === 'events' ? eventSystemPrompt() : announcementSystemPrompt(),
-          '',
-          '아래 JSON 스키마를 정확히 따르는 JSON 객체 하나만 출력합니다.',
-          '설명, 인사말, 코드펜스(```)를 붙이지 않습니다.',
-          JSON.stringify(schema),
-        ].join('\n'),
-      },
-      {
-        role: 'user',
-        content: [
-          `오늘은 ${todayInKorea()} (한국 시간) 입니다.`,
-          `참고 정보: ${JSON.stringify(context)}`,
-          '',
-          '요청:',
-          prompt,
-        ].join('\n'),
-      },
-    ],
+    generation_config: { max_output_tokens: 16000 },
+    // 대화를 서버에 남길 이유가 없다. 한 번 부르고 끝난다.
+    store: false,
   }
 
-  const response = await fetch(openRouterEndpoint, {
+  const response = await fetch(geminiEndpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-      // OpenRouter 순위 페이지에 앱을 식별시키는 선택 헤더.
-      'HTTP-Referer': 'https://encba-locker.vercel.app',
-      'X-Title': 'ENCBA LOCKER',
+      'x-goog-api-key': apiKey,
     },
     body: JSON.stringify(body),
   })
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
-    console.error('openrouter request failed', response.status, detail)
+    console.error('gemini request failed', response.status, detail)
     return json(
       {
         error: response.status === 429
-          ? 'AI 요청이 몰려 있습니다. 잠시 뒤 다시 시도해 주세요.'
+          ? 'AI 무료 사용량을 넘었습니다. 잠시 뒤 다시 시도해 주세요.'
           : 'AI가 응답하지 못했습니다. 잠시 뒤 다시 시도해 주세요.',
       },
       502,
@@ -128,9 +120,9 @@ Deno.serve(async (request) => {
   if (!isRecord(completion)) {
     return json({ error: 'AI 응답을 이해하지 못했습니다.' }, 502)
   }
-  // OpenRouter는 상류 오류도 200에 error 필드로 실어 보낼 때가 있다.
-  if (isRecord(completion.error)) {
-    console.error('openrouter upstream error', completion.error)
+  // 실패한 상호작용도 HTTP 200으로 온다. status를 먼저 본다.
+  if (completion.status === 'failed') {
+    console.error('gemini interaction failed', completion.error)
     return json({ error: 'AI가 응답하지 못했습니다. 잠시 뒤 다시 시도해 주세요.' }, 502)
   }
 
@@ -182,7 +174,6 @@ function announcementSystemPrompt(): string {
 function eventSchema(): JsonRecord {
   return {
     type: 'object',
-    additionalProperties: false,
     required: ['events', 'questions', 'summary'],
     properties: {
       summary: { type: 'string', description: '무엇을 만들었는지 한 문장 요약' },
@@ -190,8 +181,7 @@ function eventSchema(): JsonRecord {
         type: 'array',
         items: {
           type: 'object',
-          additionalProperties: false,
-          required: ['kind', 'title', 'start', 'end', 'place', 'targetTeam', 'memo'],
+                required: ['kind', 'title', 'start', 'end', 'place', 'targetTeam', 'memo'],
           properties: {
             kind: {
               type: 'string',
@@ -223,8 +213,7 @@ function eventSchema(): JsonRecord {
         type: 'array',
         items: {
           type: 'object',
-          additionalProperties: false,
-          required: ['field', 'question'],
+                required: ['field', 'question'],
           properties: {
             field: {
               type: 'string',
@@ -241,7 +230,6 @@ function eventSchema(): JsonRecord {
 function announcementSchema(): JsonRecord {
   return {
     type: 'object',
-    additionalProperties: false,
     required: ['title', 'body', 'pinned', 'poll', 'questions', 'summary'],
     properties: {
       summary: { type: 'string' },
@@ -250,8 +238,7 @@ function announcementSchema(): JsonRecord {
       pinned: { type: 'boolean' },
       poll: {
         type: 'object',
-        additionalProperties: false,
-        required: ['question', 'options'],
+            required: ['question', 'options'],
         properties: {
           question: { type: 'string' },
           options: { type: 'array', items: { type: 'string' } },
@@ -261,8 +248,7 @@ function announcementSchema(): JsonRecord {
         type: 'array',
         items: {
           type: 'object',
-          additionalProperties: false,
-          required: ['field', 'question'],
+                required: ['field', 'question'],
           properties: {
             field: {
               type: 'string',
@@ -276,25 +262,28 @@ function announcementSchema(): JsonRecord {
   }
 }
 
-/// OpenAI 호환 응답에서 첫 번째 답변 본문을 꺼낸다. 추론 모델은 사고 과정을
-/// content가 아닌 reasoning 필드에 따로 담으므로 content만 읽으면 된다.
+/// Interactions API 응답에서 모델이 쓴 본문을 꺼낸다. 답은 steps 배열의
+/// model_output 안에 텍스트 블록으로 들어 있고 여러 조각으로 쪼개져 올 수
+/// 있어 이어 붙인다. 사고 과정 블록은 type이 text가 아니라 자연히 걸러진다.
 function firstMessageText(completion: JsonRecord): string | null {
-  const choices = completion.choices
-  if (!Array.isArray(choices) || !isRecord(choices[0])) return null
-  const message = choices[0].message
-  if (!isRecord(message)) return null
-  const content = message.content
-  if (typeof content === 'string' && content.trim().length > 0) return content
-  // 일부 제공자는 content를 블록 배열로 준다.
-  if (Array.isArray(content)) {
-    const joined = content
-      .map((block) =>
-        isRecord(block) && typeof block.text === 'string' ? block.text : '',
-      )
-      .join('')
-    return joined.trim().length > 0 ? joined : null
+  const steps = completion.steps
+  if (!Array.isArray(steps)) return null
+  let joined = ''
+  for (const step of steps) {
+    if (!isRecord(step) || step.type !== 'model_output') continue
+    const content = step.content
+    if (!Array.isArray(content)) continue
+    for (const block of content) {
+      if (
+        isRecord(block) &&
+        block.type === 'text' &&
+        typeof block.text === 'string'
+      ) {
+        joined += block.text
+      }
+    }
   }
-  return null
+  return joined.trim().length > 0 ? joined : null
 }
 
 /// 코드펜스나 앞뒤 설명이 섞여 와도 JSON 객체만 골라 읽는다.

@@ -30,6 +30,7 @@ Future<bool> addAnnouncement({
     String? imageName,
     List<String> pollOptions = const [],
     String pollQuestion = '',
+    List<int> pollOptionLimits = const [],
   }) async {
     try {
       final saved = await _repository?.addAnnouncement(
@@ -42,6 +43,7 @@ Future<bool> addAnnouncement({
         imageName: imageName,
         pollOptions: pollOptions,
         pollQuestion: pollQuestion,
+        pollOptionLimits: pollOptionLimits,
       );
       if (saved != null) {
         // Realtime 구독이 같은 INSERT를 이 응답보다 먼저 받아 이미 추가해
@@ -77,6 +79,7 @@ Future<bool> updateAnnouncement({
     bool removeImage = false,
     List<String> pollOptions = const [],
     String pollQuestion = '',
+    List<int> pollOptionLimits = const [],
   }) async {
     try {
       final saved = await _repository?.updateAnnouncement(
@@ -92,6 +95,7 @@ Future<bool> updateAnnouncement({
         removeImage: removeImage,
         pollOptions: pollOptions,
         pollQuestion: pollQuestion,
+        pollOptionLimits: pollOptionLimits,
       );
       if (saved == null) return false;
       state = state.copyWith(

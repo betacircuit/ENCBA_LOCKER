@@ -4,20 +4,28 @@ part of '../locker_shell.dart';
 /// 항목만 골라 되물은 뒤 결과를 돌려준다. 되묻는 항목은 비워 둔 채
 /// 넘어갈 수 있다 - 그때는 기존 기본값이 그대로 쓰인다.
 ///
-/// Anthropic API 키는 `ai-compose` 엣지 함수의 환경변수에만 있고 앱에는
-/// 내려오지 않는다.
+/// API 키는 `ai-compose` 엣지 함수의 환경변수에만 있고 앱에는 내려오지 않는다.
 
-const _aiEventPromptExamples = [
-  '이번 학기 동안 매주 화요일 20시부터 22시까지 71동 종합체육관에서 정기훈련',
-  '다음 달 첫째 주 토요일 오전 8시 아침 농구',
-  '11월 15일 스티즈와 연습경기, 종합체육관 13시',
-];
+/// 화면 오른쪽 위에 앉는 파란 "AI로 채우기" 버튼.
+class _AiFillButton extends StatelessWidget {
+  const _AiFillButton({required this.onPressed});
 
-const _aiAnnouncementPromptExamples = [
-  '이번 주 정기훈련 장소가 신체육관으로 바뀐다는 공지',
-  '엠티 참석 여부를 투표로 받는 공지',
-  '기말고사 기간 훈련 휴식 안내',
-];
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => FilledButton(
+    onPressed: onPressed,
+    style: FilledButton.styleFrom(
+      backgroundColor: EncbaColors.snuBlue,
+      foregroundColor: Colors.white,
+      minimumSize: const Size(0, 36),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+    ),
+    child: const Text('✨ AI로 채우기'),
+  );
+}
 
 Future<List<AiEventDraft>?> showAiEventComposer(
   BuildContext context, {
@@ -47,53 +55,31 @@ Future<AiAnnouncementDraft?> showAiAnnouncementComposer(BuildContext context) =>
       ),
     );
 
-/// 프롬프트 입력 칸과 예시. 두 시트가 같은 모양을 쓴다.
+/// 프롬프트 입력 칸. 두 시트가 같은 모양을 쓴다.
 class _AiPromptField extends StatelessWidget {
   const _AiPromptField({
     required this.controller,
-    required this.examples,
     required this.hintText,
     required this.enabled,
   });
 
   final TextEditingController controller;
-  final List<String> examples;
   final String hintText;
   final bool enabled;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      TextField(
-        controller: controller,
-        enabled: enabled,
-        minLines: 3,
-        maxLines: 6,
-        maxLength: 2000,
-        keyboardType: TextInputType.multiline,
-        decoration: InputDecoration(
-          labelText: '무엇을 채울까요?',
-          alignLabelWithHint: true,
-          hintText: hintText,
-        ),
-      ),
-      const SizedBox(height: 4),
-      Wrap(
-        spacing: 7,
-        runSpacing: 7,
-        children: [
-          for (final example in examples)
-            ActionChip(
-              label: Text(
-                example.length > 22 ? '${example.substring(0, 22)}…' : example,
-                style: const TextStyle(fontSize: 12),
-              ),
-              onPressed: enabled ? () => controller.text = example : null,
-            ),
-        ],
-      ),
-    ],
+  Widget build(BuildContext context) => TextField(
+    controller: controller,
+    enabled: enabled,
+    minLines: 3,
+    maxLines: 6,
+    maxLength: 2000,
+    keyboardType: TextInputType.multiline,
+    decoration: InputDecoration(
+      labelText: '무엇을 채울까요?',
+      alignLabelWithHint: true,
+      hintText: hintText,
+    ),
   );
 }
 
@@ -205,26 +191,24 @@ class _AiEventComposerSheetState extends State<_AiEventComposerSheet> {
           children: [
             Row(
               children: [
-                const Icon(Icons.auto_awesome_rounded, color: EncbaColors.snuBlue),
+                const Text('✨', style: TextStyle(fontSize: 20)),
                 const SizedBox(width: 8),
                 Text('AI로 일정 채우기', style: Theme.of(context).textTheme.titleLarge),
               ],
             ),
             const SizedBox(height: 6),
             const Text(
-              '"이번 학기 동안 매주 …"처럼 적으면 기간 전체를 펼쳐서 만들어 줍니다. '
-              '만든 뒤에도 하나씩 확인하고 지울 수 있습니다.',
+              '대충 편하게 말씀해주세요~',
               style: TextStyle(
                 color: EncbaColors.muted,
-                fontSize: 12,
+                fontSize: 13,
                 height: 1.5,
               ),
             ),
             const SizedBox(height: 14),
             _AiPromptField(
               controller: _prompt,
-              examples: _aiEventPromptExamples,
-              hintText: '예: 이번 학기 동안 매주 화요일 20–22시 종합체육관 정기훈련',
+              hintText: '이번 학기 동안 매주 화요일 8시부터 10시까지 종합체육관에서 훈련이요',
               enabled: !_busy,
             ),
             if (_error case final String message) _AiErrorText(message: message),
@@ -498,10 +482,7 @@ class _AiAnnouncementComposerSheetState
           children: [
             Row(
               children: [
-                const Icon(
-                  Icons.auto_awesome_rounded,
-                  color: EncbaColors.snuBlue,
-                ),
+                const Text('✨', style: TextStyle(fontSize: 20)),
                 const SizedBox(width: 8),
                 Text(
                   'AI로 공지 채우기',
@@ -511,19 +492,17 @@ class _AiAnnouncementComposerSheetState
             ),
             const SizedBox(height: 6),
             const Text(
-              '무엇을 알리고 싶은지만 적으면 제목·내용·투표까지 채워 줍니다. '
-              '채운 뒤에도 그대로 고칠 수 있습니다.',
+              '대충 편하게 말씀해주세요~',
               style: TextStyle(
                 color: EncbaColors.muted,
-                fontSize: 12,
+                fontSize: 13,
                 height: 1.5,
               ),
             ),
             const SizedBox(height: 14),
             _AiPromptField(
               controller: _prompt,
-              examples: _aiAnnouncementPromptExamples,
-              hintText: '예: 이번 주 정기훈련 장소가 신체육관으로 바뀐다는 공지',
+              hintText: '이번 주 훈련 장소가 신체육관으로 바뀌었다고 알려주세요',
               enabled: !_busy,
             ),
             if (_error case final String message) _AiErrorText(message: message),

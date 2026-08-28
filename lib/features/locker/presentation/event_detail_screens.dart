@@ -112,9 +112,10 @@ class _EventDetailViewState extends ConsumerState<_EventDetailView> {
       appBar: AppBar(
         title: const Text('일정 상세'),
         actions: [
-          if (isAdmin &&
-              event.kind != EventKind.operations &&
-              !event.isCancelled)
+          // 취소된 일정도 관리자는 고칠 수 있어야 한다. 날짜만 바뀌어
+          // 다시 열리는 경우가 잦은데, 그때마다 새로 만들면 그때까지 받은
+          // 참석 응답이 통째로 사라진다.
+          if (isAdmin && event.kind != EventKind.operations)
             IconButton(
               tooltip: '일정 수정',
               onPressed: () => context.push(

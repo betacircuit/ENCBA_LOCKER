@@ -42,10 +42,18 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
   late double _capacity;
   late bool _hasObParticipants;
   late int _obParticipantCount;
+
+  /// OB가 오긴 하는데 몇 명인지 밝히지 않을 때.
+  late bool _obCountUnknown;
   late EventKind _kind;
   late String _place;
-  late String _court;
+
+  /// 종합체육관은 A·B 코트를 함께 쓸 수 있어 여러 개를 고른다.
+  late Set<String> _courts;
   late String _team;
+
+  /// 공개 대상이 '직접 선택'일 때 이 일정을 볼 사람들.
+  late Set<String> _audienceIds;
   late Set<String> _uniforms;
   late List<String> _pollOptions;
   final _pollOption = TextEditingController();
@@ -53,7 +61,6 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
   late DateTime _start;
   late DateTime _end;
   late int _ibGameNumber;
-  late bool _preciseMinutes;
   late bool _responseEnabled;
   late Set<String> _starterIds;
   late DateTime _responseDeadline;
@@ -62,6 +69,12 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
 
   static const _places = ['71동 종합체육관', '71-1동 신체육관', '900동 기숙사체육관'];
   static const _customPlaceOption = '직접 입력';
+  static const _courtOptions = ['A코트', 'B코트'];
+  static const _audienceDirect = '직접 선택';
+  static const _teamOptions = ['전체', 'ENCBA', 'BEN', '신입생', _audienceDirect];
+
+  /// 투표에서 뺄 수 없는 항목. 참석·불참은 어떤 일정에나 있어야 한다.
+  static const _fixedPollOptions = ['참석', '불참'];
   static const _editableKinds = [
     EventKind.training,
     EventKind.morning,
@@ -106,50 +119,49 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
     _mapReference = TextEditingController(text: existing?.mapReference ?? '');
     _hasCapacity = existing?.capacity != null;
     _capacity = (existing?.capacity ?? 20).clamp(2, 60).toDouble();
-    _hasObParticipants = (existing?.obParticipantCount ?? 0) > 0;
+    _hasObParticipants = existing?.hasObParticipants ?? false;
+    _obCountUnknown = existing?.obParticipantsUnknown ?? false;
     _obParticipantCount = (existing?.obParticipantCount ?? 1).clamp(1, 30);
     _kind = existing?.kind ?? EventKind.training;
     _place = existing?.place.trim().isNotEmpty == true
         ? (knownPlace ? existing!.place : _customPlaceOption)
         : _places.first;
-    _court = existing?.court ?? 'A코트';
+    _courts =
+        (existing?.court ?? '')
+            .split('·')
+            .map((value) => value.trim())
+            .where(_courtOptions.contains)
+            .toSet();
+    if (_courts.isEmpty) _courts = {'A코트'};
     _team = switch (existing?.targetTeam) {
       'ENCBA 1부' => 'ENCBA',
       'ENCBA 2부' => 'BEN',
       final value? => value,
       _ => '전체',
     };
+    _audienceIds = existing?.audienceProfileIds.toSet() ?? <String>{};
     _uniforms = existing?.uniformColors.toSet() ?? <String>{};
-    _pollOptions = [
-      ...existing?.pollOptions ?? const ['참석', '불참', '미정'],
-    ];
-    _visibility = existing?.visibility ?? 'team';
-    final suggestedStart = DateTime.now().add(
-      const Duration(days: 1, hours: 1),
+    _pollOptions = _withFixedPollOptions(
+      existing?.pollOptions ?? const ['참석', '불참', '미정'],
     );
+    _visibility = existing?.visibility ?? 'team';
+    // 새 일정의 기본값은 내일 13:00:00~15:00:00이다. 대부분의 훈련이
+    // 이 시간대라 손댈 일이 적고, 휠을 굴려 바로 바꿀 수 있다.
+    final tomorrow = DateTime.now().add(const Duration(days: 1));
     _start =
         existing?.start ??
-        DateTime(
-          suggestedStart.year,
-          suggestedStart.month,
-          suggestedStart.day,
-          suggestedStart.hour,
-        );
-    _end = existing?.end ?? _start.add(const Duration(hours: 2));
+        DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 13);
+    _end =
+        existing?.end ??
+        DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 15);
     _deadlineCustomized = existing?.responseDeadlineOverride != null;
     _ibGameNumber = _inferIbGameNumber(_start);
     if (_isIbKind(_kind)) _applyIbGameSlot(_ibGameNumber);
-    _preciseMinutes =
-        _isIbKind(_kind) ||
-        (existing != null &&
-            (existing.start.minute != 0 || existing.end.minute != 0));
     _responseEnabled = true;
     _starterIds = existing?.starterProfileIds.toSet() ?? <String>{};
     _responseDeadline =
         existing?.responseDeadline ??
-        _start.subtract(
-          _kind.isMatch ? const Duration(hours: 3) : const Duration(hours: 1),
-        );
+        _start.subtract(LockerEvent.defaultResponseBuffer);
   }
 
   @override
@@ -188,12 +200,10 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
             // 새 일정을 만들 때만 연다. 이미 있는 일정을 AI가 통째로
             // 덮어쓰면 무엇이 바뀌었는지 알기 어렵다.
             if (!editing)
-              IconButton(
-                tooltip: 'AI로 채우기',
-                onPressed: _saving ? null : _composeWithAi,
-                icon: const Icon(
-                  Icons.auto_awesome_rounded,
-                  color: EncbaColors.snuBlue,
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: _AiFillButton(
+                  onPressed: _saving ? null : _composeWithAi,
                 ),
               ),
           ],
@@ -233,9 +243,7 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                       }
                       if (!_deadlineCustomized) {
                         _responseDeadline = _start.subtract(
-                          _kind.isMatch
-                              ? const Duration(hours: 3)
-                              : const Duration(hours: 1),
+                          LockerEvent.defaultResponseBuffer,
                         );
                       }
                       if (_kind != EventKind.training &&
@@ -256,20 +264,6 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  DropdownButtonFormField<String>(
-                    initialValue: _team,
-                    isExpanded: true,
-                    decoration: const InputDecoration(labelText: '공개 대상 *'),
-                    items: const ['전체', 'ENCBA', 'BEN', '신입생']
-                        .map(
-                          (value) => DropdownMenuItem(
-                            value: value,
-                            child: Text(value),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) => _team = value!,
-                  ),
                   if (_kind == EventKind.scrimmage ||
                       _kind == EventKind.threeWay) ...[
                     const SizedBox(height: 18),
@@ -322,7 +316,7 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                     decoration: const InputDecoration(labelText: '공지 메모'),
                   ),
                   const SizedBox(height: 24),
-                  const _FormSectionTitle('시간과 장소'),
+                  const _FormSectionTitle('시간'),
                   const SizedBox(height: 12),
                   if (_isIbKind(_kind))
                     DropdownButtonFormField<int>(
@@ -348,42 +342,8 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                       }),
                     )
                   else
-                    SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment(value: false, label: Text('정각')),
-                        ButtonSegment(value: true, label: Text('분 설정')),
-                      ],
-                      selected: {_preciseMinutes},
-                      showSelectedIcon: false,
-                      onSelectionChanged: (selection) {
-                        final precise = selection.first;
-                        setState(() {
-                          _preciseMinutes = precise;
-                          if (!precise) {
-                            _start = DateTime(
-                              _start.year,
-                              _start.month,
-                              _start.day,
-                              _start.hour,
-                            );
-                            _end = DateTime(
-                              _end.year,
-                              _end.month,
-                              _end.day,
-                              _end.hour,
-                            );
-                            if (!_deadlineCustomized) {
-                              _responseDeadline = _start.subtract(
-                                _kind.isMatch
-                                    ? const Duration(hours: 3)
-                                    : const Duration(hours: 1),
-                              );
-                            }
-                          }
-                        });
-                      },
-                    ),
-                  const SizedBox(height: 10),
+                    const SizedBox.shrink(),
+                  if (!_isIbKind(_kind)) const SizedBox(height: 10),
                   SizedBox(
                     width: double.infinity,
                     child: _DateTimeButton(
@@ -401,8 +361,7 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                           child: _DateTimeButton(
                             label: '시작',
                             value: _start,
-                            showMinutes: _preciseMinutes,
-                            timeOnly: true,
+                            secondsOnly: true,
                             onTap: () => _pickEventTime(true),
                           ),
                         ),
@@ -411,8 +370,7 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                           child: _DateTimeButton(
                             label: '종료',
                             value: _end,
-                            showMinutes: _preciseMinutes,
-                            timeOnly: true,
+                            secondsOnly: true,
                             onTap: () => _pickEventTime(false),
                           ),
                         ),
@@ -430,6 +388,8 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                       onChanged: (ids) => setState(() => _starterIds = ids),
                     ),
                   ],
+                  const SizedBox(height: 24),
+                  const _FormSectionTitle('장소'),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     initialValue: _place,
@@ -470,16 +430,19 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                   ],
                   if (_place == _places.first) ...[
                     const SizedBox(height: 12),
+                    // 종합체육관은 두 코트를 함께 빌리는 날이 많아 중복 선택을
+                    // 허용한다. 최소 한 곳은 골라야 한다.
                     SegmentedButton<String>(
                       segments: const [
                         ButtonSegment(value: 'A코트', label: Text('A코트')),
                         ButtonSegment(value: 'B코트', label: Text('B코트')),
-                        ButtonSegment(value: '전체', label: Text('전체')),
                       ],
-                      selected: {_court},
+                      selected: _courts,
+                      multiSelectionEnabled: true,
+                      emptySelectionAllowed: false,
                       showSelectedIcon: false,
                       onSelectionChanged: (value) =>
-                          setState(() => _court = value.first),
+                          setState(() => _courts = value),
                     ),
                   ],
                   const SizedBox(height: 24),
@@ -496,8 +459,11 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                   _ObParticipantSelector(
                     enabled: _hasObParticipants,
                     count: _obParticipantCount,
+                    countUnknown: _obCountUnknown,
                     onEnabledChanged: (value) =>
                         setState(() => _hasObParticipants = value),
+                    onCountUnknownChanged: (value) =>
+                        setState(() => _obCountUnknown = value),
                     onChanged: (value) =>
                         setState(() => _obParticipantCount = value),
                   ),
@@ -518,23 +484,40 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                       }),
                     ),
                   ],
-                  const SizedBox(height: 18),
-                  const Text('투표 항목 *'),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 24),
+                  const _FormSectionTitle('참석 투표'),
+                  const SizedBox(height: 6),
+                  Text(
+                    _hasCapacity
+                        ? '인원 제한 ${_capacity.round()}명은 참석 항목에만 적용됩니다.'
+                        : '참석·불참은 항상 들어갑니다. 필요하면 항목을 더 추가하세요.',
+                    style: const TextStyle(
+                      color: EncbaColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   Wrap(
                     spacing: 7,
                     runSpacing: 7,
-                    children: _pollOptions
-                        .map(
-                          (option) => InputChip(
-                            label: Text(option),
-                            avatar: const Icon(Icons.edit_outlined, size: 15),
-                            onPressed: () => _editPollOption(option),
-                            onDeleted: () =>
-                                setState(() => _pollOptions.remove(option)),
-                          ),
-                        )
-                        .toList(),
+                    children: _pollOptions.map((option) {
+                      final fixed = _fixedPollOptions.contains(option);
+                      return InputChip(
+                        label: Text(
+                          fixed && option == '참석' && _hasCapacity
+                              ? '참석 (${_capacity.round()}명)'
+                              : option,
+                        ),
+                        avatar: Icon(
+                          fixed ? Icons.lock_outline_rounded : Icons.edit_outlined,
+                          size: 15,
+                        ),
+                        onPressed: fixed ? null : () => _editPollOption(option),
+                        onDeleted: fixed
+                            ? null
+                            : () => setState(() => _pollOptions.remove(option)),
+                      );
+                    }).toList(),
                   ),
                   const SizedBox(height: 8),
                   Row(
@@ -562,6 +545,11 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 14),
+                  _PollPreview(
+                    options: _pollOptions,
+                    attendanceLimit: _hasCapacity ? _capacity.round() : 0,
+                  ),
                   if (_kind == EventKind.external) ...[
                     const SizedBox(height: 12),
                     SwitchListTile.adaptive(
@@ -587,9 +575,7 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                         child: Text(
                           _deadlineCustomized
                               ? '직접 정한 마감 시간입니다.'
-                              : _kind.isMatch
-                              ? '기본값 · 경기 시작 3시간 전'
-                              : '기본값 · 일정 시작 1시간 전',
+                              : '기본값 · 일정 시작 2시간 전',
                           style: const TextStyle(
                             color: EncbaColors.muted,
                             fontSize: 12,
@@ -601,15 +587,42 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                           onPressed: () => setState(() {
                             _deadlineCustomized = false;
                             _responseDeadline = _start.subtract(
-                              _kind.isMatch
-                                  ? const Duration(hours: 3)
-                                  : const Duration(hours: 1),
+                              LockerEvent.defaultResponseBuffer,
                             );
                           }),
                           child: const Text('기본값'),
                         ),
                     ],
                   ),
+                  const SizedBox(height: 24),
+                  const _FormSectionTitle('공개 대상'),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _team,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: '공개 대상 *'),
+                    items: _teamOptions
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => setState(() => _team = value!),
+                  ),
+                  if (_team == _audienceDirect) ...[
+                    const SizedBox(height: 10),
+                    _AudiencePicker(
+                      members: ref.watch(
+                        lockerControllerProvider.select(
+                          (state) => state.membersState.members,
+                        ),
+                      ),
+                      selectedIds: _audienceIds,
+                      onChanged: (ids) => setState(() => _audienceIds = ids),
+                    ),
+                  ],
                   const SizedBox(height: 22),
                   FilledButton(
                     onPressed: _saving ? null : _save,
@@ -624,10 +637,12 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                   if (editing) ...[
                     const SizedBox(height: 10),
                     if (widget.existing!.isCancelled)
-                      const Text(
-                        '이미 취소된 일정입니다.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: EncbaColors.muted),
+                      // 취소된 일정도 내용은 고칠 수 있다. 여기서는 취소
+                      // 자체를 되돌린다.
+                      OutlinedButton.icon(
+                        onPressed: _saving ? null : _restoreEvent,
+                        icon: const Icon(Icons.undo_rounded, size: 18),
+                        label: const Text('취소한 일정 되살리기'),
                       )
                     else
                       TextButton(
@@ -682,6 +697,16 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
     );
   }
 
+  /// 저장할 코트 문자열. 두 코트를 다 고르면 "A코트 · B코트"로 붙인다.
+  String get _courtLabel =>
+      (_courtOptions.where(_courts.contains).toList()).join(' · ');
+
+  /// 참석·불참을 항상 앞에 두고 나머지를 뒤에 붙인다.
+  List<String> _withFixedPollOptions(List<String> options) => [
+    ..._fixedPollOptions,
+    ...options.where((option) => !_fixedPollOptions.contains(option)),
+  ];
+
   String get _uniformSelection {
     if (_uniforms.contains('검정') && _uniforms.contains('흰색')) return '모두';
     if (_uniforms.contains('흰색')) return '흰';
@@ -727,9 +752,8 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
       slot.endHour,
       slot.endMinute,
     );
-    _preciseMinutes = true;
     if (!_deadlineCustomized) {
-      _responseDeadline = _start.subtract(const Duration(hours: 3));
+      _responseDeadline = _start.subtract(LockerEvent.defaultResponseBuffer);
     }
   }
 
@@ -775,35 +799,30 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
       if (!_end.isAfter(_start)) _end = _start.add(const Duration(hours: 2));
       if (!_deadlineCustomized) {
         _responseDeadline = _start.subtract(
-          _kind.isMatch ? const Duration(hours: 3) : const Duration(hours: 1),
+          LockerEvent.defaultResponseBuffer,
         );
       }
     });
   }
 
+  /// 시작·종료 시각은 iOS 타이머처럼 시·분·초 휠을 굴려 고른다.
   Future<void> _pickEventTime(bool start) async {
     final current = start ? _start : _end;
-    final pickedTime = _preciseMinutes
-        ? await showTimePicker(
-            context: context,
-            initialTime: TimeOfDay.fromDateTime(current),
-          )
-        : await _pickHourOnly(current.hour);
-    if (!mounted || pickedTime == null) return;
-    final value = DateTime(
-      _start.year,
-      _start.month,
-      _start.day,
-      pickedTime.hour,
-      _preciseMinutes ? pickedTime.minute : 0,
+    final picked = await showTimeWheelPicker(
+      context: context,
+      title: start ? '시작 시각' : '종료 시각',
+      helperText: '시·분·초를 각각 드래그해서 맞춰 주세요.',
+      initial: WheelTime.fromDateTime(current),
     );
+    if (!mounted || picked == null) return;
+    final value = picked.onDate(_start);
     setState(() {
       if (start) {
         _start = value;
-        if (_end.isBefore(value)) _end = value.add(const Duration(hours: 2));
+        if (!_end.isAfter(value)) _end = value.add(const Duration(hours: 2));
         if (!_deadlineCustomized) {
           _responseDeadline = value.subtract(
-            _kind.isMatch ? const Duration(hours: 3) : const Duration(hours: 1),
+            LockerEvent.defaultResponseBuffer,
           );
         }
       } else {
@@ -820,18 +839,14 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
       lastDate: _start,
     );
     if (!mounted || date == null) return;
-    final pickedTime = await showTimePicker(
+    final picked = await showTimeWheelPicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(_responseDeadline),
+      title: '투표 마감 시각',
+      helperText: '시·분·초를 각각 드래그해서 맞춰 주세요.',
+      initial: WheelTime.fromDateTime(_responseDeadline),
     );
-    if (!mounted || pickedTime == null) return;
-    final value = DateTime(
-      date.year,
-      date.month,
-      date.day,
-      pickedTime.hour,
-      pickedTime.minute,
-    );
+    if (!mounted || picked == null) return;
+    final value = picked.onDate(date);
     if (value.isAfter(_start)) {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
@@ -907,8 +922,6 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
     _team = draft.targetTeam;
     _start = draft.start;
     _end = draft.end;
-    _preciseMinutes =
-        _isIbKind(_kind) || draft.start.minute != 0 || draft.end.minute != 0;
     if (_places.contains(draft.place)) {
       _place = draft.place;
     } else if (draft.place.isNotEmpty) {
@@ -1006,11 +1019,47 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
       updatedAt: '방금 전',
       responseEnabled: true,
       responseDeadlineOverride: draft.start.subtract(
-        draft.kind.isMatch ? const Duration(hours: 3) : const Duration(hours: 1),
+        LockerEvent.defaultResponseBuffer,
       ),
       pollOptions: const ['참석', '불참', '미정'],
       visibility: 'team',
     );
+  }
+
+  /// 취소를 되돌린다. 응답 기록은 그대로 남아 있어 되살리면 이어서 쓴다.
+  Future<void> _restoreEvent() async {
+    final existing = widget.existing;
+    if (existing == null || _saving) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('취소를 되돌릴까요?'),
+        content: const Text('부원들에게 다시 정상 일정으로 보이고, 참석 응답도 이어서 받습니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('그대로 두기'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('되살리기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _saving = true);
+    final ok = await ref
+        .read(lockerControllerProvider.notifier)
+        .restoreEvent(existing.id);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(content: Text(ok ? '일정을 되살렸습니다.' : '되살리지 못했습니다.')),
+      );
+    if (ok && mounted) Navigator.pop(context, true);
   }
 
   Future<void> _save() async {
@@ -1041,6 +1090,14 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
         );
       return;
     }
+    if (_team == _audienceDirect && _audienceIds.isEmpty) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(content: Text('공개 대상을 직접 선택하려면 부원을 한 명 이상 골라 주세요.')),
+        );
+      return;
+    }
     if (_responseEnabled && _pollOptions.length < 2) {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
@@ -1060,7 +1117,7 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
       start: _start,
       end: _end,
       place: _place == _customPlaceOption ? _customPlace.text.trim() : _place,
-      court: _place == _places.first ? _court : null,
+      court: _place == _places.first ? _courtLabel : null,
       kind: _kind,
       memo: _memo.text.trim(),
       uniformColors: _uniforms.toList(),
@@ -1097,7 +1154,13 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                 ? null
                 : _mapReference.text.trim())
           : null,
-      obParticipantCount: _hasObParticipants ? _obParticipantCount : 0,
+      obParticipantCount: _hasObParticipants && !_obCountUnknown
+          ? _obParticipantCount
+          : 0,
+      obParticipantsUnknown: _hasObParticipants && _obCountUnknown,
+      audienceProfileIds: _team == _audienceDirect
+          ? _audienceIds.toList()
+          : const [],
     );
     final saved = await ref
         .read(lockerControllerProvider.notifier)
@@ -1124,68 +1187,6 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
           ),
         );
     }
-  }
-
-  Future<TimeOfDay?> _pickHourOnly(int initialHour) async {
-    return showModalBottomSheet<TimeOfDay>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '시간 선택',
-                style: TextStyle(
-                  fontFamily: 'Jua',
-                  fontSize: 24,
-                  color: EncbaColors.navy,
-                ),
-              ),
-              const SizedBox(height: 12),
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 6,
-                  mainAxisSpacing: 7,
-                  crossAxisSpacing: 7,
-                  childAspectRatio: 1.25,
-                ),
-                itemCount: 24,
-                itemBuilder: (context, hour) => InkWell(
-                  borderRadius: BorderRadius.circular(11),
-                  onTap: () =>
-                      Navigator.pop(context, TimeOfDay(hour: hour, minute: 0)),
-                  child: Ink(
-                    decoration: BoxDecoration(
-                      color: hour == initialHour
-                          ? EncbaColors.navy
-                          : const Color(0xFFF1F4F8),
-                      borderRadius: BorderRadius.circular(11),
-                    ),
-                    child: Center(
-                      child: Text(
-                        hour.toString().padLeft(2, '0'),
-                        style: TextStyle(
-                          color: hour == initialHour
-                              ? Colors.white
-                              : EncbaColors.ink,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   Future<void> _cancelEvent() async {
@@ -1543,13 +1544,19 @@ class _ObParticipantSelector extends StatelessWidget {
   const _ObParticipantSelector({
     required this.enabled,
     required this.count,
+    required this.countUnknown,
     required this.onEnabledChanged,
+    required this.onCountUnknownChanged,
     required this.onChanged,
   });
 
   final bool enabled;
   final int count;
+
+  /// OB가 오긴 하는데 몇 명인지 밝히지 않을 때.
+  final bool countUnknown;
   final ValueChanged<bool> onEnabledChanged;
+  final ValueChanged<bool> onCountUnknownChanged;
   final ValueChanged<int> onChanged;
 
   @override
@@ -1560,37 +1567,56 @@ class _ObParticipantSelector extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
     ),
     clipBehavior: Clip.antiAlias,
-    child: Column(
-      children: [
-        SwitchListTile.adaptive(
-          value: enabled,
-          title: const Text('OB 참여'),
-          onChanged: onEnabledChanged,
-        ),
-        if (enabled)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-            child: Column(
-              children: [
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    '$count명',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                Slider(
-                  value: count.clamp(1, 15).toDouble(),
-                  min: 1,
-                  max: 15,
-                  divisions: 14,
-                  label: '$count명',
-                  onChanged: (value) => onChanged(value.round()),
-                ),
-              ],
+    child: Padding(
+      // 인원 제한 카드와 같은 여백을 써서 두 스위치가 같은 세로선에 선다.
+      padding: const EdgeInsets.fromLTRB(14, 4, 10, 12),
+      child: Column(
+        children: [
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: enabled,
+            title: const Text('OB 참여'),
+            subtitle: Text(
+              !enabled
+                  ? '참여 없음'
+                  : countUnknown
+                  ? '참여 · 인원 미정'
+                  : '$count명 참여',
             ),
+            onChanged: onEnabledChanged,
           ),
-      ],
+          if (enabled) ...[
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: countUnknown,
+              title: const Text('인원은 알리지 않기'),
+              subtitle: const Text('몇 명 오는지 모를 때 켜 주세요.'),
+              onChanged: onCountUnknownChanged,
+            ),
+            if (!countUnknown)
+              Row(
+                children: [
+                  const SizedBox(width: 24, child: Text('1')),
+                  Expanded(
+                    child: Slider(
+                      value: count.clamp(1, 15).toDouble(),
+                      min: 1,
+                      max: 15,
+                      divisions: 14,
+                      label: '$count명',
+                      onChanged: (value) => onChanged(value.round()),
+                    ),
+                  ),
+                  const SizedBox(
+                    width: 30,
+                    child: Text('15', textAlign: TextAlign.right),
+                  ),
+                ],
+              ),
+          ],
+        ],
+      ),
     ),
   );
 }
@@ -1600,16 +1626,16 @@ class _DateTimeButton extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onTap,
-    this.showMinutes = true,
     this.dateOnly = false,
-    this.timeOnly = false,
+    this.secondsOnly = false,
   });
   final String label;
   final DateTime value;
   final VoidCallback onTap;
-  final bool showMinutes;
   final bool dateOnly;
-  final bool timeOnly;
+
+  /// 시·분·초를 모두 보여 준다. 휠로 고른 값을 그대로 확인할 수 있다.
+  final bool secondsOnly;
 
   @override
   Widget build(BuildContext context) => OutlinedButton(
@@ -1627,15 +1653,11 @@ class _DateTimeButton extends StatelessWidget {
         ),
         const SizedBox(height: 3),
         Text(
-          dateOnly
+          secondsOnly
+              ? DateFormat('HH:mm:ss').format(value)
+              : dateOnly
               ? '${DateFormat('yyyy. M. d.').format(value)} (${weekday(value)})'
-              : timeOnly
-              ? (showMinutes
-                    ? DateFormat('HH:mm').format(value)
-                    : '${value.hour}시')
-              : showMinutes
-              ? DateFormat('M.d  HH:mm').format(value)
-              : '${DateFormat('M.d').format(value)}  ${value.hour}시',
+              : DateFormat('M.d  HH:mm').format(value),
         ),
       ],
     ),
@@ -1694,6 +1716,345 @@ class _MetaLine extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(7, 5, 10, 5),
           child: content,
+        ),
+      ),
+    );
+  }
+}
+
+/// 투표가 부원 화면에서 어떻게 보이는지 미리 그려 준다. 등록하기 전에
+/// 항목 이름과 정원이 말이 되는지 눈으로 확인할 수 있다.
+class _PollPreview extends StatelessWidget {
+  const _PollPreview({required this.options, required this.attendanceLimit});
+
+  final List<String> options;
+
+  /// 참석 항목에만 걸리는 정원. 0이면 제한 없음.
+  final int attendanceLimit;
+
+  Color _colorFor(String option) => switch (option) {
+    '참석' => EncbaColors.attending,
+    '불참' => EncbaColors.absent,
+    '지각' => EncbaColors.late,
+    '미정' => EncbaColors.undecided,
+    _ => EncbaColors.deepBlue,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    // 눈대중용 가짜 숫자. 실제 응답이 아니라 "이렇게 보인다"는 예시다.
+    final sample = <String, int>{
+      for (final (index, option) in options.indexed)
+        option: switch (index) {
+          0 => 7,
+          1 => 3,
+          2 => 2,
+          _ => 1,
+        },
+    };
+    final total = sample.values.fold(0, (sum, value) => sum + value);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: EncbaColors.highlight,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: EncbaColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.how_to_vote_outlined,
+                size: 16,
+                color: EncbaColors.snuBlue,
+              ),
+              const SizedBox(width: 6),
+              const Text(
+                '이렇게 보입니다',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+              ),
+              const Spacer(),
+              Text(
+                '예시',
+                style: TextStyle(
+                  color: EncbaColors.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // 부원이 누르는 버튼 줄.
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final option in options)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: option == '참석'
+                        ? _colorFor(option)
+                        : _colorFor(option).withValues(alpha: .09),
+                    borderRadius: BorderRadius.circular(11),
+                    border: Border.all(
+                      color: _colorFor(option).withValues(alpha: .35),
+                    ),
+                  ),
+                  child: Text(
+                    option,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: option == '참석'
+                          ? Colors.white
+                          : _colorFor(option),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // 집계 표.
+          for (final option in options) ...[
+            Row(
+              children: [
+                SizedBox(
+                  width: 46,
+                  child: Text(
+                    option,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(99),
+                    child: LinearProgressIndicator(
+                      value: total == 0 ? 0 : (sample[option] ?? 0) / total,
+                      minHeight: 7,
+                      color: _colorFor(option),
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 52,
+                  child: Text(
+                    option == '참석' && attendanceLimit > 0
+                        ? '${sample[option]}/$attendanceLimit'
+                        : '${sample[option]}명',
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: _colorFor(option),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+          if (attendanceLimit > 0)
+            Text(
+              '참석이 $attendanceLimit명을 채우면 그 뒤로는 참석을 누를 수 없습니다.',
+              style: const TextStyle(color: EncbaColors.muted, fontSize: 11),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 공개 대상을 '직접 선택'했을 때 쓰는 부원 고르기 카드.
+class _AudiencePicker extends StatelessWidget {
+  const _AudiencePicker({
+    required this.members,
+    required this.selectedIds,
+    required this.onChanged,
+  });
+
+  final List<MemberProfile> members;
+  final Set<String> selectedIds;
+  final ValueChanged<Set<String>> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedNames = members
+        .where((member) => member.id != null && selectedIds.contains(member.id))
+        .map((member) => member.name)
+        .toList(growable: false);
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: EncbaColors.line),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              selectedIds.isEmpty
+                  ? '아직 고른 부원이 없습니다'
+                  : '${selectedIds.length}명에게만 보입니다',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            if (selectedNames.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                selectedNames.join(', '),
+                style: const TextStyle(
+                  color: EncbaColors.muted,
+                  fontSize: 12,
+                  height: 1.5,
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () => _openPicker(context),
+              icon: const Icon(Icons.group_add_outlined, size: 18),
+              label: const Text('멤버 고르기'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPicker(BuildContext context) async {
+    final picked = await showModalBottomSheet<Set<String>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) =>
+          _AudiencePickerSheet(members: members, initial: selectedIds),
+    );
+    if (picked != null) onChanged(picked);
+  }
+}
+
+class _AudiencePickerSheet extends StatefulWidget {
+  const _AudiencePickerSheet({required this.members, required this.initial});
+
+  final List<MemberProfile> members;
+  final Set<String> initial;
+
+  @override
+  State<_AudiencePickerSheet> createState() => _AudiencePickerSheetState();
+}
+
+class _AudiencePickerSheetState extends State<_AudiencePickerSheet> {
+  late final Set<String> _selected = {...widget.initial};
+  final _query = TextEditingController();
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final keyword = _query.text.trim();
+    final candidates =
+        widget.members
+            .where((member) => member.id != null)
+            .where(
+              (member) =>
+                  keyword.isEmpty ||
+                  member.name.contains(keyword) ||
+                  member.studentId.contains(keyword),
+            )
+            .toList(growable: false)
+          ..sort((a, b) => a.name.compareTo(b.name));
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          0,
+          20,
+          MediaQuery.viewInsetsOf(context).bottom + 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('공개할 부원', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text(
+              '고른 사람에게만 이 일정이 보입니다. (${_selected.length}명 선택)',
+              style: const TextStyle(color: EncbaColors.muted, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _query,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search_rounded),
+                hintText: '이름 또는 학번',
+              ),
+            ),
+            const SizedBox(height: 10),
+            Flexible(
+              child: candidates.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 28),
+                      child: Text(
+                        '찾는 부원이 없습니다.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: EncbaColors.muted),
+                      ),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: candidates.length,
+                      itemBuilder: (context, index) {
+                        final member = candidates[index];
+                        final id = member.id!;
+                        return CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          value: _selected.contains(id),
+                          title: Text(member.name),
+                          subtitle: Text(
+                            '${member.teamLabel} · ${member.position} · '
+                            '${member.studentId}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onChanged: (checked) => setState(() {
+                            if (checked ?? false) {
+                              _selected.add(id);
+                            } else {
+                              _selected.remove(id);
+                            }
+                          }),
+                        );
+                      },
+                    ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, _selected),
+              child: Text('${_selected.length}명 선택 완료'),
+            ),
+          ],
         ),
       ),
     );

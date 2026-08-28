@@ -139,7 +139,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byTooltip('AI로 채우기'), findsOneWidget);
+    expect(find.text('✨ AI로 채우기'), findsOneWidget);
     expect(find.text('매주 반복'), findsNothing);
   });
 
@@ -167,6 +167,111 @@ void main() {
     // 제목·좋아요·댓글이 있는 상세 화면 대신 잠깐의 로딩만 지나간다.
     expect(find.text('엔크바 하이라이트'), findsNothing);
     expect(find.byTooltip('링크 공유'), findsNothing);
+  });
+
+  test('공지 투표 항목은 정원이 차면 잠기고, 내가 고른 항목은 잠기지 않는다', () {
+    final notice = AnnouncementItem(
+      id: 'a1',
+      title: '엠티',
+      body: '',
+      author: '운영진',
+      publishedAt: DateTime(2026, 8, 29),
+      pollOptions: const ['1일차', '2일차', '불참'],
+      pollOptionLimits: const [2, 0, 0],
+      pollVotes: const {0: 2, 1: 5},
+    );
+
+    expect(notice.limitFor(0), 2);
+    expect(notice.isOptionFull(0), isTrue);
+    // 정원이 0인 항목은 표가 아무리 많아도 잠기지 않는다.
+    expect(notice.isOptionFull(1), isFalse);
+    // 이미 내가 고른 항목은 다시 눌러도 막히면 안 된다.
+    expect(notice.copyWith(myPollOption: 0).isOptionFull(0), isFalse);
+  });
+
+  test('OB는 인원을 밝히지 않아도 참여로 센다', () {
+    final base = _event(
+      id: 'e1',
+      title: '훈련',
+      start: DateTime(2026, 9, 1, 13),
+    );
+
+    expect(base.hasObParticipants, isFalse);
+    expect(
+      LockerEvent(
+        id: base.id,
+        title: base.title,
+        start: base.start,
+        end: base.end,
+        place: base.place,
+        kind: base.kind,
+        memo: base.memo,
+        obParticipantsUnknown: true,
+      ).hasObParticipants,
+      isTrue,
+    );
+  });
+
+  testWidgets('새 일정의 기본 시각은 13:00:00~15:00:00이다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _app(const EventEditorScreen(), lockerState: LockerState(isReady: true)),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('시작'),
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('13:00:00'), findsOneWidget);
+    expect(find.text('15:00:00'), findsOneWidget);
+  });
+
+  testWidgets('공개 대상에서 직접 선택하면 멤버 고르기가 열린다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _app(const EventEditorScreen(), lockerState: LockerState(isReady: true)),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('공개 대상 *'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('직접 선택').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('멤버 고르기'), findsOneWidget);
+    expect(find.text('아직 고른 부원이 없습니다'), findsOneWidget);
+  });
+
+  testWidgets('취소된 일정도 관리자는 수정 화면을 열 수 있다', (tester) async {
+    final cancelled = LockerEvent(
+      id: 'cancelled-1',
+      title: '취소된훈련',
+      start: DateTime.now().add(const Duration(days: 3)),
+      end: DateTime.now().add(const Duration(days: 3, hours: 2)),
+      place: '71동 종합체육관',
+      kind: EventKind.training,
+      memo: '',
+      cancelledAt: DateTime.now(),
+      cancellationReason: '체육관 공사',
+    );
+    await tester.pumpWidget(
+      _app(
+        const EventDetailScreen(eventId: 'cancelled-1'),
+        lockerState: LockerState(isReady: true, events: [cancelled]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('일정 수정'), findsOneWidget);
   });
 
   testWidgets('비활성 계정 안내에서 관리자에게 활성화를 요청할 수 있다', (tester) async {

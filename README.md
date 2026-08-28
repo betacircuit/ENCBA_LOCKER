@@ -92,15 +92,17 @@ Supabase Auth의 Google Provider에는 Google Cloud의 Web Client ID와 Client S
 
 ## AI 채우기
 
-새 일정·새 공지 화면 오른쪽 위의 **AI로 채우기**(✨)는 Supabase Edge Function `ai-compose`를 통해 OpenRouter의 모델에게 초안을 받아 옵니다. "이번 학기 동안 매주 화요일 20–22시 종합체육관 정기훈련"처럼 적으면 기간 전체를 날짜별 일정으로 펼쳐 만들고, 목록에서 확인·해제한 뒤 한 번에 등록합니다. 프롬프트에 없어 AI가 정하지 못한 값은 되묻고, **비워 두고 넘어가면 기존 기본값**이 그대로 쓰입니다.
+새 일정·새 공지 화면 오른쪽 위의 **AI로 채우기**(✨)는 Supabase Edge Function `ai-compose`를 통해 Google Gemini에게 초안을 받아 옵니다. "이번 학기 동안 매주 화요일 20–22시 종합체육관 정기훈련"처럼 적으면 기간 전체를 날짜별 일정으로 펼쳐 만들고, 목록에서 확인·해제한 뒤 한 번에 등록합니다. 프롬프트에 없어 AI가 정하지 못한 값은 되묻고, **비워 두고 넘어가면 기존 기본값**이 그대로 쓰입니다.
 
-모델은 OpenRouter를 통해 부릅니다. API 키는 브라우저에서 그대로 읽히므로 앱 빌드(`--dart-define`)에 넣지 않고 엣지 함수의 환경변수에만 둡니다.
+모델은 Google AI Studio의 무료 티어를 씁니다. 기본값 `gemini-3.7-flash`는 2026년 8월 기준 무료로 쓸 수 있는 모델 가운데 성능이 가장 높습니다(Pro 계열은 2026년 4월부터 유료 전용). API 키는 브라우저에서 그대로 읽히므로 앱 빌드(`--dart-define`)에 넣지 않고 엣지 함수의 환경변수에만 둡니다.
+
+키는 <https://aistudio.google.com/apikey>에서 **Create API key**로 발급합니다. 결제 수단 등록 없이 무료 티어로 바로 쓸 수 있고, 무료 티어에는 분당·일일 요청 한도가 있습니다.
 
 ```powershell
 npx supabase functions deploy ai-compose
-npx supabase secrets set OPENROUTER_API_KEY=sk-or-v1-xxxxxxxx
-# 선택: 기본값은 z-ai/glm-5.2:free
-npx supabase secrets set OPENROUTER_MODEL=z-ai/glm-5.2:free
+npx supabase secrets set GEMINI_API_KEY=AIzaSy-여기에키
+# 선택: 기본값은 gemini-3.7-flash
+npx supabase secrets set GEMINI_MODEL=gemini-3.7-flash
 ```
 
 키를 넣기 전까지 버튼은 "AI 채우기가 아직 설정되지 않았습니다"라고 안내하고 다른 기능에는 영향을 주지 않습니다. 함수는 호출자 JWT로 일정·공지 관리자 권한을 먼저 확인합니다.

@@ -114,7 +114,7 @@ class AiComposeException implements Exception {
   String toString() => message;
 }
 
-/// `ai-compose` 엣지 함수를 부른다. OpenRouter API 키는 그 함수의 환경변수에만
+/// `ai-compose` 엣지 함수를 부른다. Gemini API 키는 그 함수의 환경변수에만
 /// 있고 앱에는 들어오지 않는다. 앱 빌드에 키를 넣으면 브라우저에서 그대로
 /// 읽히기 때문이다.
 class AiComposeService {

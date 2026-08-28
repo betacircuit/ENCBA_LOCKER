@@ -10,6 +10,7 @@ import 'package:encba_locker/features/locker/application/locker_controller.dart'
 import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/presentation/locker_shell.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:encba_locker/core/routing/app_router.dart';
@@ -132,7 +133,7 @@ void main() {
     expect(find.text('다시 시도'), findsOneWidget);
   });
 
-  test('참석 마감은 경기는 3시간, 그 외 일정은 1시간 전이다', () {
+  test('참석 마감 기본값은 유형과 무관하게 일정 시작 2시간 전이다', () {
     final start = DateTime(2026, 9, 1, 18);
     LockerEvent event(EventKind kind) => LockerEvent(
       id: kind.name,
@@ -146,11 +147,11 @@ void main() {
 
     expect(
       start.difference(event(EventKind.ibDivision1).responseDeadline),
-      const Duration(hours: 3),
+      const Duration(hours: 2),
     );
     expect(
       start.difference(event(EventKind.operations).responseDeadline),
-      const Duration(hours: 1),
+      const Duration(hours: 2),
     );
   });
 
@@ -906,7 +907,7 @@ void main() {
     expect(find.text('마감 정하기'), findsOneWidget);
   });
 
-  testWidgets('일정 제목은 선택 입력이고 정각 선택은 분 없는 시간 선택기를 연다', (tester) async {
+  testWidgets('일정 제목은 선택 입력이고 시작·종료는 시·분·초 휠로 고른다', (tester) async {
     await tester.pumpWidget(_signedInApp(const EventEditorScreen()));
     await tester.pumpAndSettle();
 
@@ -916,8 +917,14 @@ void main() {
       220,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('정각'), findsOneWidget);
-    expect(find.text('분 설정'), findsOneWidget);
+    // 기본값은 13:00:00~15:00:00이다.
+    expect(find.text('13:00:00'), findsOneWidget);
+    expect(find.text('15:00:00'), findsOneWidget);
+
+    await tester.tap(find.text('시작'));
+    await tester.pumpAndSettle();
+    expect(find.text('시작 시각'), findsOneWidget);
+    expect(find.byType(CupertinoPicker), findsNWidgets(3));
   });
 
   testWidgets('IB 일정은 1·2·3경기 고정 시간만 선택한다', (tester) async {
@@ -935,8 +942,8 @@ void main() {
     );
 
     expect(find.text('1경기 · 13:00–14:00'), findsOneWidget);
-    expect(find.text('정각'), findsNothing);
-    expect(find.text('분 설정'), findsNothing);
+    // IB는 경기 슬롯이 시간을 정하므로 시작·종료 휠을 열지 않는다.
+    expect(find.text('시작'), findsNothing);
   });
 
   testWidgets('외부 경기 등록은 주전 선택을 노출한다', (tester) async {

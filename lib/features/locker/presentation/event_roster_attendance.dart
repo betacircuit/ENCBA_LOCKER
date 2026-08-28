@@ -302,6 +302,19 @@ class AttendanceSelector extends ConsumerWidget {
     final isAdmin =
         ref.watch(authControllerProvider).user?.canAdminister ?? false;
     final isClosed = DateTime.now().isAfter(event.responseDeadline) && !isAdmin;
+    // 인원 제한은 '참석' 항목 하나에만 걸린다. 정원이 차면 그 버튼만
+    // 잠기고 불참·미정은 그대로 누를 수 있어야 한다.
+    final responses = ref.watch(
+      lockerControllerProvider.select(
+        (state) => state.eventsState.eventAttendance[event.id],
+      ),
+    );
+    final attendingCount = responses == null
+        ? event.attending
+        : responses.where((response) => response.choice == '참석').length;
+    final capacity = event.capacity ?? 0;
+    final attendingFull =
+        capacity > 0 && attendingCount >= capacity && selected != '참석';
     final choices = event.pollOptions
         .map((label) => (label, _choiceIcon(label), _choiceColor(label)))
         .toList();
@@ -316,6 +329,8 @@ class AttendanceSelector extends ConsumerWidget {
           runSpacing: spacing,
           children: choices.map((choice) {
             final active = selected == choice.$1;
+            final blocked = choice.$1 == '참석' && attendingFull;
+            final disabled = isClosed || blocked;
             return SizedBox(
               width: width,
               child: Semantics(
@@ -325,8 +340,22 @@ class AttendanceSelector extends ConsumerWidget {
                   borderRadius: flush
                       ? BorderRadius.zero
                       : BorderRadius.circular(13),
-                  onTap: isClosed
-                      ? null
+                  // 눌러도 아무 일이 없으면 고장난 것처럼 보인다. 마감·정원
+                  // 초과일 때도 탭은 받고 이유를 알려 준다.
+                  onTap: disabled
+                      ? () {
+                          ScaffoldMessenger.of(context)
+                            ..clearSnackBars()
+                            ..showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  isClosed
+                                      ? '응답이 마감되었습니다.'
+                                      : '참석 인원이 마감되었습니다. ($capacity명)',
+                                ),
+                              ),
+                            );
+                        }
                       : () async {
                           final revision =
                               (_attendanceUiRevisions[event.id] ?? 0) + 1;
@@ -368,41 +397,60 @@ class AttendanceSelector extends ConsumerWidget {
                               );
                           }
                         },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    height: compact ? 42 : 68,
-                    decoration: BoxDecoration(
-                      color: active
-                          ? choice.$3
-                          : choice.$3.withValues(alpha: .09),
-                      borderRadius: flush
-                          ? BorderRadius.zero
-                          : BorderRadius.circular(13),
-                      border: Border.all(
-                        color: choice.$3.withValues(alpha: active ? 1 : .25),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        if (!compact) ...[
-                          Icon(
-                            choice.$2,
-                            size: 20,
-                            color: active ? Colors.white : choice.$3,
-                          ),
-                          const SizedBox(width: 4),
-                        ],
-                        Text(
-                          choice.$1,
-                          style: TextStyle(
-                            color: active ? Colors.white : choice.$3,
-                            fontSize: compact ? 12 : 13,
-                            fontWeight: FontWeight.w700,
-                          ),
+                  child: Opacity(
+                    opacity: disabled && !active ? .45 : 1,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      height: compact ? 42 : 68,
+                      decoration: BoxDecoration(
+                        color: active
+                            ? choice.$3
+                            : choice.$3.withValues(alpha: .09),
+                        borderRadius: flush
+                            ? BorderRadius.zero
+                            : BorderRadius.circular(13),
+                        border: Border.all(
+                          color: choice.$3.withValues(alpha: active ? 1 : .25),
                         ),
-                      ],
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (!compact) ...[
+                            Icon(
+                              disabled && !active
+                                  ? Icons.lock_outline_rounded
+                                  : choice.$2,
+                              size: 20,
+                              color: active ? Colors.white : choice.$3,
+                            ),
+                            const SizedBox(width: 4),
+                          ],
+                          Text(
+                            choice.$1,
+                            style: TextStyle(
+                              color: active ? Colors.white : choice.$3,
+                              fontSize: compact ? 12 : 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          // 정원이 있는 참석 항목은 남은 자리를 옆에 붙인다.
+                          if (choice.$1 == '참석' && capacity > 0) ...[
+                            const SizedBox(width: 4),
+                            Text(
+                              '$attendingCount/$capacity',
+                              style: TextStyle(
+                                color: active
+                                    ? Colors.white70
+                                    : choice.$3.withValues(alpha: .75),
+                                fontSize: compact ? 10 : 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ),
                 ),

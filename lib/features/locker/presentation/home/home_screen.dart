@@ -775,6 +775,7 @@ Future<void> _showAnnouncementEditor(
             imageBase64: draft.imageBase64,
             imageName: draft.imageName,
             pollOptions: draft.pollOptions,
+            pollOptionLimits: draft.pollOptionLimits,
             pollQuestion: draft.pollQuestion,
           )
         : await controller.updateAnnouncement(
@@ -787,6 +788,7 @@ Future<void> _showAnnouncementEditor(
             imageName: draft.imageName,
             removeImage: draft.removeImage,
             pollOptions: draft.pollOptions,
+            pollOptionLimits: draft.pollOptionLimits,
             pollQuestion: draft.pollQuestion,
           );
     if (context.mounted) {
@@ -812,6 +814,7 @@ class _AnnouncementDraft {
     required this.pinned,
     required this.linkedEventIds,
     required this.pollOptions,
+    this.pollOptionLimits = const [],
     this.pollQuestion = '',
     this.imageBase64,
     this.imageName,
@@ -822,6 +825,9 @@ class _AnnouncementDraft {
   final bool pinned;
   final List<String> linkedEventIds;
   final List<String> pollOptions;
+
+  /// 항목별 정원. pollOptions와 같은 길이이며 0이면 제한 없음.
+  final List<int> pollOptionLimits;
   final String pollQuestion;
   final String? imageBase64;
   final String? imageName;
@@ -867,6 +873,9 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
   late bool _pollEnabled;
   late final TextEditingController _pollQuestion;
   late List<TextEditingController> _pollOptions;
+
+  /// 투표 항목마다의 정원. 0이면 제한 없음. _pollOptions와 길이를 맞춘다.
+  late List<int> _pollLimits;
   String? _imageBase64;
 
   /// 미리보기용으로 디코딩해 둔 사진 바이트. build()마다 base64Decode를
@@ -894,6 +903,10 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
     _pollOptions = (existingPoll.isEmpty ? const ['찬성', '반대'] : existingPoll)
         .map((option) => TextEditingController(text: option))
         .toList();
+    _pollLimits = [
+      for (var index = 0; index < _pollOptions.length; index++)
+        widget.existing?.limitFor(index) ?? 0,
+    ];
     for (final controller in _pollOptions) {
       controller.addListener(_refresh);
     }
@@ -937,13 +950,9 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
       appBar: AppBar(
         title: Text(widget.existing == null ? '새 공지' : '공지 수정'),
         actions: [
-          IconButton(
-            tooltip: 'AI로 채우기',
-            onPressed: _composeWithAi,
-            icon: const Icon(
-              Icons.auto_awesome_rounded,
-              color: EncbaColors.snuBlue,
-            ),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: _AiFillButton(onPressed: _composeWithAi),
           ),
         ],
       ),
@@ -1041,12 +1050,23 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
               ),
             ),
           ),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            value: _pollEnabled,
-            title: const Text('투표 첨부'),
-            subtitle: const Text('부원은 공지에서 한 항목을 선택할 수 있습니다.'),
-            onChanged: (value) => setState(() => _pollEnabled = value),
+          Row(
+            children: [
+              Expanded(
+                child: SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _pollEnabled,
+                  title: const Text('투표 첨부'),
+                  subtitle: const Text('부원은 공지에서 한 항목을 선택할 수 있습니다.'),
+                  onChanged: (value) => setState(() => _pollEnabled = value),
+                ),
+              ),
+              IconButton(
+                tooltip: '항목별 인원 제한',
+                onPressed: _pollEnabled ? _editPollLimits : null,
+                icon: const Icon(Icons.tune_rounded),
+              ),
+            ],
           ),
           if (_pollEnabled) ...[
             TextField(
@@ -1068,6 +1088,9 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
                       maxLength: 60,
                       decoration: InputDecoration(
                         labelText: '투표 항목 ${index + 1}',
+                        helperText: _limitAt(index) > 0
+                            ? '정원 ${_limitAt(index)}명'
+                            : '정원 제한 없음',
                       ),
                     ),
                   ),
@@ -1159,6 +1182,16 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
                                 .map((item) => item.text.trim())
                                 .toList()
                           : const [],
+                      pollOptionLimits: _pollEnabled
+                          ? [
+                              for (
+                                var index = 0;
+                                index < _pollOptions.length;
+                                index++
+                              )
+                                _limitAt(index),
+                            ]
+                          : const [],
                       pollQuestion: _pollEnabled
                           ? _pollQuestion.text.trim()
                           : '',
@@ -1195,6 +1228,7 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
         _pollOptions = draft.pollOptions
             .map((option) => TextEditingController(text: option))
             .toList();
+        _pollLimits = List.filled(_pollOptions.length, 0);
         for (final controller in _pollOptions) {
           controller.addListener(_refresh);
         }
@@ -1204,6 +1238,111 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(const SnackBar(content: Text('AI가 채운 내용을 확인하고 등록해 주세요.')));
+  }
+
+  /// 항목 개수가 바뀌어도 정원 배열 길이를 맞춰 읽는다.
+  int _limitAt(int index) =>
+      index >= 0 && index < _pollLimits.length ? _pollLimits[index] : 0;
+
+  /// 투표 항목마다 정원을 정한다. 0으로 두면 제한 없음이다.
+  Future<void> _editPollLimits() async {
+    final drafts = [
+      for (var index = 0; index < _pollOptions.length; index++)
+        _limitAt(index),
+    ];
+    final saved = await showModalBottomSheet<List<int>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  '항목별 인원 제한',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '정원이 찬 항목은 더 이상 고를 수 없습니다. 0이면 제한 없음입니다.',
+                  style: TextStyle(color: EncbaColors.muted, fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final (index, controller) in _pollOptions.indexed)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  controller.text.trim().isEmpty
+                                      ? '투표 항목 ${index + 1}'
+                                      : controller.text.trim(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: '정원 줄이기',
+                                onPressed: drafts[index] <= 0
+                                    ? null
+                                    : () => setSheetState(
+                                        () => drafts[index]--,
+                                      ),
+                                icon: const Icon(
+                                  Icons.remove_circle_outline_rounded,
+                                ),
+                              ),
+                              SizedBox(
+                                width: 62,
+                                child: Text(
+                                  drafts[index] <= 0
+                                      ? '제한 없음'
+                                      : '${drafts[index]}명',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: '정원 늘리기',
+                                onPressed: drafts[index] >= 200
+                                    ? null
+                                    : () => setSheetState(
+                                        () => drafts[index]++,
+                                      ),
+                                icon: const Icon(
+                                  Icons.add_circle_outline_rounded,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () => Navigator.pop(sheetContext, drafts),
+                  child: const Text('저장'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (saved != null && mounted) setState(() => _pollLimits = saved);
   }
 
   Future<void> _pickAnnouncementImage() async {
@@ -1232,7 +1371,11 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
 
   void _addPollOption() {
     final controller = TextEditingController()..addListener(_refresh);
-    setState(() => _pollOptions.add(controller));
+    setState(() {
+      _pollOptions.add(controller);
+      // 정원 배열은 항목과 길이를 맞춰 둬야 저장할 때 어긋나지 않는다.
+      _pollLimits.add(0);
+    });
   }
 
   void _removePollOption(int index) {
@@ -1240,7 +1383,9 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
     controller
       ..removeListener(_refresh)
       ..dispose();
-    setState(() {});
+    setState(() {
+      if (index < _pollLimits.length) _pollLimits.removeAt(index);
+    });
   }
 }
 
@@ -1279,22 +1424,49 @@ class _AnnouncementPollCard extends ConsumerWidget {
             ),
             const SizedBox(height: 6),
             for (final (index, option) in notice.pollOptions.indexed)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  notice.myPollOption == index
-                      ? Icons.radio_button_checked_rounded
-                      : Icons.radio_button_off_rounded,
-                  color: notice.myPollOption == index
-                      ? EncbaColors.snuBlue
-                      : EncbaColors.muted,
-                ),
-                title: Text(option),
-                trailing: Text('${notice.pollVotes[index] ?? 0}표'),
-                onTap: () => ref
-                    .read(lockerControllerProvider.notifier)
-                    .voteAnnouncement(notice, index),
-              ),
+              () {
+                // 정원이 있는 항목은 다 차면 잠긴다. 눌러도 아무 반응이
+                // 없으면 고장으로 보이니 이유를 알려 준다.
+                final limit = notice.limitFor(index);
+                final votes = notice.pollVotes[index] ?? 0;
+                final full = notice.isOptionFull(index);
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  enabled: true,
+                  leading: Icon(
+                    full && notice.myPollOption != index
+                        ? Icons.lock_outline_rounded
+                        : notice.myPollOption == index
+                        ? Icons.radio_button_checked_rounded
+                        : Icons.radio_button_off_rounded,
+                    color: notice.myPollOption == index
+                        ? EncbaColors.snuBlue
+                        : EncbaColors.muted,
+                  ),
+                  title: Opacity(
+                    opacity: full ? .5 : 1,
+                    child: Text(option),
+                  ),
+                  trailing: Text(
+                    limit > 0 ? '$votes/$limit명' : '$votes표',
+                    style: TextStyle(
+                      color: full ? EncbaColors.absent : EncbaColors.ink,
+                      fontWeight: full ? FontWeight.w800 : FontWeight.w400,
+                    ),
+                  ),
+                  onTap: full
+                      ? () => ScaffoldMessenger.of(context)
+                          ..clearSnackBars()
+                          ..showSnackBar(
+                            SnackBar(
+                              content: Text('"$option" 항목은 마감되었습니다. ($limit명)'),
+                            ),
+                          )
+                      : () => ref
+                            .read(lockerControllerProvider.notifier)
+                            .voteAnnouncement(notice, index),
+                );
+              }(),
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(
