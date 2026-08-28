@@ -33,20 +33,15 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
   final _formKey = GlobalKey<FormState>();
   final _url = TextEditingController();
   final _title = TextEditingController();
-  final _duration = TextEditingController();
   late final List<_VideoLinkField> _links;
   DateTime? _recordedOn;
   late String _audienceType;
   late Set<String> _audienceValues;
   late Set<String> _reviewPlayerIds;
   bool _saving = false;
-  bool _loadingDuration = false;
-  bool _durationWasEdited = false;
-  Timer? _metadataDebounce;
-  int _metadataRevision = 0;
   String? _saveError;
 
-  static const _maxQuarter = 12;
+  static const _maxQuarter = 6;
 
   @override
   void initState() {
@@ -54,8 +49,6 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
     final existing = widget.existing;
     _url.text = existing?.url ?? '';
     _title.text = existing?.title ?? '';
-    _duration.text = existing?.durationLabel ?? '';
-    _durationWasEdited = _duration.text.trim().isNotEmpty;
     final saved = sortedVideoLinks(existing?.links ?? const []);
     _links = saved.isEmpty
         ? [
@@ -78,47 +71,16 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
     _reviewPlayerIds =
         existing?.reviewPlayers.map((member) => member.directoryId).toSet() ??
         <String>{};
-    if (widget.category == '공유' && !_durationWasEdited) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _scheduleDurationLoad(_url.text);
-      });
-    }
   }
 
   @override
   void dispose() {
-    _metadataDebounce?.cancel();
     _url.dispose();
     _title.dispose();
-    _duration.dispose();
     for (final field in _links) {
       field.controller.dispose();
     }
     super.dispose();
-  }
-
-  void _scheduleDurationLoad(String url) {
-    _metadataDebounce?.cancel();
-    final revision = ++_metadataRevision;
-    final videoId = _youtubeIdFrom(url.trim());
-    if (widget.category != '공유' || videoId == null || _durationWasEdited) {
-      if (_loadingDuration) setState(() => _loadingDuration = false);
-      return;
-    }
-    setState(() => _loadingDuration = true);
-    _metadataDebounce = Timer(const Duration(milliseconds: 400), () async {
-      final metadata = await YoutubeThumbnailService.instance.loadMetadata(
-        videoId,
-      );
-      if (!mounted || revision != _metadataRevision) return;
-      final seconds = metadata?.durationSeconds;
-      setState(() {
-        _loadingDuration = false;
-        if (seconds != null && !_durationWasEdited) {
-          _duration.text = formatVideoDurationLabel(seconds);
-        }
-      });
-    });
   }
 
   /// 아직 쓰지 않은 가장 작은 쿼터 번호를 붙여 한 줄 늘린다.
@@ -268,7 +230,8 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
     final video = VideoItem(
       id: widget.existing?.id ?? 'video-${now.microsecondsSinceEpoch}',
       title: _title.text.trim(),
-      durationLabel: isReview ? '' : _duration.text.trim(),
+      // 릴스에는 재생 시간이 없다. 예전에 저장된 값만 그대로 지킨다.
+      durationLabel: isReview ? '' : (widget.existing?.durationLabel ?? ''),
       category: widget.category,
       url: sourceUrl,
       youtubeId: youtubeId ?? '',
@@ -423,7 +386,6 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
                     keyboardType: TextInputType.url,
                     onChanged: (value) {
                       setState(() {});
-                      _scheduleDurationLoad(value);
                     },
                     decoration: InputDecoration(
                       labelText: widget.category == '하이라이트'
@@ -482,43 +444,6 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
                     }),
                   ),
                 ],
-                if (!isReview) ...[
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: _duration,
-                    keyboardType: TextInputType.datetime,
-                    onChanged: (value) {
-                      _durationWasEdited = value.trim().isNotEmpty;
-                      _metadataDebounce?.cancel();
-                      if (_loadingDuration) {
-                        setState(() => _loadingDuration = false);
-                      }
-                      if (!_durationWasEdited) {
-                        _scheduleDurationLoad(_url.text);
-                      }
-                    },
-                    decoration: InputDecoration(
-                      labelText: '재생 시간',
-                      hintText: '예: 08:24',
-                      helperText: widget.category == '공유'
-                          ? 'YouTube에서 자동으로 불러옵니다. 실패하면 분:초로 입력하세요.'
-                          : null,
-                      suffixIcon: _loadingDuration
-                          ? const Padding(
-                              padding: EdgeInsets.all(13),
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : null,
-                    ),
-                    validator: (value) {
-                      final text = value?.trim() ?? '';
-                      if (text.isEmpty) return null;
-                      return parseVideoDurationLabel(text) == null
-                          ? '분:초 형식으로 입력해 주세요. (예: 08:24)'
-                          : null;
-                    },
-                  ),
-                ],
                 if (_saveError case final error?) ...[
                   const SizedBox(height: 12),
                   Text(
@@ -570,23 +495,42 @@ class _VideoLinkRow extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
+      // 쿼터는 직접 숫자로 적는다. 목록에서 고르게 했더니 길게 늘어져
+      // 화면을 덮었고, 손으로 치는 편이 빨랐다. 비워 두면 '미정'이다.
       SizedBox(
-        width: 108,
-        child: DropdownButtonFormField<int?>(
-          initialValue: field.quarterNumber,
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: '쿼터'),
-          items: [
-            const DropdownMenuItem<int?>(value: null, child: Text('미정')),
-            for (var quarter = 1; quarter <= maxQuarter; quarter++)
-              if (quarter == field.quarterNumber ||
-                  !takenQuarters.contains(quarter))
-                DropdownMenuItem<int?>(
-                  value: quarter,
-                  child: Text('$quarter쿼터'),
-                ),
-          ],
-          onChanged: onQuarterChanged,
+        width: 92,
+        child: TextFormField(
+          key: ObjectKey(field),
+          initialValue: field.quarterNumber?.toString() ?? '',
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          maxLength: 1,
+          decoration: const InputDecoration(
+            labelText: '쿼터',
+            hintText: '미정',
+            counterText: '',
+          ),
+          onChanged: (value) {
+            final quarter = int.tryParse(value.trim());
+            onQuarterChanged(
+              quarter != null && quarter >= 1 && quarter <= maxQuarter
+                  ? quarter
+                  : null,
+            );
+          },
+          validator: (value) {
+            final text = value?.trim() ?? '';
+            if (text.isEmpty) return null;
+            final quarter = int.tryParse(text);
+            if (quarter == null || quarter < 1 || quarter > maxQuarter) {
+              return '1~$maxQuarter';
+            }
+            if (quarter != field.quarterNumber &&
+                takenQuarters.contains(quarter)) {
+              return '중복';
+            }
+            return null;
+          },
         ),
       ),
       const SizedBox(width: 8),

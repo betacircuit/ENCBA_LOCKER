@@ -154,37 +154,6 @@ class _EmptyState extends StatelessWidget {
   );
 }
 
-void _showTask(BuildContext context, String text) => showModalBottomSheet<void>(
-  context: context,
-  showDragHandle: true,
-  builder: (_) => SafeArea(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            '운영 체크리스트',
-            style: TextStyle(
-              fontFamily: 'Jua',
-              fontSize: 24,
-              color: EncbaColors.navy,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(text, style: const TextStyle(height: 1.6)),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
-    ),
-  ),
-);
-
 /// 링크를 열지 못했을 때 조용히 아무 일도 없는 것처럼 끝나지 않도록,
 /// 실패하면 스낵바로 알린다. (Instagram 릴스처럼 외부 앱으로 나가는 링크가
 /// 팝업 차단 등으로 막히면 이전에는 탭해도 눈에 보이는 반응이 전혀 없었다.)

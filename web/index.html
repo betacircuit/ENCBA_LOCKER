@@ -234,9 +234,29 @@
       });
     })();
 
+    // 새 배포가 곧바로 적용되게 한다.
+    //
+    // Flutter의 서비스 워커는 캐시에서 앱을 먼저 띄우고 새 버전은 다음
+    // 방문에나 반영한다. 그래서 고친 걸 배포해도 "그대로인데요"가 나왔다.
+    // 새 워커가 제어권을 넘겨받는 순간 한 번만 새로고침해서 방금 받은
+    // 버전으로 갈아탄다. (한 번만 - 안 그러면 새로고침이 무한 반복된다.)
+    if ('serviceWorker' in navigator) {
+      var encbaReloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (encbaReloading) return;
+        encbaReloading = true;
+        window.location.reload();
+      });
+    }
+
     // 백그라운드 푸시 알림 서비스 워커. Vercel 빌드가 Firebase 설정 값을
     // 넣어 생성한 파일이 배포에 있을 때만 등록한다(없으면 조용히 건너뛴다).
-    if ('serviceWorker' in navigator) {
+    //
+    // Flutter의 서비스 워커 등록과 겹치면 서로 기다리다가 "prepareServiceWorker
+    // took more than 4000ms" 로 밀려난다. 첫 프레임이 뜬 뒤에 등록해서
+    // 앱 부팅 경로를 비켜 준다.
+    window.addEventListener('flutter-first-frame', function () {
+      if (!('serviceWorker' in navigator)) return;
       fetch('firebase-messaging-sw.js', { method: 'HEAD' })
         .then(function (response) {
           if (!response.ok) return;
@@ -245,7 +265,7 @@
         .catch(function () {
           /* 파일이 없거나 등록에 실패해도 로컬 알림은 그대로 동작한다. */
         });
-    }
+    });
   </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>

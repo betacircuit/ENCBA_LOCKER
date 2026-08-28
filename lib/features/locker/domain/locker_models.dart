@@ -18,7 +18,7 @@ extension EventKindUi on EventKind {
   String get label => switch (this) {
     EventKind.training => '훈련',
     EventKind.morning => '아농',
-    EventKind.freeOpen => '자개',
+    EventKind.freeOpen => '자유개방',
     EventKind.internal => '내부 경기',
     EventKind.pickup => '픽업게임',
     EventKind.ibDivision1 => 'IB 1부',

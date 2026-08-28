@@ -21,7 +21,14 @@ class _AiFillButton extends StatelessWidget {
       minimumSize: const Size(0, 36),
       padding: const EdgeInsets.symmetric(horizontal: 14),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
-      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+      // 버튼 글씨는 앱의 표시용 글꼴(Jua)로 맞춘다. 기본 라벨 스타일을
+      // 그대로 쓰면 시스템 글꼴로 새어 나가 헤더와 따로 놀았다.
+      textStyle: const TextStyle(
+        fontFamily: 'Jua',
+        fontFamilyFallback: encbaFontFallback,
+        fontSize: 14,
+        letterSpacing: .2,
+      ),
     ),
     // 이모지는 컬러 폰트라 흰색으로 못 칠한다. 같은 모양의 아이콘을 써야
     // 파란 버튼 위에서 흰색으로 보인다.

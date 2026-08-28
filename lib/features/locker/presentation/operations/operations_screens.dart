@@ -83,7 +83,13 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
                 date: '${item.start.month}/${item.start.day}',
                 title: item.title,
                 place: '${time(item.start)} · ${item.location}',
-                onTap: () => _showTask(context, item.memo),
+                // 체크리스트 시트 대신 그 배정의 일정 상세로 간다.
+                // 플래너에서 여는 화면과 같은 곳이라 정보가 어긋나지 않는다.
+                onTap: () => openEventDetail(
+                  context,
+                  'operation-${item.id}',
+                  heroTagPrefix: 'operations',
+                ),
               ),
             ),
           const SizedBox(height: 28),

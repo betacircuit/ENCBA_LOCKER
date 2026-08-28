@@ -1904,17 +1904,26 @@ void main() {
     await tester.tap(find.text('영상 링크 추가'));
     await tester.pumpAndSettle();
 
-    expect(find.text('4쿼터'), findsOneWidget);
+    // 쿼터는 목록에서 고르지 않고 숫자를 직접 적는다. 처음에는 1~4쿼터
+    // 네 줄이 서 있다.
+    expect(find.text('쿼터'), findsNWidgets(4));
     await tester.ensureVisible(find.text('쿼터 추가'));
     await tester.tap(find.text('쿼터 추가'));
     await tester.pumpAndSettle();
-    expect(find.text('5쿼터'), findsOneWidget);
+    expect(find.text('쿼터'), findsNWidgets(5));
 
-    expect(find.text('미정'), findsNothing);
+    // 쿼터 미정 줄은 쿼터 칸을 비워 둔 채 한 줄 더 붙는다.
     await tester.ensureVisible(find.text('쿼터 미정'));
     await tester.tap(find.text('쿼터 미정'));
     await tester.pumpAndSettle();
-    expect(find.text('미정'), findsOneWidget);
+    expect(find.text('쿼터'), findsNWidgets(6));
+    expect(
+      tester
+          .widgetList<TextFormField>(find.byType(TextFormField))
+          .where((field) => field.initialValue == '')
+          .length,
+      greaterThan(0),
+    );
     expect(find.text('경기 날짜'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

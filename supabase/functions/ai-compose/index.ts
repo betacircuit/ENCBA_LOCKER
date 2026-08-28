@@ -6,7 +6,8 @@
 //
 // 필요한 환경변수
 //   GEMINI_API_KEY - Google AI Studio(aistudio.google.com/apikey)에서 발급한 키
-//   GEMINI_MODEL   - (선택) 기본값 gemini-3.7-flash (무료 티어 중 성능이 가장 높다)
+//   GEMINI_MODEL   - (선택) 쉼표로 여러 개를 적으면 앞에서부터 시도한다.
+//                    기본값은 아래 defaultModels.
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY - 호출자 권한 확인용
 
 const corsHeaders = {
@@ -18,7 +19,21 @@ const corsHeaders = {
 // Gemini Interactions API. 예전 generateContent 대신 이 엔드포인트를 쓴다.
 const geminiEndpoint =
   'https://generativelanguage.googleapis.com/v1beta/interactions'
-const defaultModel = 'gemini-3.7-flash'
+/// 무료 티어에서 쓸 수 있는 모델을 성능 순으로 늘어놓는다.
+///
+/// 무료 티어는 붐빌 때 500 "experiencing high demand"를 자주 뱉는다. 한
+/// 모델만 붙들고 있으면 그 시간대에는 기능이 통째로 죽으므로, 막히면
+/// 다음 모델로 자동으로 내려간다.
+const defaultModels = [
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-2.5-flash',
+]
+
+/// 다음 모델로 넘어가 볼 만한 상태 코드. 429는 한도, 5xx는 상류 혼잡,
+/// 404는 그 계정에서 못 쓰는 모델이라는 뜻이다.
+const retryableStatuses = new Set([404, 429, 500, 502, 503, 504])
 const maxPromptLength = 2000
 const maxEvents = 60
 
@@ -67,8 +82,13 @@ Deno.serve(async (request) => {
   const context = isRecord(payload.context) ? payload.context : {}
   const schema = kind === 'events' ? eventSchema() : announcementSchema()
 
+  const configured = (Deno.env.get('GEMINI_MODEL') ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+  const candidates = configured.length > 0 ? configured : defaultModels
+
   const body = {
-    model: Deno.env.get('GEMINI_MODEL') ?? defaultModel,
     system_instruction: [
       kind === 'events' ? eventSystemPrompt() : announcementSystemPrompt(),
       '',
@@ -93,21 +113,46 @@ Deno.serve(async (request) => {
     store: false,
   }
 
-  const response = await fetch(geminiEndpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': apiKey,
-    },
-    body: JSON.stringify(body),
-  })
+  // 붐비는 모델은 건너뛰고 다음 후보로 내려간다.
+  let response: Response | null = null
+  let usedModel = candidates[0]
+  let lastStatus = 0
+  let lastDetail = ''
+  for (const model of candidates) {
+    const attempt = await fetch(geminiEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({ model, ...body }),
+    })
+    if (attempt.ok) {
+      response = attempt
+      usedModel = model
+      break
+    }
+    lastStatus = attempt.status
+    lastDetail = await attempt.text().catch(() => '')
+    console.error('gemini request failed', model, attempt.status, lastDetail)
+    // 요청이 잘못됐거나 키 문제라면 모델을 바꿔도 결과는 같다.
+    if (!retryableStatuses.has(attempt.status)) break
+  }
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    console.error('gemini request failed', response.status, detail)
-    if (response.status === 429) {
+  if (response === null) {
+    if (lastStatus === 429) {
       return json(
         { error: 'AI 무료 사용량을 넘었습니다. 잠시 뒤 다시 시도해 주세요.' },
+        502,
+      )
+    }
+    if (retryableStatuses.has(lastStatus)) {
+      return json(
+        {
+          error:
+            'AI가 지금 붐빕니다. 무료 모델을 차례로 시도했지만 모두 응답하지 못했어요. ' +
+            '잠시 뒤 다시 눌러 주세요.',
+        },
         502,
       )
     }
@@ -115,8 +160,8 @@ Deno.serve(async (request) => {
     // 알 수 없어서, 서버가 준 사유를 그대로(길이만 잘라) 넘긴다.
     return json(
       {
-        error: `AI가 응답하지 못했습니다. (${response.status}) ` +
-          `${upstreamReason(detail)}`,
+        error: `AI가 응답하지 못했습니다. (${lastStatus}) ` +
+          `${upstreamReason(lastDetail)}`,
       },
       502,
     )
@@ -161,7 +206,7 @@ Deno.serve(async (request) => {
   if (kind === 'events' && Array.isArray(parsed.events)) {
     parsed.events = parsed.events.slice(0, maxEvents)
   }
-  return json({ result: parsed })
+  return json({ result: parsed, model: usedModel })
 })
 
 function eventSystemPrompt(): string {
@@ -172,7 +217,16 @@ function eventSystemPrompt(): string {
     '규칙:',
     '- "이번 학기 동안", "매주"처럼 반복을 뜻하면 해당 기간의 날짜를 모두 펼쳐서 각각 하나의 일정으로 만듭니다.',
     '- 학기는 1학기 3월 1일~6월 15일, 여름학기 6월 16일~8월 31일, 2학기 9월 1일~12월 14일, 겨울학기 12월 15일~다음 해 2월 말입니다.',
-    '- 일정 유형(kind)은 다음 중 하나입니다: training(훈련), morning(아침 농구), freeOpen(자유 개방), pickup(픽업게임), ibDivision1(IB 1부), ibDivision2(IB 2부), scrimmage(연습경기), threeWay(3자 연습경기), external(외부 대회).',
+    '- 일정 유형(kind)은 다음 중 하나입니다: training(훈련), morning(아침농구), freeOpen(자유개방), pickup(픽업게임), ibDivision1(IB 1부), ibDivision2(IB 2부), scrimmage(연습경기), threeWay(3자 연습경기), external(외부 대회).',
+    '- 동아리에서 줄여 부르는 말을 알아들어야 합니다:',
+    '  · "아농" = 아침농구 → morning',
+    '  · "자개" = 자유개방 → freeOpen',
+    '  · "연겜", "연경" = 연습경기 → scrimmage (상대가 둘이면 threeWay)',
+    '  · "픽업", "픽겜" = 픽업게임 → pickup',
+    '  · "정훈", "훈련" = 정기훈련 → training',
+    '  · "외대", "외부대회" → external',
+    '  · "IB 1부/2부" → ibDivision1 / ibDivision2',
+    '- 상대 팀 이름이 함께 나오면(예: "호바스랑", "스티즈와") 연습경기로 봅니다.',
     '- IB 경기의 시작 시간은 1경기 13:00, 2경기 14:10, 3경기 15:20이며 장소는 항상 "71동 종합체육관"입니다.',
     '- 장소는 "71동 종합체육관", "71-1동 신체육관", "900동 기숙사체육관" 중에서 고르고, 셋 다 아니면 들은 그대로 적습니다.',
     '- 공개 대상(targetTeam)은 전체 / ENCBA / BEN / 신입생 중 하나입니다.',

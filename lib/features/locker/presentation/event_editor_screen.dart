@@ -1743,14 +1743,18 @@ class _PollPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 눈대중용 가짜 숫자. 실제 응답이 아니라 "이렇게 보인다"는 예시다.
+    // 참석 예시는 정원을 넘지 않게 눌러 준다. 정원 4명인데 예시가 7명이면
+    // 보는 사람이 앞뒤가 안 맞는다고 느낀다.
     final sample = <String, int>{
       for (final (index, option) in options.indexed)
-        option: switch (index) {
-          0 => 7,
-          1 => 3,
-          2 => 2,
-          _ => 1,
-        },
+        option: option == '참석' && attendanceLimit > 0
+            ? (attendanceLimit < 7 ? attendanceLimit : 7)
+            : switch (index) {
+                0 => 7,
+                1 => 3,
+                2 => 2,
+                _ => 1,
+              },
     };
     final total = sample.values.fold(0, (sum, value) => sum + value);
     return Container(
