@@ -45,6 +45,10 @@
       height: 100%;
       min-height: 100dvh;
       background: #e9eef5;
+      /* 모바일 브라우저의 기본 당겨서 새로고침이 화면 맨 위 드래그를 먼저
+         가로채면 앱 안의 새로고침이 영영 시작되지 않는다. 오버스크롤을
+         이 문서 안에 가둬서 제스처를 Flutter로 넘긴다. */
+      overscroll-behavior: none;
     }
     flutter-view {
       box-sizing: border-box;

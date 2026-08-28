@@ -174,8 +174,9 @@ final List<RouteBase> lockerRoutes = [
 Page<void> _gentlePage({required GoRouterState state, required Widget child}) =>
     MaterialPage<void>(
       key: state.pageKey,
-      // MaterialPage는 iOS에서 Cupertino의 단일 대화형 뒤로가기 전환을 쓴다.
-      // 별도 가장자리 GestureDetector를 겹치지 않아 드래그 뒤 재애니메이션이 없다.
+      // 전환 방식은 테마의 pageTransitionsTheme 한 곳에서만 정한다.
+      // 웹에서는 뒤로가기 제스처가 없는 전환을 써서 브라우저의 가장자리
+      // 스와이프와 겹치지 않게 한다(한 번 드래그에 두 화면이 넘어가던 문제).
       child: child,
     );
 

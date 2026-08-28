@@ -46,12 +46,12 @@ class LockerEventsState {
   final bool isLoadingMoreEvents;
 
   List<LockerEvent> plannerEventsWith(LockerOperationsState operationsState) {
-    final visibleOperations = operationsState.allOperations.isNotEmpty
-        ? operationsState.allOperations
-        : operationsState.operations;
+    // IB 운영은 내 배정만 일정으로 세운다. 관리자도 마찬가지다. 전체 배정을
+    // 펼치면 같은 날 남의 운영까지 줄줄이 붙어서 정작 내가 나가야 하는 날이
+    // 묻혔다. 학기 전체 배정은 IB 운영 일정 화면의 관리자 목록에서 본다.
     final merged = <LockerEvent>[
       ...events,
-      ...visibleOperations.map((assignment) => assignment.toPlannerEvent()),
+      ...mergedOperationPlannerEvents(operationsState.operations),
       if (operationsState.homecomingCampaign case final campaign?)
         campaign.toPlannerEvent(),
     ]..sort((a, b) => a.start.compareTo(b.start));
@@ -72,9 +72,15 @@ class LockerVideosState {
 }
 
 class LockerMembersState {
-  const LockerMembersState({this.members = const []});
+  const LockerMembersState({
+    this.members = const [],
+    this.activationRequests = const [],
+  });
 
   final List<MemberProfile> members;
+
+  /// 관리자만 읽는, 아직 처리되지 않은 계정 활성화 요청.
+  final List<AccountActivationRequest> activationRequests;
 }
 
 class LockerOperationsState {
@@ -117,6 +123,7 @@ class LockerState {
     Set<String> likedVideoIds = const {},
     Map<String, List<VideoCommentItem>> videoComments = const {},
     List<MemberProfile> members = const [],
+    List<AccountActivationRequest> activationRequests = const [],
     List<AnnouncementItem> announcements = const [],
     List<OperationAssignment> operations = const [],
     List<OperationAssignment> allOperations = const [],
@@ -161,7 +168,10 @@ class LockerState {
          likedVideoIds: likedVideoIds,
          videoComments: videoComments,
        ),
-       membersState = LockerMembersState(members: members),
+       membersState = LockerMembersState(
+         members: members,
+         activationRequests: activationRequests,
+       ),
        operationsState = LockerOperationsState(
          announcements: announcements,
          operations: operations,
@@ -212,6 +222,8 @@ class LockerState {
   Map<String, List<VideoCommentItem>> get videoComments =>
       videosState.videoComments;
   List<MemberProfile> get members => membersState.members;
+  List<AccountActivationRequest> get activationRequests =>
+      membersState.activationRequests;
   List<AnnouncementItem> get announcements => operationsState.announcements;
   List<OperationAssignment> get operations => operationsState.operations;
   List<OperationAssignment> get allOperations => operationsState.allOperations;
@@ -242,6 +254,7 @@ class LockerState {
     Set<String>? likedVideoIds,
     Map<String, List<VideoCommentItem>>? videoComments,
     List<MemberProfile>? members,
+    List<AccountActivationRequest>? activationRequests,
     List<AnnouncementItem>? announcements,
     List<OperationAssignment>? operations,
     List<OperationAssignment>? allOperations,
@@ -285,7 +298,7 @@ class LockerState {
         isLoadingMoreEvents != null;
     final videosChanged =
         videos != null || likedVideoIds != null || videoComments != null;
-    final membersChanged = members != null;
+    final membersChanged = members != null || activationRequests != null;
     final operationsChanged =
         announcements != null ||
         operations != null ||
@@ -334,7 +347,10 @@ class LockerState {
             )
           : videosState,
       membersState: membersChanged
-          ? LockerMembersState(members: members)
+          ? LockerMembersState(
+              members: members ?? this.members,
+              activationRequests: activationRequests ?? this.activationRequests,
+            )
           : membersState,
       operationsState: operationsChanged
           ? LockerOperationsState(

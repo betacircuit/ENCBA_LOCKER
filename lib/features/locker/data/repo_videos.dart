@@ -279,9 +279,9 @@ mixin VideosApi on RepoCore {
       }
     }
     final saved = _videoCommentFromRow(Map<String, dynamic>.from(row));
-    // 하이라이트 댓글은 피드백 대상을 지원하지 않는다. 빈 목록으로도 복기
-    // 전용 RPC를 호출하면 INSERT 뒤에 예외가 발생해 저장 실패처럼 보이고,
-    // 재시도할 때 같은 댓글이 중복 저장된다.
+    // 피드백 대상이 없는 댓글까지 복기 전용 RPC를 부르면 INSERT 뒤에
+    // 예외가 발생해 저장 실패처럼 보이고, 재시도할 때 같은 댓글이 중복
+    // 저장된다.
     if (targetPlayers.isNotEmpty) {
       await _syncCommentTargets(saved.id, targetPlayers);
     }

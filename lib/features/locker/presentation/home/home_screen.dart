@@ -642,59 +642,103 @@ Future<void> _showNotifications(
   );
 }
 
-/// 알림 기록 한 줄. 정확한 시각과 상대 시간을 함께 보여 준다.
+/// 알림 기록 한 줄. 정확한 시각과 상대 시간, 어떤 항목의 알림이었는지를
+/// 함께 보여 주고, 열 곳이 있으면 눌러서 바로 갈 수 있게 한다.
 class _NotificationHistoryTile extends StatelessWidget {
   const _NotificationHistoryTile({required this.entry});
 
   final NotificationHistoryEntry entry;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 12),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: EncbaColors.snuBlue.withValues(alpha: .1),
-            borderRadius: BorderRadius.circular(11),
+  Widget build(BuildContext context) {
+    final route = entry.route;
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: EncbaColors.snuBlue.withValues(alpha: .1),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(
+              _notificationCategoryIcon(entry.category),
+              size: 18,
+              color: EncbaColors.snuBlue,
+            ),
           ),
-          child: const Icon(
-            Icons.notifications_active_outlined,
-            size: 18,
-            color: EncbaColors.snuBlue,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                entry.title,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              if (entry.body.isNotEmpty) ...[
-                const SizedBox(height: 3),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  entry.body,
-                  style: const TextStyle(fontSize: 13, color: EncbaColors.ink),
+                  entry.title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                if (entry.body.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    entry.body,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: EncbaColors.ink,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 5),
+                Text(
+                  '${_notificationCategoryLabel(entry.category)} · '
+                  '${_notificationTimestamp(entry.receivedAt)} · '
+                  '${_relativeTime(entry.receivedAt)}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: EncbaColors.muted,
+                  ),
                 ),
               ],
-              const SizedBox(height: 5),
-              Text(
-                '${_notificationTimestamp(entry.receivedAt)} · ${_relativeTime(entry.receivedAt)}',
-                style: const TextStyle(fontSize: 12, color: EncbaColors.muted),
-              ),
-            ],
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+          if (route != null)
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: EncbaColors.muted,
+            ),
+        ],
+      ),
+    );
+    if (route == null) return content;
+    return InkWell(
+      onTap: () {
+        // 시트를 닫으면 이 위젯의 context가 곧 무효가 된다. 라우터를 먼저
+        // 붙잡아 두고 닫은 뒤에 이동한다.
+        final router = GoRouter.of(context);
+        Navigator.pop(context);
+        router.push(route);
+      },
+      child: content,
+    );
+  }
 }
+
+IconData _notificationCategoryIcon(NotificationCategory? category) =>
+    switch (category) {
+      NotificationCategory.announcements => Icons.campaign_outlined,
+      NotificationCategory.events => Icons.calendar_month_outlined,
+      NotificationCategory.videos => Icons.play_circle_outline_rounded,
+      null => Icons.notifications_active_outlined,
+    };
+
+String _notificationCategoryLabel(NotificationCategory? category) =>
+    switch (category) {
+      NotificationCategory.announcements => '공지',
+      NotificationCategory.events => '일정',
+      NotificationCategory.videos => '영상',
+      null => '알림',
+    };
 
 /// "8월 25일 오후 3:42"처럼 알림을 받은 정확한 시각을 적는다.
 /// intl의 기본 로케일은 영어라 오전·오후를 직접 붙인다.
@@ -784,6 +828,27 @@ class _AnnouncementDraft {
   final bool removeImage;
 }
 
+/// 공지에 연결할 수 있는 일정. 이미 끝난 일정은 목록에서 뺀다. 새 공지에
+/// 지난 일정을 붙이는 일은 없고, 목록 앞머리를 과거 일정이 차지하면 정작
+/// 붙여야 할 다가오는 일정이 30개 제한에 밀려 보이지 않았다.
+/// 다만 이미 연결돼 있던 일정은 (지났더라도) 남겨 둬야 수정 화면에서
+/// 조용히 연결이 끊기지 않는다.
+List<LockerEvent> _linkableEvents(
+  List<LockerEvent> events,
+  Set<String> alreadyLinked,
+) {
+  final now = DateTime.now();
+  final upcoming =
+      events
+          .where(
+            (event) =>
+                event.end.isAfter(now) || alreadyLinked.contains(event.id),
+          )
+          .toList()
+        ..sort((a, b) => a.start.compareTo(b.start));
+  return upcoming.take(30).toList();
+}
+
 class _AnnouncementEditorScreen extends StatefulWidget {
   const _AnnouncementEditorScreen({this.existing, required this.events});
   final AnnouncementItem? existing;
@@ -857,17 +922,31 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 투표 질문은 선택 항목이다. 질문 없이 항목만 있는 투표(예: 참석/불참)도
+    // 그대로 등록할 수 있어야 해서 저장 조건에서 뺐다.
     final canSave =
         _title.text.trim().isNotEmpty &&
         (!_pollEnabled ||
-            (_pollQuestion.text.trim().isNotEmpty &&
-                _pollOptions.length >= 2 &&
+            (_pollOptions.length >= 2 &&
                 _pollOptions.every((item) => item.text.trim().isNotEmpty) &&
                 _pollOptions.map((item) => item.text.trim()).toSet().length ==
                     _pollOptions.length));
+    final linkableEvents = _linkableEvents(widget.events, _linkedEventIds);
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      appBar: AppBar(title: Text(widget.existing == null ? '새 공지' : '공지 수정')),
+      appBar: AppBar(
+        title: Text(widget.existing == null ? '새 공지' : '공지 수정'),
+        actions: [
+          IconButton(
+            tooltip: 'AI로 채우기',
+            onPressed: _composeWithAi,
+            icon: const Icon(
+              Icons.auto_awesome_rounded,
+              color: EncbaColors.snuBlue,
+            ),
+          ),
+        ],
+      ),
       body: ListView(
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: EdgeInsets.fromLTRB(
@@ -974,7 +1053,7 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
               controller: _pollQuestion,
               maxLength: 200,
               decoration: const InputDecoration(
-                labelText: '투표 질문 *',
+                labelText: '투표 질문 (선택)',
                 hintText: '예: 메뉴를 골라주세요',
               ),
             ),
@@ -1015,7 +1094,7 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
             title: const Text('홈 상단에 고정'),
             onChanged: (value) => setState(() => _pinned = value),
           ),
-          if (widget.events.isNotEmpty) ...[
+          if (linkableEvents.isNotEmpty) ...[
             const SizedBox(height: 10),
             const Text('일정 연결', style: TextStyle(fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),
@@ -1023,9 +1102,7 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
               spacing: 7,
               runSpacing: 7,
               children:
-                  (widget.events.toList()
-                        ..sort((a, b) => a.start.compareTo(b.start)))
-                      .take(30)
+                  linkableEvents
                       .map(
                         (event) => FilterChip(
                           selected: _linkedEventIds.contains(event.id),
@@ -1096,6 +1173,37 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
         ],
       ),
     );
+  }
+
+  /// AI 채우기. 제목·내용·투표를 초안으로 받아 입력칸을 채운다. 채운 뒤에도
+  /// 그대로 고칠 수 있고, 마음에 안 들면 다시 부르면 된다.
+  Future<void> _composeWithAi() async {
+    final draft = await showAiAnnouncementComposer(context);
+    if (draft == null || !mounted) return;
+    setState(() {
+      if (draft.title.isNotEmpty) _title.text = draft.title;
+      if (draft.body.isNotEmpty) _body.text = draft.body;
+      _pinned = draft.pinned || _pinned;
+      if (draft.pollOptions.length >= 2) {
+        _pollEnabled = true;
+        _pollQuestion.text = draft.pollQuestion;
+        for (final controller in _pollOptions) {
+          controller
+            ..removeListener(_refresh)
+            ..dispose();
+        }
+        _pollOptions = draft.pollOptions
+            .map((option) => TextEditingController(text: option))
+            .toList();
+        for (final controller in _pollOptions) {
+          controller.addListener(_refresh);
+        }
+      }
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(const SnackBar(content: Text('AI가 채운 내용을 확인하고 등록해 주세요.')));
   }
 
   Future<void> _pickAnnouncementImage() async {

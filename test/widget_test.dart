@@ -1325,7 +1325,7 @@ void main() {
     expect(captain.canAdminister, isTrue);
   });
 
-  test('플래너는 개인 배정 대신 공용 IB 일정을 시간순으로 사용한다', () {
+  test('플래너의 IB 일정은 관리자여도 내 배정만 보여 준다', () {
     OperationAssignment operation(String id, int day) => OperationAssignment(
       id: id,
       title: 'IB 운영 $day',
@@ -1336,13 +1336,14 @@ void main() {
     );
     final state = LockerState(
       isReady: true,
-      operations: [operation('mine', 3)],
-      allOperations: [operation('later', 20), operation('earlier', 10)],
+      operations: [operation('mine-later', 20), operation('mine-earlier', 10)],
+      // 관리자에게만 채워지는 학기 전체 배정. 플래너에는 섞이면 안 된다.
+      allOperations: [operation('someone-else', 3)],
     );
 
     expect(state.plannerEvents.map((event) => event.id), [
-      'operation-earlier',
-      'operation-later',
+      'operation-mine-earlier',
+      'operation-mine-later',
     ]);
   });
 
@@ -1911,7 +1912,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('농구 영상 공유에는 경기 날짜를 표시하지 않는다', (tester) async {
+  testWidgets('영상 탭은 하이라이트와 복기 둘로만 나뉜다', (tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -1923,13 +1924,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('영상').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('공유').first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('유튜브 영상 공유'));
-    await tester.pumpAndSettle();
 
-    expect(find.text('농구 영상 공유'), findsOneWidget);
-    expect(find.text('경기 날짜'), findsNothing);
+    expect(find.text('하이라이트'), findsWidgets);
+    expect(find.text('복기'), findsWidgets);
+    expect(find.text('공유'), findsNothing);
   });
 }
 

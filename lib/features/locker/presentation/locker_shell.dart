@@ -16,6 +16,7 @@ import 'package:encba_locker/features/locker/services/notification_category_pref
 import 'package:encba_locker/features/locker/services/calendar_service.dart';
 import 'package:encba_locker/features/locker/services/notification_history_service.dart';
 import 'package:encba_locker/features/locker/services/attendance_report_service.dart';
+import 'package:encba_locker/features/locker/services/ai_compose_service.dart';
 import 'package:encba_locker/features/locker/services/web_notification_service.dart';
 import 'package:encba_locker/features/locker/services/youtube_thumbnail_service.dart';
 import 'package:encba_locker/core/routing/locker_tab.dart';
@@ -51,6 +52,7 @@ part 'members/member_widgets.dart';
 part 'operations/operations_screens.dart';
 part 'homecoming/homecoming_screen.dart';
 part 'shared/shared_widgets.dart';
+part 'shared/ai_compose_sheets.dart';
 
 class LockerShell extends ConsumerStatefulWidget {
   const LockerShell({super.key});

@@ -510,15 +510,76 @@ class OperationAssignment {
   LockerEvent toPlannerEvent() => LockerEvent(
     id: 'operation-$id',
     title: title,
+    // IB 운영은 71동 종합체육관에서만 열린다. 운영표에 장소 칸이 비어
+    // 있어도 '장소 미정'으로 두지 않고 실제 장소를 적는다.
     start: start,
     end: end,
-    place: location.isEmpty ? '장소 미정' : location,
+    place: location.trim().isEmpty ? ibOperationVenue : location.trim(),
     kind: EventKind.operations,
     memo: memo,
     targetTeam: '개인',
     createdBy: 'IB 운영표',
     responseEnabled: false,
   );
+}
+
+/// IB 리그 운영이 열리는 곳. 운영표에는 장소 칸이 없어 항상 이곳이다.
+const ibOperationVenue = '71동 종합체육관';
+
+/// 같은 시간·같은 역할(1경기 운영 A 등)에 배정된 사람이 여럿이면 운영표에는
+/// 사람 수만큼 행이 생긴다. 그대로 플래너에 펼치면 "1경기 운영 A"가 세 번,
+/// "1경기 운영 B"가 세 번 나란히 찍혔다. 역할 하나를 일정 하나로 묶고
+/// 담당자는 메모에 모아 둔다.
+///
+/// 대표로 남길 배정은 내 배정을 먼저 고른다. 그래야 일정에서 눌러 들어간
+/// 화면이 계속 내 배정을 가리킨다.
+List<LockerEvent> mergedOperationPlannerEvents(
+  List<OperationAssignment> assignments,
+) {
+  final groups = <String, List<OperationAssignment>>{};
+  for (final assignment in assignments) {
+    final key =
+        '${assignment.title}|${assignment.start.toIso8601String()}'
+        '|${assignment.end.toIso8601String()}';
+    groups.putIfAbsent(key, () => <OperationAssignment>[]).add(assignment);
+  }
+  final events = <LockerEvent>[];
+  for (final group in groups.values) {
+    final sorted = [...group]
+      ..sort((a, b) {
+        if (a.isMine != b.isMine) return a.isMine ? -1 : 1;
+        return a.id.compareTo(b.id);
+      });
+    final names = <String>[
+      for (final item in group)
+        if (item.assigneeName.trim().isNotEmpty) item.assigneeName.trim(),
+    ]..sort();
+    final memo = sorted.first.memo.trim();
+    final roster = names.isEmpty
+        ? ''
+        : '담당 ${names.length}명 · ${names.toSet().join(', ')}';
+    final representative = sorted.first;
+    events.add(
+      LockerEvent(
+        id: 'operation-${representative.id}',
+        title: representative.title,
+        start: representative.start,
+        end: representative.end,
+        place: representative.location.trim().isEmpty
+            ? ibOperationVenue
+            : representative.location.trim(),
+        kind: EventKind.operations,
+        memo: [
+          if (roster.isNotEmpty) roster,
+          if (memo.isNotEmpty) memo,
+        ].join('\n'),
+        targetTeam: '개인',
+        createdBy: 'IB 운영표',
+        responseEnabled: false,
+      ),
+    );
+  }
+  return events;
 }
 
 class AttendanceResponse {
@@ -1048,4 +1109,25 @@ class VideoCommentItem {
   final int? linkId;
   final int? endTimestampSeconds;
   final List<VideoTaggedMember> targetPlayers;
+}
+
+
+/// 비활성 계정이 관리자에게 보낸 활성화 요청 한 건.
+class AccountActivationRequest {
+  const AccountActivationRequest({
+    required this.id,
+    required this.profileId,
+    required this.name,
+    required this.email,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String profileId;
+  final String name;
+  final String email;
+  final DateTime createdAt;
+
+  /// 이름이 비어 있는 계정도 있어 메일 주소를 대신 보여 준다.
+  String get displayName => name.trim().isEmpty ? email : name.trim();
 }

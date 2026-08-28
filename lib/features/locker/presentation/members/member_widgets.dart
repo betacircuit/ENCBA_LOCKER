@@ -36,12 +36,15 @@ class _MemberTile extends StatelessWidget {
             const SizedBox(width: 6),
             _SmallBadge(member.studentId),
           ],
+          // 군복무 배지는 직책과 함께 보여 준다. 예전에는 직책이 있으면
+          // 가려져서, 군 휴학 중인 운영진이 활동 중인 것처럼 보였다.
+          if (member.badge != null) ...[
+            const SizedBox(width: 6),
+            _SmallBadge.military(member.badge!),
+          ],
           if (member.leadershipLabel != null) ...[
             const SizedBox(width: 6),
             _LeadershipBadge(member.leadershipRole),
-          ] else if (member.badge != null) ...[
-            const SizedBox(width: 6),
-            _SmallBadge(member.badge!),
           ],
         ],
       ),
@@ -218,20 +221,30 @@ class _Avatar extends StatelessWidget {
 }
 
 class _SmallBadge extends StatelessWidget {
-  const _SmallBadge(this.text);
+  const _SmallBadge(this.text) : _tint = null, _ink = null;
+
+  /// 군복무처럼 상태를 뜻하는 배지. 학번·직책 배지(주황)와 구분되도록
+  /// 초록색으로 칠한다.
+  const _SmallBadge.military(this.text)
+    : _tint = EncbaColors.attending,
+      _ink = const Color(0xFF0F5A3A);
+
   final String text;
+  final Color? _tint;
+  final Color? _ink;
+
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
     decoration: BoxDecoration(
-      color: EncbaColors.late.withValues(alpha: .12),
+      color: (_tint ?? EncbaColors.late).withValues(alpha: .12),
       borderRadius: BorderRadius.circular(6),
     ),
     child: Text(
       text,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 10,
-        color: Color(0xFF995A00),
+        color: _ink ?? const Color(0xFF995A00),
         fontWeight: FontWeight.w700,
       ),
     ),

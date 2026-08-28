@@ -54,7 +54,6 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
   late DateTime _end;
   late int _ibGameNumber;
   late bool _preciseMinutes;
-  late bool _recurring;
   late bool _responseEnabled;
   late Set<String> _starterIds;
   late DateTime _responseDeadline;
@@ -144,7 +143,6 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
         _isIbKind(_kind) ||
         (existing != null &&
             (existing.start.minute != 0 || existing.end.minute != 0));
-    _recurring = existing?.isRecurring ?? false;
     _responseEnabled = true;
     _starterIds = existing?.starterProfileIds.toSet() ?? <String>{};
     _responseDeadline =
@@ -184,7 +182,22 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
     return PopScope(
       canPop: !_saving,
       child: Scaffold(
-        appBar: AppBar(title: Text(editing ? '일정 수정' : '새 일정')),
+        appBar: AppBar(
+          title: Text(editing ? '일정 수정' : '새 일정'),
+          actions: [
+            // 새 일정을 만들 때만 연다. 이미 있는 일정을 AI가 통째로
+            // 덮어쓰면 무엇이 바뀌었는지 알기 어렵다.
+            if (!editing)
+              IconButton(
+                tooltip: 'AI로 채우기',
+                onPressed: _saving ? null : _composeWithAi,
+                icon: const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: EncbaColors.snuBlue,
+                ),
+              ),
+          ],
+        ),
         body: Stack(
           children: [
             Form(
@@ -597,20 +610,6 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                         ),
                     ],
                   ),
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    value: _recurring,
-                    onChanged:
-                        _kind == EventKind.training && widget.existing == null
-                        ? (value) => setState(() => _recurring = value)
-                        : null,
-                    title: const Text('매주 반복'),
-                    subtitle: Text(
-                      widget.existing == null
-                          ? '정기훈련 12회를 생성하며 각 일정은 따로 수정할 수 있습니다.'
-                          : '반복 설정은 최초 등록할 때만 선택할 수 있습니다.',
-                    ),
-                  ),
                   const SizedBox(height: 22),
                   FilledButton(
                     onPressed: _saving ? null : _save,
@@ -883,6 +882,137 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
     });
   }
 
+  /// AI 채우기. 일정 하나면 이 화면의 입력값을 채우고, 여러 개면 한 번에
+  /// 등록한다. "이번 학기 동안 매주 …" 같은 요청이 여기로 들어온다.
+  Future<void> _composeWithAi() async {
+    final drafts = await showAiEventComposer(
+      context,
+      academicLabel: _academicLabel(DateTime.now()),
+    );
+    if (drafts == null || drafts.isEmpty || !mounted) return;
+    if (drafts.length == 1) {
+      setState(() => _applyAiDraft(drafts.first));
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('AI가 채운 내용을 확인하고 등록해 주세요.')));
+      return;
+    }
+    await _saveAiDrafts(drafts);
+  }
+
+  void _applyAiDraft(AiEventDraft draft) {
+    _kind = draft.kind;
+    _title.text = draft.title;
+    _memo.text = draft.memo;
+    _team = draft.targetTeam;
+    _start = draft.start;
+    _end = draft.end;
+    _preciseMinutes =
+        _isIbKind(_kind) || draft.start.minute != 0 || draft.end.minute != 0;
+    if (_places.contains(draft.place)) {
+      _place = draft.place;
+    } else if (draft.place.isNotEmpty) {
+      _place = _customPlaceOption;
+      _customPlace.text = draft.place;
+    }
+    if (_isIbKind(_kind)) {
+      _ibGameNumber = _inferIbGameNumber(_start);
+      _applyIbGameSlot(_ibGameNumber);
+    }
+    if (_kind != EventKind.training &&
+        _kind != EventKind.morning &&
+        _kind != EventKind.freeOpen &&
+        _uniforms.isEmpty) {
+      _uniforms = {'검정', '흰색'};
+    }
+    if (!_deadlineCustomized) {
+      _responseDeadline = _start.subtract(
+        _kind.isMatch ? const Duration(hours: 3) : const Duration(hours: 1),
+      );
+    }
+  }
+
+  /// 여러 일정을 차례로 저장한다. 중간에 실패해도 몇 개가 들어갔는지
+  /// 알려 줘야 관리자가 같은 일정을 두 번 만들지 않는다.
+  Future<void> _saveAiDrafts(List<AiEventDraft> drafts) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('일정 ${drafts.length}개를 등록할까요?'),
+        content: Text(
+          '${drafts.first.start.month}.${drafts.first.start.day}부터 '
+          '${drafts.last.start.month}.${drafts.last.start.day}까지 '
+          '${drafts.length}개를 만듭니다. 등록 뒤에도 하나씩 수정하거나 취소할 수 있습니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('돌아가기'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('등록'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _saving = true);
+    final user = ref.read(authControllerProvider).user;
+    final notifier = ref.read(lockerControllerProvider.notifier);
+    var saved = 0;
+    for (final draft in drafts) {
+      final ok = await notifier.saveEvent(_eventFromAiDraft(draft, user));
+      if (!ok) break;
+      saved++;
+    }
+    if (!mounted) return;
+    setState(() => _saving = false);
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            saved == drafts.length
+                ? '일정 $saved개를 등록했습니다.'
+                : '일정 $saved개까지 등록하고 멈췄습니다. 남은 일정은 다시 시도해 주세요.',
+          ),
+        ),
+      );
+    if (saved > 0) Navigator.pop(context, true);
+  }
+
+  LockerEvent _eventFromAiDraft(AiEventDraft draft, UserProfile? user) {
+    final isIb = _isIbKind(draft.kind);
+    final needsUniform =
+        draft.kind != EventKind.training &&
+        draft.kind != EventKind.morning &&
+        draft.kind != EventKind.freeOpen;
+    final place = draft.place.trim().isEmpty
+        ? _places.first
+        : (isIb ? ibOperationVenue : draft.place.trim());
+    return LockerEvent(
+      id: 'event-${DateTime.now().microsecondsSinceEpoch}-${draft.start.millisecondsSinceEpoch}',
+      title: draft.title.trim().isEmpty ? draft.kind.label : draft.title.trim(),
+      start: draft.start,
+      end: draft.end,
+      place: place,
+      court: place == _places.first ? 'A코트' : null,
+      kind: draft.kind,
+      memo: draft.memo,
+      uniformColors: needsUniform ? const ['검정', '흰색'] : const [],
+      targetTeam: draft.targetTeam,
+      createdBy: '운영진 ${user?.name ?? ''}',
+      updatedAt: '방금 전',
+      responseEnabled: true,
+      responseDeadlineOverride: draft.start.subtract(
+        draft.kind.isMatch ? const Duration(hours: 3) : const Duration(hours: 1),
+      ),
+      pollOptions: const ['참석', '불참', '미정'],
+      visibility: 'team',
+    );
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_isIbKind(_kind)) _applyIbGameSlot(_ibGameNumber);
@@ -939,7 +1069,8 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
       targetTeam: _team,
       createdBy: widget.existing?.createdBy ?? '운영진 ${user?.name ?? ''}',
       updatedAt: '방금 전',
-      isRecurring: _kind == EventKind.training && _recurring,
+      // 매주 반복은 화면에서 뺐다. 이미 반복으로 만들어진 일정만 그 값을 지킨다.
+      isRecurring: widget.existing?.isRecurring ?? false,
       responseEnabled: _responseEnabled,
       responseDeadlineOverride: _responseDeadline,
       pollOptions: _pollOptions,

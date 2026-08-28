@@ -43,7 +43,7 @@ class ProfileScreen extends ConsumerWidget {
           badge: user.badge,
           photoBase64: user.photoBase64,
           avatarUrl: user.avatarUrl,
-          leadershipLabel: user.leadershipLabel,
+          leadershipRole: user.leadershipRole,
           onTap: () => context.push('/profile/edit'),
         ),
         const SizedBox(height: 12),
@@ -180,6 +180,7 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
           subtitle: '아직 구글 계정으로 가입하지 않은 예비 인원만 모아 보기',
           onTap: () => context.push('/members?pending=1'),
         ),
+        const _ActivationRequestsTile(),
         _MenuTile(
           icon: Icons.report_outlined,
           title: '오류 제보함',
@@ -1025,7 +1026,7 @@ class _ProfileCard extends StatelessWidget {
     required this.badge,
     required this.photoBase64,
     required this.avatarUrl,
-    required this.leadershipLabel,
+    required this.leadershipRole,
     required this.onTap,
   });
   final String name;
@@ -1034,7 +1035,9 @@ class _ProfileCard extends StatelessWidget {
   final String? badge;
   final String? photoBase64;
   final String? avatarUrl;
-  final String? leadershipLabel;
+
+  /// 멤버 목록과 같은 뱃지를 쓰려고 라벨 대신 역할 코드를 받는다.
+  final String leadershipRole;
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) => Card(
@@ -1065,13 +1068,15 @@ class _ProfileCard extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
+                      // 직책 뱃지는 멤버 목록과 같은 위젯을 쓴다. 두 화면이
+                      // 다르게 보이면 같은 사람인지 헷갈린다.
                       if (badge != null) ...[
                         const SizedBox(width: 7),
-                        _SmallBadge(badge!),
+                        _SmallBadge.military(badge!),
                       ],
-                      if (leadershipLabel != null) ...[
+                      if (leadershipRole != 'member') ...[
                         const SizedBox(width: 7),
-                        _SmallBadge(leadershipLabel!),
+                        _LeadershipBadge(leadershipRole),
                       ],
                     ],
                   ),
@@ -1426,4 +1431,162 @@ class _HomecomingAssigneeSelectionDialogState
       ],
     );
   }
+}
+
+
+/// 관리자 메뉴의 계정 활성화 요청 입구. 대기 중인 요청 수를 함께 보여 주고,
+/// 눌러서 바로 승인하거나 거절할 수 있다.
+class _ActivationRequestsTile extends ConsumerWidget {
+  const _ActivationRequestsTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final requests = ref.watch(
+      lockerControllerProvider.select((state) => state.activationRequests),
+    );
+    return _MenuTile(
+      icon: Icons.how_to_reg_outlined,
+      title: requests.isEmpty
+          ? '계정 활성화 요청'
+          : '계정 활성화 요청 ${requests.length}건',
+      subtitle: requests.isEmpty
+          ? '비활성 계정이 보낸 활성화 요청이 없습니다'
+          : '${requests.first.displayName}님 외 대기 중인 요청을 처리',
+      onTap: () => _showActivationRequests(context, ref),
+    );
+  }
+}
+
+Future<void> _showActivationRequests(BuildContext context, WidgetRef ref) async {
+  await ref.read(lockerControllerProvider.notifier).refreshActivationRequests();
+  if (!context.mounted) return;
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Consumer(
+          builder: (context, ref, _) {
+            final requests = ref.watch(
+              lockerControllerProvider.select(
+                (state) => state.activationRequests,
+              ),
+            );
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  '계정 활성화 요청',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '승인하면 그 부원은 바로 다시 로그인할 수 있습니다.',
+                  style: TextStyle(color: EncbaColors.muted, fontSize: 12),
+                ),
+                const SizedBox(height: 14),
+                if (requests.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Text(
+                      '대기 중인 요청이 없습니다.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: EncbaColors.muted),
+                    ),
+                  )
+                else
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: requests.length,
+                      separatorBuilder: (context, index) =>
+                          const Divider(height: 1, color: EncbaColors.line),
+                      itemBuilder: (context, index) =>
+                          _ActivationRequestRow(request: requests[index]),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    ),
+  );
+}
+
+class _ActivationRequestRow extends ConsumerStatefulWidget {
+  const _ActivationRequestRow({required this.request});
+
+  final AccountActivationRequest request;
+
+  @override
+  ConsumerState<_ActivationRequestRow> createState() =>
+      _ActivationRequestRowState();
+}
+
+class _ActivationRequestRowState extends ConsumerState<_ActivationRequestRow> {
+  bool _busy = false;
+
+  Future<void> _resolve(bool approve) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final ok = await ref
+        .read(lockerControllerProvider.notifier)
+        .resolveActivationRequest(request: widget.request, approve: approve);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            !ok
+                ? '요청을 처리하지 못했습니다.'
+                : approve
+                ? '${widget.request.displayName}님의 계정을 활성화했습니다.'
+                : '요청을 거절했습니다.',
+          ),
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          widget.request.displayName,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '${widget.request.email} · ${_relativeTime(widget.request.createdAt)}',
+          style: const TextStyle(color: EncbaColors.muted, fontSize: 12),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton(
+                onPressed: _busy ? null : () => _resolve(true),
+                child: const Text('계정 활성화'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _busy ? null : () => _resolve(false),
+                child: const Text('거절'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
 }

@@ -79,8 +79,13 @@ class _RoutedApp extends ConsumerWidget {
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
-        final refreshableChild = RefreshIndicator.adaptive(
+        // 목록 맨 위에서 아래로 당기면 새로고침한다. 앱 전체를 감싸 두어야
+        // 탭 화면과 상세 화면 어디서든 같은 손짓이 통한다.
+        final refreshableChild = RefreshIndicator(
           onRefresh: () => ref.read(lockerControllerProvider.notifier).reload(),
+          color: EncbaColors.snuBlue,
+          backgroundColor: Colors.white,
+          displacement: 32,
           child: DefaultTextStyle.merge(
             style: const TextStyle(fontFamilyFallback: encbaFontFallback),
             child: child,

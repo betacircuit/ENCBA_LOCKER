@@ -72,6 +72,51 @@ mixin MembersApi on RepoCore {
     params: {'requested_directory_id': profileId, 'requested_active': isActive},
   );
 
+  /// 관리자 전용: 아직 처리되지 않은 계정 활성화 요청.
+  Future<List<AccountActivationRequest>> loadAccountActivationRequests() async {
+    final rows = await _client.rpc('list_account_activation_requests');
+    return (rows as List<dynamic>)
+        .map((raw) {
+          final row = Map<String, dynamic>.from(raw as Map);
+          return AccountActivationRequest(
+            id: row['id'] as String,
+            profileId: row['profile_id'] as String,
+            name: row['requester_name'] as String? ?? '',
+            email: row['requester_email'] as String? ?? '',
+            createdAt: DateTime.parse(
+              row['created_at'] as String,
+            ).toLocal(),
+          );
+        })
+        .toList(growable: false);
+  }
+
+  /// 관리자가 활성화 요청을 승인하거나 거절한다.
+  Future<void> resolveAccountActivation({
+    required String requestId,
+    required bool approve,
+  }) => _client.rpc(
+    'resolve_account_activation',
+    params: {
+      'requested_request_id': requestId,
+      'requested_approve': approve,
+    },
+  );
+
+  /// 새 활성화 요청이 들어오면 관리자 화면에 바로 알린다. 읽기 정책이
+  /// 관리자에게만 열려 있어 부원에게는 아무 이벤트도 오지 않는다.
+  RealtimeChannel subscribeToAccountActivationRequests(
+    void Function(Map<String, dynamic> record) onInsert,
+  ) => _client
+      .channel('encba-account-activation-$_userId')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'account_activation_requests',
+        callback: (payload) => onInsert(payload.newRecord),
+      )
+      .subscribe();
+
   /// 멤버 수정은 한 번의 RPC로 끝낸다. 예전처럼 여러 함수를 이어 부르면
   /// 중간에서 실패했을 때 앞부분만 커밋된 채로 남는다.
   Future<void> updateMember(MemberProfile member) => _client.rpc(

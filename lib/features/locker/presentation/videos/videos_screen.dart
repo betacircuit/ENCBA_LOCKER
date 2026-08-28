@@ -22,9 +22,11 @@ class _VideosScreenState extends ConsumerState<VideosScreen> {
       lockerControllerProvider.select((state) => state.likedVideoIds),
     );
     final user = ref.watch(authControllerProvider).user!;
-    const categories = ['하이라이트', '복기', '공유'];
+    // 공유 분류는 없앴다. 영상 탭은 하이라이트와 복기 둘로만 나뉜다.
+    const categories = ['하이라이트', '복기'];
+    final segment = selected.clamp(0, categories.length - 1);
     final visible =
-        videos.where((item) => item.category == categories[selected]).toList()
+        videos.where((item) => item.category == categories[segment]).toList()
           ..sort(
             (a, b) => switch (_sort) {
               _VideoSort.newest => b.uploadedAt.compareTo(a.uploadedAt),
@@ -53,13 +55,9 @@ class _VideosScreenState extends ConsumerState<VideosScreen> {
       ),
       children: [
         _SlidingTabBar(
-          labels: const ['하이라이트', '복기', '공유'],
-          icons: const [
-            Icons.flash_on_rounded,
-            Icons.forum_outlined,
-            Icons.ios_share_rounded,
-          ],
-          selectedIndex: selected,
+          labels: categories,
+          icons: const [Icons.flash_on_rounded, Icons.forum_outlined],
+          selectedIndex: segment,
           onSelected: ref
               .read(lockerControllerProvider.notifier)
               .selectVideoSegment,
@@ -74,12 +72,11 @@ class _VideosScreenState extends ConsumerState<VideosScreen> {
             ),
           ),
         ),
-        if (_canCreateVideoCategory(user, categories[selected]))
+        if (_canCreateVideoCategory(user, categories[segment]))
           OutlinedButton.icon(
-            onPressed: () =>
-                _showVideoEditor(context, ref, categories[selected]),
+            onPressed: () => _showVideoEditor(context, ref, categories[segment]),
             icon: const Icon(Icons.add_link_rounded),
-            label: Text(selected == 2 ? '유튜브 영상 공유' : '영상 링크 추가'),
+            label: const Text('영상 링크 추가'),
           ),
       ],
     );
@@ -94,7 +91,12 @@ class _VideoTile extends ConsumerWidget {
   final bool liked;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    void open() => context.push('/videos/${Uri.encodeComponent(video.id)}');
+    // 하이라이트는 앱 안에 상세 화면이 없다. 누르면 곧바로 Instagram
+    // 릴스로 나간다.
+    final isHighlight = video.category == '하이라이트';
+    void open() => isHighlight
+        ? unawaited(_launch(context, video.url))
+        : context.push('/videos/${Uri.encodeComponent(video.id)}');
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -123,7 +125,9 @@ class _VideoTile extends ConsumerWidget {
                   Positioned(
                     left: 12,
                     top: 12,
-                    child: _VideoBadge(label: video.category),
+                    child: _VideoBadge(
+                      label: isHighlight ? '하이라이트 · Instagram' : video.category,
+                    ),
                   ),
                   if (video.durationLabel.isNotEmpty)
                     Positioned(

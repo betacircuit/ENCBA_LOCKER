@@ -76,21 +76,33 @@ class PushNotificationService {
       _tokenRefreshSubscription = FirebaseMessaging.instance.onTokenRefresh
           .listen((token) => unawaited(_registerToken(token)));
       _foregroundSubscription = FirebaseMessaging.onMessage.listen((message) {
-        final notification = message.notification;
-        if (notification == null) return;
         // 제목에 앱 이름을 쓰면 브라우저·OS가 붙이는 앱 이름과 겹쳐
         // "ENCBA LOCKER from LOCKER"처럼 보인다.
-        final title = notification.title ?? '새 알림';
-        final body = notification.body ?? '';
-        unawaited(NotificationHistoryService().add(title: title, body: body));
-        unawaited(WebNotificationService().show(title, body));
+        final notification = message.notification;
+        if (notification == null) return;
+        unawaited(_record(message));
+        unawaited(
+          WebNotificationService().show(
+            notification.title ?? '새 알림',
+            notification.body ?? '',
+          ),
+        );
       });
-      _openedSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
-        _handleOpenedMessage,
-      );
+      _openedSubscription = FirebaseMessaging.onMessageOpenedApp.listen((
+        message,
+      ) {
+        // 앱이 꺼져 있거나 뒤에 있을 때 온 알림은 onMessage로 오지 않는다.
+        // 사용자가 눌러서 열었다면 그 알림은 분명히 도착한 것이므로
+        // 여기서 기록해야 히스토리에 구멍이 나지 않는다.
+        unawaited(_record(message));
+        _handleOpenedMessage(message);
+      });
       final initialMessage = await FirebaseMessaging.instance
           .getInitialMessage();
-      if (initialMessage != null) _handleOpenedMessage(initialMessage);
+      if (initialMessage != null) {
+        unawaited(_record(initialMessage));
+        _handleOpenedMessage(initialMessage);
+      }
       _initialized = true;
       return true;
     } on Object catch (error, stackTrace) {
@@ -188,6 +200,27 @@ class PushNotificationService {
       'categories': enabledCategories,
       'enabled': true,
     }, onConflict: 'fcm_token');
+  }
+
+  /// 도착한 푸시를 알림 패널 기록에 남긴다. 보낸 시각(sentTime)이 있으면
+  /// 그 시각으로 적어야 뒤늦게 연 알림이 "방금 전"으로 찍히지 않는다.
+  Future<void> _record(RemoteMessage message) async {
+    final notification = message.notification;
+    final title = notification?.title ?? message.data['title'] as String?;
+    if (title == null || title.isEmpty) return;
+    final path = message.data['path'];
+    final categoryName = message.data['category'];
+    await NotificationHistoryService().add(
+      title: title,
+      body: notification?.body ?? (message.data['body'] as String? ?? ''),
+      receivedAt: message.sentTime,
+      route: path is String && path.startsWith('/') ? path : null,
+      category: categoryName is String
+          ? NotificationCategory.values
+                .where((item) => item.name == categoryName)
+                .firstOrNull
+          : null,
+    );
   }
 
   void _handleOpenedMessage(RemoteMessage message) {

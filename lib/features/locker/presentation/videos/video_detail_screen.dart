@@ -50,6 +50,11 @@ class _VideoDetailScreenRouteState extends ConsumerState<VideoDetailScreen> {
         )
         .where((item) => item.id == widget.videoId)
         .firstOrNull;
+    // 하이라이트는 앱 안에 상세 화면이 없다. 주소로 직접 들어와도(알림·
+    // 예전 링크) 곧바로 Instagram으로 보내고 이 화면은 남기지 않는다.
+    if (video != null && video.category == '하이라이트') {
+      return _HighlightRedirect(url: video.url);
+    }
     if (video != null) return _VideoDetailScreen(video: video);
     return _DetailLoadScaffold(
       title: '영상',
@@ -165,9 +170,7 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
           },
         )
         .subscribe();
-    // 하이라이트(릴스)에도 댓글을 달 수 있게 했다. 복기처럼 시점 코멘트를
-    // 쓸 플레이어는 없지만, 감상·피드백을 남기는 용도로 같은 저장소를 쓴다.
-    if (video.category == '복기' || video.category == '하이라이트') {
+    if (video.category == '복기') {
       Future.microtask(
         () => ref
             .read(lockerControllerProvider.notifier)
@@ -611,7 +614,7 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          if (displayed.category == '복기' || displayed.category == '하이라이트') ...[
+          if (displayed.category == '복기') ...[
             if (displayed.reviewPlayers.isNotEmpty) ...[
               Text('출전 선수', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
@@ -1105,4 +1108,37 @@ class _MemberChecklistSheetState extends State<_MemberChecklistSheet> {
       ),
     );
   }
+}
+
+/// 하이라이트 주소로 들어왔을 때 잠깐 머무는 화면. 릴스를 열고 곧바로
+/// 뒤로 돌아간다. 상세 화면을 지운 뒤 남은 옛 링크·알림을 위한 통로다.
+class _HighlightRedirect extends StatefulWidget {
+  const _HighlightRedirect({required this.url});
+
+  final String url;
+
+  @override
+  State<_HighlightRedirect> createState() => _HighlightRedirectState();
+}
+
+class _HighlightRedirectState extends State<_HighlightRedirect> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() async {
+      if (!mounted) return;
+      await _launch(context, widget.url);
+      if (!mounted) return;
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      } else {
+        context.go(LockerTab.videos.path);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+    body: Center(child: CircularProgressIndicator(color: EncbaColors.snuBlue)),
+  );
 }

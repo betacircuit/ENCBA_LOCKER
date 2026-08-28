@@ -99,17 +99,21 @@ class _HomecomingScreenState extends ConsumerState<HomecomingScreen> {
               value: contacts.isEmpty ? 0 : complete / contacts.length,
             ),
             const SizedBox(height: 18),
-            OutlinedButton.icon(
+            FilledButton.icon(
               onPressed: _showManuals,
               icon: const Icon(Icons.menu_book_outlined),
               label: const Text('연락 매뉴얼'),
             ),
             if (isAdmin) ...[
               const SizedBox(height: 8),
-              FilledButton.icon(
+              OutlinedButton.icon(
                 onPressed: () => _showAddContactDialog(campaign),
                 icon: const Icon(Icons.person_add_alt_rounded),
                 label: const Text('선배 직접 추가'),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: EncbaColors.navy,
+                ),
               ),
             ],
             if (isAdmin) ...[

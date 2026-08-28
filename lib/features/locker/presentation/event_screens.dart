@@ -71,18 +71,23 @@ class _EventResolverState extends ConsumerState<_EventResolver> {
 
   @override
   Widget build(BuildContext context) {
-    final plannerState = ref.watch(
+    // 플래너에 그려진 목록과 똑같은 집합에서 찾아야 한다. 예전에는 내
+    // 배정(operations)만 뒤져서, 목록에는 보이는 남의 IB 운영 일정을
+    // 누르면 "일정 정보를 불러오지 못했습니다"만 떴다.
+    // select가 매번 새 리스트를 만들면 상태가 바뀔 때마다 다시 그려진다.
+    // 원본 목록들만 지켜보고 합치기는 여기서 한다.
+    final sources = ref.watch(
       lockerControllerProvider.select(
         (state) => (
-          events: state.eventsState.events,
-          operations: state.operationsState.operations,
+          eventsState: state.eventsState,
+          operationsState: state.operationsState,
         ),
       ),
     );
-    final event = <LockerEvent>[
-      ...plannerState.events,
-      ...plannerState.operations.map((item) => item.toPlannerEvent()),
-    ].where((item) => item.id == widget.eventId).firstOrNull;
+    final event = sources.eventsState
+        .plannerEventsWith(sources.operationsState)
+        .where((item) => item.id == widget.eventId)
+        .firstOrNull;
     if (event != null) return widget.builder(event);
     return _EntityLoadScaffold(
       title: '일정',

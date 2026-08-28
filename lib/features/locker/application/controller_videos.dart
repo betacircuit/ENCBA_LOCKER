@@ -3,8 +3,10 @@ part of 'locker_controller.dart';
 /// VideosApi - 컨트롤러를 도메인별로 나눈 조각.
 /// 본체 클래스가 이 믹스인들을 조합해 완성된다.
 mixin VideosApi on StateNotifier<LockerState>, ControllerCore {
+  /// 영상 탭은 하이라이트·복기 둘뿐이다. 예전에 '공유'(2)를 보고 있던
+  /// 상태가 남아 있어도 빈 화면이 뜨지 않게 범위 안으로 접어 둔다.
   void selectVideoSegment(int index) =>
-      state = state.copyWith(videoSegment: index);
+      state = state.copyWith(videoSegment: index.clamp(0, 1));
 
   Future<void> toggleVideoLike(String id) async {
     final previousVideos = state.videos;

@@ -39,6 +39,58 @@ Future<void> searchMembers(String query) async {
     return true;
   }
 
+/// 관리자 전용: 대기 중인 계정 활성화 요청을 다시 읽는다.
+  Future<void> refreshActivationRequests() async {
+    final repository = _repository;
+    if (repository == null) return;
+    final requests = await _orDefault(
+      repository.loadAccountActivationRequests(),
+      state.activationRequests,
+    );
+    state = state.copyWith(activationRequests: requests);
+  }
+
+  /// 관리자가 요청을 승인(활성화)하거나 거절한다. 승인하면 명단의
+  /// 계정 상태도 함께 최신으로 맞춘다.
+  Future<bool> resolveActivationRequest({
+    required AccountActivationRequest request,
+    required bool approve,
+  }) async {
+    final repository = _repository;
+    if (repository == null) return false;
+    final previous = state.activationRequests;
+    state = state.copyWith(
+      activationRequests: previous
+          .where((item) => item.id != request.id)
+          .toList(),
+    );
+    try {
+      await repository.resolveAccountActivation(
+        requestId: request.id,
+        approve: approve,
+      );
+      if (approve) {
+        state = state.copyWith(
+          members: state.members
+              .map(
+                (item) => item.id == request.profileId
+                    ? item.copyWith(isActive: true)
+                    : item,
+              )
+              .toList(),
+        );
+      }
+      return true;
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA activation resolve failed: $error\n$stackTrace');
+      state = state.copyWith(
+        activationRequests: previous,
+        error: '활성화 요청을 처리하지 못했습니다.',
+      );
+      return false;
+    }
+  }
+
 Future<bool> setMemberActive(MemberProfile member, bool isActive) async {
     if (_repository == null || member.id == null) return false;
     final previous = state.members;

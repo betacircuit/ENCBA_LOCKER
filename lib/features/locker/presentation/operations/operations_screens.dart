@@ -14,6 +14,9 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
   /// 관리자 섹션을 목록 대신 학기 타임라인으로 보여 준다.
   bool _timelineView = true;
 
+  /// 학기 전체 배정을 펼쳤는지. 기본은 접힘이라 자기 배정만 보인다.
+  bool _showAllAssignments = false;
+
   @override
   void initState() {
     super.initState();
@@ -127,66 +130,66 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
                     onTap: () => _requestSwap(item),
                   ),
                 ),
-          ..._allAssignmentsSection(
-            assignments: allAssignments,
-            canEdit:
-                ref.watch(authControllerProvider).user?.canAdminister ?? false,
-          ),
+          // 전체 배정은 기본으로 펼치지 않는다. 관리자가 운영표를 손볼 때만
+          // 여는 도구라, 평소에는 "내가 맡은 일"만 보이게 둔다.
+          if (ref.watch(authControllerProvider).user?.canAdminister ?? false)
+            ..._allAssignmentsSection(assignments: allAssignments),
         ],
       ),
     );
   }
 
-  /// 학기 전체 운영 배정. 모두가 볼 수 있고, 수정은 관리자만 허용된다.
-  /// 부원 화면과 같은 목록 위젯을 재사용해 두 화면이 어긋나지 않게 한다.
+  /// 학기 전체 운영 배정. 운영표를 고치기 위한 관리자 전용 도구라 접힌 채로
+  /// 시작한다. 펼치기 전까지는 자기 배정 외에는 아무것도 보이지 않는다.
   List<Widget> _allAssignmentsSection({
     required List<OperationAssignment> assignments,
-    required bool canEdit,
   }) {
     return [
       const SizedBox(height: 28),
       Row(
         children: [
-          Expanded(
+          const Expanded(
             child: Text(
-              canEdit ? '전체 운영 일정 (관리자)' : '전체 운영 일정',
-              style: const TextStyle(
+              '운영표 전체 관리',
+              style: TextStyle(
                 fontFamily: 'Jua',
                 fontSize: 27,
                 color: EncbaColors.navy,
               ),
             ),
           ),
-          IconButton(
-            tooltip: _timelineView ? '목록 보기' : '타임라인 보기',
-            onPressed: () => setState(() => _timelineView = !_timelineView),
-            icon: Icon(_timelineView ? Icons.list_rounded : Icons.timeline),
-          ),
-          IconButton(
-            tooltip: '새로고침',
-            onPressed: _loadingAll ? null : _loadAllAssignments,
-            icon: _loadingAll
-                ? const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh_rounded),
-          ),
+          if (_showAllAssignments) ...[
+            IconButton(
+              tooltip: _timelineView ? '목록 보기' : '타임라인 보기',
+              onPressed: () => setState(() => _timelineView = !_timelineView),
+              icon: Icon(_timelineView ? Icons.list_rounded : Icons.timeline),
+            ),
+            IconButton(
+              tooltip: '새로고침',
+              onPressed: _loadingAll ? null : _loadAllAssignments,
+              icon: _loadingAll
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded),
+            ),
+          ],
         ],
       ),
       const SizedBox(height: 6),
-      Text(
-        _timelineView
-            ? canEdit
-                  ? '학기 전체 운영 흐름을 한눈에 봅니다. 항목을 누르면 수정합니다.'
-                  : '학기 전체 운영 흐름을 한눈에 봅니다.'
-            : canEdit
-            ? '모든 부원의 IB 운영 배정을 확인하고 시간·장소·메모를 바로 수정합니다.'
-            : '모든 부원의 IB 운영 배정을 확인할 수 있습니다. 수정은 관리자만 할 수 있어요.',
-        style: const TextStyle(color: EncbaColors.muted),
+      const Text(
+        '엑셀로 가져온 학기 전체 배정입니다. 시간·장소·메모가 잘못됐을 때만 열어 고칩니다.',
+        style: TextStyle(color: EncbaColors.muted),
       ),
       const SizedBox(height: 12),
-      if (_loadingAll)
+      if (!_showAllAssignments)
+        OutlinedButton.icon(
+          onPressed: () => setState(() => _showAllAssignments = true),
+          icon: const Icon(Icons.unfold_more_rounded),
+          label: Text('전체 배정 ${assignments.length}건 펼치기'),
+        )
+      else if (_loadingAll)
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 24),
           child: Center(child: CircularProgressIndicator()),
@@ -197,14 +200,14 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
           title: '등록된 운영 배정이 없습니다',
         )
       else if (_timelineView)
-        ..._buildSemesterTimeline(assignments, canEdit: canEdit)
+        ..._buildSemesterTimeline(assignments, canEdit: true)
       else
         ...assignments.map(
           (item) => _TaskTile(
             date: '${item.start.month}/${item.start.day}',
             title: '${item.title} · ${item.assigneeName}',
             place: '${time(item.start)} · ${item.location}',
-            onTap: canEdit ? () => _editAssignment(item) : null,
+            onTap: () => _editAssignment(item),
           ),
         ),
     ];
@@ -259,7 +262,7 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
         widgets.add(
           InkWell(
             borderRadius: BorderRadius.circular(14),
-            onTap: canEdit ? () => _editAssignment(item) : null,
+            onTap: () => _editAssignment(item),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: IntrinsicHeight(

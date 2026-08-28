@@ -11,6 +11,15 @@ class EncbaAuthException implements Exception {
   final String message;
 }
 
+/// 비활성화된 계정으로 로그인했을 때. 로그인 화면이 그 자리에서 관리자에게
+/// 활성화를 요청할 수 있도록, 어떤 계정이었는지를 함께 들고 나온다.
+class EncbaInactiveAccountException extends EncbaAuthException {
+  const EncbaInactiveAccountException(this.email)
+    : super('비활성화된 계정입니다. 관리자에게 활성화를 요청해 주세요.');
+
+  final String email;
+}
+
 class AuthSessionSnapshot {
   const AuthSessionSnapshot({this.profile, this.pendingRegistration});
 
@@ -509,8 +518,12 @@ class SupabaseAuthRepository {
       }
       final profile = UserProfile.fromSupabase(normalized);
       if (!profile.isActive) {
+        // 세션은 바로 끊는다. 비활성 계정이 잠깐이라도 데이터를 읽을 수
+        // 있으면 안 되기 때문이다. 대신 어떤 계정이었는지는 예외에 실어
+        // 보내서, 로그인 화면이 세션 없이 활성화 요청을 넣을 수 있게 한다.
+        final email = profile.email;
         await _client.auth.signOut();
-        throw const EncbaAuthException('비활성화된 계정입니다. 관리자에게 문의해 주세요.');
+        throw EncbaInactiveAccountException(email);
       }
       try {
         await _store.setString(
@@ -529,6 +542,24 @@ class SupabaseAuthRepository {
       return UserProfile.fromJson(
         Map<String, dynamic>.from(jsonDecode(cached) as Map),
       );
+    }
+  }
+
+  /// 비활성 계정의 활성화를 관리자에게 요청한다. 이 시점에는 이미 로그아웃
+  /// 상태라 anon 키로 부른다. 서버 함수는 계정이 있는지 없는지 알려 주지
+  /// 않으므로, 실패는 연결 문제일 때만이다.
+  Future<bool> requestAccountActivation(String email) async {
+    final trimmed = email.trim();
+    if (trimmed.isEmpty) return false;
+    try {
+      await _client.rpc(
+        'request_account_activation',
+        params: {'requested_email': trimmed},
+      );
+      return true;
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA activation request failed: $error\n$stackTrace');
+      return false;
     }
   }
 

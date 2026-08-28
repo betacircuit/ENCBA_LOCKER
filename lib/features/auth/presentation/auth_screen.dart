@@ -299,7 +299,20 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       ],
                     ),
                   ),
-                  if (auth.error != null) ...[
+                  if (auth.inactiveAccountEmail case final String email) ...[
+                    const SizedBox(height: 16),
+                    _ActivationRequestCard(
+                      email: email,
+                      isBusy: auth.isBusy,
+                      sent: auth.activationRequestSent,
+                      onRequest: () => ref
+                          .read(authControllerProvider.notifier)
+                          .requestAccountActivation(),
+                      onDismiss: () => ref
+                          .read(authControllerProvider.notifier)
+                          .dismissInactiveAccountNotice(),
+                    ),
+                  ] else if (auth.error != null) ...[
                     const SizedBox(height: 12),
                     Text(
                       auth.error!,
@@ -615,6 +628,76 @@ class _VerifiedRealNameField extends StatelessWidget {
             ],
           ),
         ),
+      ],
+    ),
+  );
+}
+
+
+/// 비활성 계정으로 로그인했을 때 뜨는 안내. 여기서 바로 관리자에게
+/// 활성화를 요청할 수 있고, 관리자가 승인하면 다시 로그인하면 된다.
+class _ActivationRequestCard extends StatelessWidget {
+  const _ActivationRequestCard({
+    required this.email,
+    required this.isBusy,
+    required this.sent,
+    required this.onRequest,
+    required this.onDismiss,
+  });
+
+  final String email;
+  final bool isBusy;
+  final bool sent;
+  final VoidCallback onRequest;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: EncbaColors.highlight,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: EncbaColors.line),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          '비활성화된 계정입니다',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          email,
+          style: const TextStyle(color: EncbaColors.muted, fontSize: 13),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          sent
+              ? '관리자에게 활성화 요청을 보냈습니다. 승인되면 다시 로그인해 주세요.'
+              : '관리자가 계정을 활성화하면 바로 로그인할 수 있습니다.',
+          style: const TextStyle(
+            color: EncbaColors.muted,
+            fontSize: 12,
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: isBusy || sent ? null : onRequest,
+          icon: Icon(
+            sent ? Icons.check_rounded : Icons.mark_email_read_outlined,
+          ),
+          label: Text(
+            sent
+                ? '요청을 보냈습니다'
+                : isBusy
+                ? '보내는 중…'
+                : '관리자에게 활성화 요청',
+          ),
+        ),
+        TextButton(onPressed: onDismiss, child: const Text('닫기')),
       ],
     ),
   );

@@ -32,6 +32,7 @@ mixin ControllerCore on StateNotifier<LockerState> {
   RealtimeChannel? _operationAssignmentChannel;
   RealtimeChannel? _eventChannel;
   RealtimeChannel? _videoFeedChannel;
+  RealtimeChannel? _activationRequestChannel;
   Timer? _undecidedReminderTimer;
   Future<void>? _loadInFlight;
   String _memberMembership = 'ALL';
@@ -210,38 +211,40 @@ class LockerController extends StateNotifier<LockerState>
         unawaited(_mergeRealtimeAnnouncement(repository, record));
       });
       _eventChannel ??= repository.subscribeToEvents((record) {
-        state = state.copyWith(
-          unreadNotifications: state.unreadNotifications + 1,
-        );
+        final id = record['id'] as String?;
         unawaited(
           _notifyIfEnabled(
             NotificationCategory.events,
             '새 일정이 등록됐습니다',
             (record['title'] as String?) ?? '일정 탭에서 확인해 주세요.',
+            route: id == null
+                ? null
+                : '/schedule/${Uri.encodeComponent(id)}',
           ),
         );
       });
       _videoFeedChannel ??= repository.subscribeToVideos((record) {
-        state = state.copyWith(
-          unreadNotifications: state.unreadNotifications + 1,
-        );
+        final id = record['id'] as String?;
         final category = record['category'] as String? ?? '영상';
         unawaited(
           _notifyIfEnabled(
             NotificationCategory.videos,
             '새 $category 영상이 올라왔습니다',
             (record['title'] as String?) ?? '영상 탭에서 확인해 주세요.',
+            route: id == null ? null : '/videos/${Uri.encodeComponent(id)}',
           ),
         );
       });
       _operationSwapChannel ??= repository.subscribeToOperationSwapRequests((
         record,
       ) {
-        state = state.copyWith(
-          unreadNotifications: state.unreadNotifications + 1,
-        );
         unawaited(
-          _notify('IB 운영 교환 신청이 왔습니다', 'PERSONAL의 IB 운영 일정에서 요청을 확인해 주세요.'),
+          _notify(
+            'IB 운영 교환 신청이 왔습니다',
+            'PERSONAL의 IB 운영 일정에서 요청을 확인해 주세요.',
+            category: NotificationCategory.events,
+            route: '/operations',
+          ),
         );
         unawaited(refreshOperationSwaps());
       });
@@ -250,6 +253,24 @@ class LockerController extends StateNotifier<LockerState>
       _operationAssignmentChannel ??= repository
           .subscribeToOperationAssignments((record) {
             unawaited(_mergeRealtimeOperations(repository, record));
+          });
+      // 계정 활성화 요청은 관리자에게만 읽기가 열려 있어, 부원 계정에서는
+      // 이 구독으로 아무것도 오지 않는다.
+      unawaited(refreshActivationRequests());
+      _activationRequestChannel ??= repository
+          .subscribeToAccountActivationRequests((record) {
+            final name =
+                (record['requester_name'] as String?)?.trim().isNotEmpty == true
+                ? (record['requester_name'] as String).trim()
+                : (record['requester_email'] as String? ?? '한 부원');
+            unawaited(
+              _notify(
+                '계정 활성화 요청',
+                '$name님이 계정 활성화를 요청했어요.',
+                route: '/profile',
+              ),
+            );
+            unawaited(refreshActivationRequests());
           });
     } on Object catch (error, stackTrace) {
       debugPrint('ENCBA data sync failed: $error\n$stackTrace');
@@ -291,12 +312,13 @@ class LockerController extends StateNotifier<LockerState>
     if (state.announcements.any((item) => item.id == id)) return;
     state = state.copyWith(
       announcements: [announcement, ...state.announcements],
-      unreadNotifications: state.unreadNotifications + 1,
     );
     await _notifyIfEnabled(
       NotificationCategory.announcements,
       announcement.title,
       announcement.body,
+      route: '/announcements/${Uri.encodeComponent(announcement.id)}',
+      occurredAt: announcement.publishedAt,
     );
   }
 
@@ -326,6 +348,7 @@ class LockerController extends StateNotifier<LockerState>
         title == null || title.isEmpty
             ? '일정 탭에서 배정을 확인해 주세요.'
             : '$title · 일정 탭에서 확인해 주세요.',
+        route: '/operations',
       );
     }
   }
@@ -361,6 +384,8 @@ class LockerController extends StateNotifier<LockerState>
     if (eventChannel != null) _repository?.unsubscribe(eventChannel);
     final videoFeedChannel = _videoFeedChannel;
     if (videoFeedChannel != null) _repository?.unsubscribe(videoFeedChannel);
+    final activationChannel = _activationRequestChannel;
+    if (activationChannel != null) _repository?.unsubscribe(activationChannel);
     super.dispose();
   }
 
@@ -429,18 +454,6 @@ List<VideoItem> _seedVideos() {
       uploader: '주장 이준호',
       accent: 0xFF0B2347,
       likeCount: 7,
-    ),
-    VideoItem(
-      id: 'share-01',
-      title: '가드가 보면 좋은 픽앤롤 읽기',
-      durationLabel: '8:05',
-      category: '공유',
-      url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
-      youtubeId: 'M7lc1UVf-VE',
-      uploadedAt: now.subtract(const Duration(days: 1, hours: 5)),
-      uploader: '김민수',
-      accent: 0xFF123A72,
-      likeCount: 9,
     ),
   ];
 }

@@ -14,6 +14,8 @@ class AuthState {
     this.user,
     this.pendingRegistration,
     this.error,
+    this.inactiveAccountEmail,
+    this.activationRequestSent = false,
   });
 
   final bool isReady;
@@ -22,6 +24,13 @@ class AuthState {
   final UserProfile? user;
   final PendingGoogleRegistration? pendingRegistration;
   final String? error;
+
+  /// 비활성화 때문에 로그인이 막힌 계정의 메일. 로그인 화면은 이 값이 있을
+  /// 때만 "관리자에게 활성화 요청" 버튼을 보여 준다.
+  final String? inactiveAccountEmail;
+
+  /// 활성화 요청을 이미 보냈는지. 같은 요청을 반복해 누르지 않게 한다.
+  final bool activationRequestSent;
 
   AuthState copyWith({
     bool? isReady,
@@ -33,6 +42,9 @@ class AuthState {
     bool clearPendingRegistration = false,
     String? error,
     bool clearError = false,
+    String? inactiveAccountEmail,
+    bool clearInactiveAccount = false,
+    bool? activationRequestSent,
   }) => AuthState(
     isReady: isReady ?? this.isReady,
     isBusy: isBusy ?? this.isBusy,
@@ -42,6 +54,12 @@ class AuthState {
         ? null
         : pendingRegistration ?? this.pendingRegistration,
     error: clearError ? null : error ?? this.error,
+    inactiveAccountEmail: clearInactiveAccount
+        ? null
+        : inactiveAccountEmail ?? this.inactiveAccountEmail,
+    activationRequestSent: clearInactiveAccount
+        ? false
+        : activationRequestSent ?? this.activationRequestSent,
   );
 }
 
@@ -111,6 +129,10 @@ class AuthController extends StateNotifier<AuthState> {
         clearUser: true,
         clearPendingRegistration: true,
         error: error.message,
+        inactiveAccountEmail: error is EncbaInactiveAccountException
+            ? error.email
+            : null,
+        clearInactiveAccount: error is! EncbaInactiveAccountException,
       );
     } on Object {
       state = state.copyWith(
@@ -250,17 +272,41 @@ class AuthController extends StateNotifier<AuthState> {
       clearUser: true,
       clearPendingRegistration: true,
       clearError: true,
+      clearInactiveAccount: true,
     );
   }
 
+  /// 비활성 계정의 활성화를 관리자에게 요청한다.
+  Future<bool> requestAccountActivation() async {
+    final email = state.inactiveAccountEmail;
+    if (email == null || state.activationRequestSent) return false;
+    state = state.copyWith(isBusy: true);
+    final sent = await _repo.requestAccountActivation(email);
+    state = state.copyWith(
+      isBusy: false,
+      activationRequestSent: sent,
+      error: sent
+          ? '관리자에게 활성화 요청을 보냈습니다. 승인되면 다시 로그인해 주세요.'
+          : '요청을 보내지 못했습니다. 잠시 뒤 다시 시도해 주세요.',
+    );
+    return sent;
+  }
+
+  /// 로그인 화면을 다시 처음 상태로 돌린다.
+  void dismissInactiveAccountNotice() =>
+      state = state.copyWith(clearInactiveAccount: true, clearError: true);
+
   Future<void> _handleAuthChange(supabase.AuthState event) async {
     if (event.event == supabase.AuthChangeEvent.signedOut) {
+      // 비활성 계정 안내는 여기서 지우면 안 된다. 그 로그아웃을 일으킨
+      // 것이 바로 비활성 판정이라, 안내와 요청 버튼이 뜨자마자 사라진다.
+      final keepInactiveNotice = state.inactiveAccountEmail != null;
       state = state.copyWith(
         isReady: true,
         sessionRevision: state.sessionRevision + 1,
         clearUser: true,
         clearPendingRegistration: true,
-        clearError: true,
+        clearError: !keepInactiveNotice,
       );
       return;
     }
@@ -281,7 +327,14 @@ class AuthController extends StateNotifier<AuthState> {
           clearError: true,
         );
       } on EncbaAuthException catch (error) {
-        state = state.copyWith(isReady: true, error: error.message);
+        state = state.copyWith(
+          isReady: true,
+          error: error.message,
+          inactiveAccountEmail: error is EncbaInactiveAccountException
+              ? error.email
+              : null,
+          clearInactiveAccount: error is! EncbaInactiveAccountException,
+        );
       }
       return;
     }
