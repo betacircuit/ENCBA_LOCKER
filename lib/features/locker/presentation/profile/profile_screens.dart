@@ -1072,7 +1072,7 @@ class _ProfileCard extends StatelessWidget {
                       // 다르게 보이면 같은 사람인지 헷갈린다.
                       if (badge != null) ...[
                         const SizedBox(width: 7),
-                        _SmallBadge.military(badge!),
+                        const _MilitaryBadge(),
                       ],
                       if (leadershipRole != 'member') ...[
                         const SizedBox(width: 7),

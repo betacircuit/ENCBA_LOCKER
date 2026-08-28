@@ -13,6 +13,7 @@ class NotificationHistoryEntry {
     required this.receivedAt,
     this.category,
     this.route,
+    this.readAt,
   });
 
   final String title;
@@ -24,6 +25,15 @@ class NotificationHistoryEntry {
 
   /// 눌렀을 때 열 앱 내 주소. 없으면 기록만 남는다.
   final String? route;
+
+  /// 읽은 시각. null이면 아직 안 읽은 알림이다.
+  final DateTime? readAt;
+
+  bool get isRead => readAt != null;
+
+  /// 같은 알림인지 가리는 열쇠. 시각까지 넣어야 제목이 같은 알림 둘을
+  /// 구분할 수 있다.
+  String get key => '$title|$body|${receivedAt.toIso8601String()}';
 
   /// 저장 형식이 깨졌거나 옛 버전이면 그 항목만 버린다.
   static NotificationHistoryEntry? tryParse(Object? value) {
@@ -41,6 +51,7 @@ class NotificationHistoryEntry {
           .where((item) => item.name == categoryName)
           .firstOrNull,
       route: route == null || route.isEmpty ? null : route,
+      readAt: DateTime.tryParse(value['readAt'] as String? ?? '')?.toLocal(),
     );
   }
 
@@ -50,6 +61,7 @@ class NotificationHistoryEntry {
     'receivedAt': receivedAt.toIso8601String(),
     if (category != null) 'category': category!.name,
     if (route != null) 'route': route,
+    if (readAt != null) 'readAt': readAt!.toIso8601String(),
   };
 }
 
@@ -113,22 +125,76 @@ class NotificationHistoryService {
           at.difference(entry.receivedAt).abs() < _duplicateWindow,
     );
     if (isDuplicate) return false;
-    final next =
-        [
+    await _write([
+      NotificationHistoryEntry(
+        title: title,
+        body: body,
+        receivedAt: at,
+        category: category,
+        route: route,
+      ),
+      ...entries,
+    ]);
+    return true;
+  }
+
+  /// 알림 하나를 읽음으로 표시한다.
+  Future<void> markRead(NotificationHistoryEntry entry) async {
+    final entries = await load();
+    final next = [
+      for (final item in entries)
+        if (item.key == entry.key && !item.isRead)
           NotificationHistoryEntry(
-            title: title,
-            body: body,
-            receivedAt: at,
-            category: category,
-            route: route,
+            title: item.title,
+            body: item.body,
+            receivedAt: item.receivedAt,
+            category: item.category,
+            route: item.route,
+            readAt: DateTime.now(),
+          )
+        else
+          item,
+    ];
+    await _write(next);
+  }
+
+  /// 목록을 연 순간 전부 읽음으로 표시한다.
+  Future<void> markAllRead() async {
+    final entries = await load();
+    final now = DateTime.now();
+    await _write([
+      for (final item in entries)
+        if (item.isRead)
+          item
+        else
+          NotificationHistoryEntry(
+            title: item.title,
+            body: item.body,
+            receivedAt: item.receivedAt,
+            category: item.category,
+            route: item.route,
+            readAt: now,
           ),
-          ...entries,
-        ]..sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
+    ]);
+  }
+
+  /// 읽은 알림만 지운다. 아직 못 읽은 알림은 남겨 둬야 실수로 놓치지 않는다.
+  Future<List<NotificationHistoryEntry>> clearRead() async {
+    final remaining = [
+      for (final entry in await load())
+        if (!entry.isRead) entry,
+    ];
+    await _write(remaining);
+    return remaining;
+  }
+
+  Future<void> _write(List<NotificationHistoryEntry> entries) async {
+    final sorted = [...entries]
+      ..sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
     await _store.setString(
       _key,
-      jsonEncode([for (final entry in next.take(maxEntries)) entry.toJson()]),
+      jsonEncode([for (final entry in sorted.take(maxEntries)) entry.toJson()]),
     );
-    return true;
   }
 
   Future<void> clear() => _store.remove(_key);

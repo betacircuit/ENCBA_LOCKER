@@ -38,7 +38,20 @@ Future<void> _showMemberEditor(
   var isActive = base.isActive;
   var teams = {...base.teams};
   var titles = List<String>.of(base.titles);
+  var titleEmoji = defaultMemberTitleEmoji;
   String? validationError;
+
+  // 이모지와 이름을 붙여 한 줄로 저장한다. 이름이 비었거나 이미 있는
+  // 직책이면 아무것도 하지 않는다.
+  void addTitle() {
+    final name = newTitle.text.trim();
+    if (name.isEmpty) return;
+    final value = '$titleEmoji $name';
+    if (titles.any((item) => memberTitleLabel(item) == name)) return;
+    titles.add(value);
+    newTitle.clear();
+    titleEmoji = defaultMemberTitleEmoji;
+  }
 
   final save = await showModalBottomSheet<bool>(
     context: context,
@@ -226,7 +239,8 @@ Future<void> _showMemberEditor(
                     children: titles
                         .map(
                           (title) => InputChip(
-                            label: Text(title),
+                            avatar: Text(memberTitleEmoji(title)),
+                            label: Text(memberTitleLabel(title)),
                             onDeleted: () =>
                                 setState(() => titles.remove(title)),
                           ),
@@ -238,6 +252,13 @@ Future<void> _showMemberEditor(
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // 이모지는 직책 이름 앞에 붙여 저장한다("🎸 밴드부장").
+                    // 컬럼을 늘리지 않고도 직책마다 제 얼굴을 가진다.
+                    _TitleEmojiButton(
+                      emoji: titleEmoji,
+                      onChanged: (value) => setState(() => titleEmoji = value),
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
                         controller: newTitle,
@@ -245,23 +266,13 @@ Future<void> _showMemberEditor(
                           labelText: '직책 추가',
                           hintText: '예: 벤 감독',
                         ),
-                        onSubmitted: (_) => setState(() {
-                          final value = newTitle.text.trim();
-                          if (value.isEmpty || titles.contains(value)) return;
-                          titles.add(value);
-                          newTitle.clear();
-                        }),
+                        onSubmitted: (_) => setState(addTitle),
                       ),
                     ),
                     const SizedBox(width: 8),
                     IconButton(
                       tooltip: '추가',
-                      onPressed: () => setState(() {
-                        final value = newTitle.text.trim();
-                        if (value.isEmpty || titles.contains(value)) return;
-                        titles.add(value);
-                        newTitle.clear();
-                      }),
+                      onPressed: () => setState(addTitle),
                       icon: const Icon(Icons.add_circle_outline_rounded),
                     ),
                   ],
@@ -348,4 +359,118 @@ Future<void> _showMemberEditor(
   department.dispose();
   newTitle.dispose();
   jersey.dispose();
+}
+
+
+/// 직책 앞에 붙일 이모지를 고르는 작은 버튼. 목록에 없는 이모지는 직접
+/// 붙여 넣을 수 있어 아이폰·갤럭시 키보드에서 고른 것도 그대로 쓴다.
+class _TitleEmojiButton extends StatelessWidget {
+  const _TitleEmojiButton({required this.emoji, required this.onChanged});
+
+  final String emoji;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: () => _pick(context),
+    borderRadius: BorderRadius.circular(12),
+    child: Container(
+      width: 54,
+      height: 56,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: EncbaColors.line),
+      ),
+      child: Text(emoji, style: const TextStyle(fontSize: 22)),
+    ),
+  );
+
+  Future<void> _pick(BuildContext context) async {
+    final controller = TextEditingController(text: emoji);
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('직책 이모지', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              const Text(
+                '목록에서 고르거나, 키보드에서 고른 이모지를 아래에 붙여 넣으세요.',
+                style: TextStyle(color: EncbaColors.muted, fontSize: 12),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final choice in memberTitleEmojiChoices)
+                    InkWell(
+                      onTap: () => Navigator.pop(sheetContext, choice),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: choice == emoji
+                              ? EncbaColors.highlight
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: choice == emoji
+                                ? EncbaColors.snuBlue
+                                : EncbaColors.line,
+                          ),
+                        ),
+                        child: Text(
+                          choice,
+                          style: const TextStyle(fontSize: 20),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                maxLength: 8,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 22),
+                decoration: const InputDecoration(
+                  labelText: '직접 입력',
+                  counterText: '',
+                ),
+              ),
+              const SizedBox(height: 10),
+              FilledButton(
+                onPressed: () {
+                  final typed = controller.text.trim();
+                  Navigator.pop(
+                    sheetContext,
+                    typed.isEmpty ? defaultMemberTitleEmoji : typed,
+                  );
+                },
+                child: const Text('이 이모지 쓰기'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    controller.dispose();
+    if (picked != null && picked.isNotEmpty) onChanged(picked);
+  }
 }

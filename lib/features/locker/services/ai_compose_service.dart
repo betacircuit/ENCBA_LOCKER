@@ -47,13 +47,18 @@ class AiEventDraft {
 
   static AiEventDraft? tryParse(Object? value) {
     if (value is! Map) return null;
-    final start = DateTime.tryParse(value['start'] as String? ?? '');
-    final end = DateTime.tryParse(value['end'] as String? ?? '');
-    if (start == null || end == null || !end.isAfter(start)) return null;
+    final now = DateTime.now();
+    final defaultStart = DateTime(now.year, now.month, now.day, 13).add(const Duration(days: 1));
+    final parsedStart = DateTime.tryParse(value['start'] as String? ?? '');
+    final parsedEnd = DateTime.tryParse(value['end'] as String? ?? '');
+    
+    final start = parsedStart ?? defaultStart;
+    final end = (parsedEnd != null && parsedEnd.isAfter(start)) ? parsedEnd : start.add(const Duration(hours: 2));
+
     final kind = EventKind.values
         .where((item) => item.name == (value['kind'] as String? ?? ''))
-        .firstOrNull;
-    if (kind == null) return null;
+        .firstOrNull ?? EventKind.training;
+
     final targetTeam = value['targetTeam'] as String? ?? '전체';
     return AiEventDraft(
       kind: kind,

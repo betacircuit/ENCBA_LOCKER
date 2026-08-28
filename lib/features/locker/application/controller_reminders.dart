@@ -78,13 +78,38 @@ Future<void> scheduleReservationOpeningReminder({
     if (!opening.isAfter(serverNow)) {
       opening = opening.add(const Duration(days: 7));
     }
-    final reminderAt = opening.subtract(const Duration(minutes: 5));
-    final deviceTarget = DateTime.now().add(reminderAt.difference(serverNow));
-    await WebNotificationService().scheduleAt(
-      'encba-court-reservation-opening',
-      '체육관 예약 오픈 5분 전',
-      '71동·71-1동 다음 주 예약이 곧 열립니다.',
-      deviceTarget,
-    );
+    // 예약 담당자는 두 번 알림을 받는다. 전날 밤에 한 번 미리 알고,
+    // 당일 아침에 다시 확인한다. 5분 전 하나만 보내면 그 순간에 손이
+    // 비어 있어야만 잡을 수 있었다.
+    final reminders = <({String id, DateTime at, String title, String body})>[
+      (
+        id: 'encba-court-reservation-eve',
+        at: DateTime(
+          opening.year,
+          opening.month,
+          opening.day,
+        ).subtract(const Duration(hours: 2)),
+        title: '내일 체육관 예약이 열립니다',
+        body: '71동·71-1동 다음 주 예약이 내일 오전 9시 30분에 열려요.',
+      ),
+      (
+        id: 'encba-court-reservation-morning',
+        at: DateTime(opening.year, opening.month, opening.day, 9),
+        title: '오늘 체육관 예약이 열립니다',
+        body: '오전 9시 30분에 71동·71-1동 다음 주 예약이 열려요.',
+      ),
+    ];
+    for (final reminder in reminders) {
+      if (!reminder.at.isAfter(serverNow)) continue;
+      final deviceTarget = DateTime.now().add(
+        reminder.at.difference(serverNow),
+      );
+      await WebNotificationService().scheduleAt(
+        reminder.id,
+        reminder.title,
+        reminder.body,
+        deviceTarget,
+      );
+    }
   }
 }

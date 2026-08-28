@@ -524,15 +524,17 @@ Future<void> _showNotifications(
                       ),
                     ),
                   ),
-                  if (history.isNotEmpty)
+                  if (history.any((entry) => entry.isRead))
                     TextButton(
+                      // 읽은 것만 치운다. 아직 못 읽은 알림까지 사라지면
+                      // 놓친 소식을 되짚을 방법이 없다.
                       onPressed: () async {
-                        await historyService.clear();
+                        final remaining = await historyService.clearRead();
                         if (sheetContext.mounted) {
-                          setState(() => history = const []);
+                          setState(() => history = remaining);
                         }
                       },
-                      child: const Text('기록 지우기'),
+                      child: const Text('읽은 알림 지우기'),
                     ),
                 ],
               ),
@@ -631,7 +633,18 @@ Future<void> _showNotifications(
                     separatorBuilder: (context, index) =>
                         const Divider(height: 1, color: EncbaColors.line),
                     itemBuilder: (context, index) =>
-                        _NotificationHistoryTile(entry: history[index]),
+                        _NotificationHistoryTile(
+                          entry: history[index],
+                          onRead: () async {
+                            await historyService.markRead(history[index]);
+                            if (!sheetContext.mounted) return;
+                            setState(() async {});
+                            final refreshed = await historyService.load();
+                            if (sheetContext.mounted) {
+                              setState(() => history = refreshed);
+                            }
+                          },
+                        ),
                   ),
                 ),
             ],
@@ -645,9 +658,12 @@ Future<void> _showNotifications(
 /// 알림 기록 한 줄. 정확한 시각과 상대 시간, 어떤 항목의 알림이었는지를
 /// 함께 보여 주고, 열 곳이 있으면 눌러서 바로 갈 수 있게 한다.
 class _NotificationHistoryTile extends StatelessWidget {
-  const _NotificationHistoryTile({required this.entry});
+  const _NotificationHistoryTile({required this.entry, required this.onRead});
 
   final NotificationHistoryEntry entry;
+
+  /// 이 알림을 읽음으로 표시한다.
+  final Future<void> Function() onRead;
 
   @override
   Widget build(BuildContext context) {
@@ -675,9 +691,31 @@ class _NotificationHistoryTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  entry.title,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                Row(
+                  children: [
+                    // 안 읽은 알림에만 점을 찍어 눈에 먼저 들어오게 한다.
+                    if (!entry.isRead) ...[
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: EncbaColors.snuBlue,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    Expanded(
+                      child: Text(
+                        entry.title,
+                        style: TextStyle(
+                          fontWeight: entry.isRead
+                              ? FontWeight.w600
+                              : FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 if (entry.body.isNotEmpty) ...[
                   const SizedBox(height: 3),
@@ -710,16 +748,19 @@ class _NotificationHistoryTile extends StatelessWidget {
         ],
       ),
     );
-    if (route == null) return content;
+    // 읽은 알림은 흐리게 보여 안 읽은 것과 한눈에 구분되게 한다.
+    final faded = Opacity(opacity: entry.isRead ? .45 : 1, child: content);
     return InkWell(
       onTap: () {
         // 시트를 닫으면 이 위젯의 context가 곧 무효가 된다. 라우터를 먼저
         // 붙잡아 두고 닫은 뒤에 이동한다.
+        unawaited(onRead());
+        if (route == null) return;
         final router = GoRouter.of(context);
         Navigator.pop(context);
         router.push(route);
       },
-      child: content,
+      child: faded,
     );
   }
 }
@@ -1050,23 +1091,24 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
               ),
             ),
           ),
-          Row(
-            children: [
-              Expanded(
-                child: SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: _pollEnabled,
-                  title: const Text('투표 첨부'),
-                  subtitle: const Text('부원은 공지에서 한 항목을 선택할 수 있습니다.'),
-                  onChanged: (value) => setState(() => _pollEnabled = value),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: _pollEnabled,
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('투표 첨부'),
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: '항목별 인원 제한',
+                  onPressed: _pollEnabled ? _editPollLimits : null,
+                  icon: const Icon(Icons.tune_rounded),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                 ),
-              ),
-              IconButton(
-                tooltip: '항목별 인원 제한',
-                onPressed: _pollEnabled ? _editPollLimits : null,
-                icon: const Icon(Icons.tune_rounded),
-              ),
-            ],
+              ],
+            ),
+            onChanged: (value) => setState(() => _pollEnabled = value),
           ),
           if (_pollEnabled) ...[
             TextField(
@@ -1088,9 +1130,6 @@ class _AnnouncementEditorScreenState extends State<_AnnouncementEditorScreen> {
                       maxLength: 60,
                       decoration: InputDecoration(
                         labelText: '투표 항목 ${index + 1}',
-                        helperText: _limitAt(index) > 0
-                            ? '정원 ${_limitAt(index)}명'
-                            : '정원 제한 없음',
                       ),
                     ),
                   ),

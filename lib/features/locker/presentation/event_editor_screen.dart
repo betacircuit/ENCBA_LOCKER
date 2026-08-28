@@ -652,6 +652,13 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                         onPressed: _cancelEvent,
                         child: const Text('일정 취소'),
                       ),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.red.shade800,
+                      ),
+                      onPressed: _delete,
+                      child: const Text('일정 완전 삭제'),
+                    ),
                   ],
                 ],
               ),
@@ -1237,6 +1244,35 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
         .read(lockerControllerProvider.notifier)
         .cancelEvent(widget.existing!.id, reason);
     if (mounted && cancelled) {
+      Navigator.pop(context);
+      Navigator.pop(context);
+    }
+  }
+
+  Future<void> _delete() async {
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('일정을 삭제할까요?'),
+        content: const Text('이 기기에 저장된 일정과 참석 응답이 더 이상 표시되지 않습니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: EncbaColors.absent),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (approved != true) return;
+    final deleted = await ref
+        .read(lockerControllerProvider.notifier)
+        .deleteEvent(widget.existing!.id);
+    if (mounted && deleted) {
       Navigator.pop(context);
       Navigator.pop(context);
     }

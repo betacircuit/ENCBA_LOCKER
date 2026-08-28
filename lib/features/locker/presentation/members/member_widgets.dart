@@ -40,7 +40,7 @@ class _MemberTile extends StatelessWidget {
           // 가려져서, 군 휴학 중인 운영진이 활동 중인 것처럼 보였다.
           if (member.badge != null) ...[
             const SizedBox(width: 6),
-            _SmallBadge.military(member.badge!),
+            const _MilitaryBadge(),
           ],
           if (member.leadershipLabel != null) ...[
             const SizedBox(width: 6),
@@ -129,6 +129,121 @@ class _LeadershipBadgeStyle {
   final IconData icon;
   final String label;
 }
+
+/// 직책 뱃지와 같은 결의 알약. 아이콘 대신 이모지를 달 수 있어서 직접
+/// 추가한 직책("🎸 밴드부장")도 같은 모양으로 보인다.
+class _GradientBadge extends StatelessWidget {
+  const _GradientBadge({
+    required this.label,
+    required this.colors,
+    required this.foreground,
+    required this.emoji,
+  });
+
+  final String label;
+  final List<Color> colors;
+  final Color foreground;
+  final String emoji;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(colors: colors),
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: colors.last.withValues(alpha: .35),
+          blurRadius: 5,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(emoji, style: const TextStyle(fontSize: 10)),
+        const SizedBox(width: 3),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: foreground,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// 군 복무 중인 부원. 직책 뱃지와 나란히 서도 밀리지 않게 같은 알약을 쓴다.
+class _MilitaryBadge extends StatelessWidget {
+  const _MilitaryBadge();
+
+  @override
+  Widget build(BuildContext context) => const _GradientBadge(
+    label: '군복무',
+    emoji: '🔫',
+    colors: [Color(0xFF6F8F63), Color(0xFF3C5A34)],
+    foreground: Colors.white,
+  );
+}
+
+/// 직접 추가한 직책("담당"). 역할 뱃지와 구분되게 은색으로 칠한다.
+class _TitleBadge extends StatelessWidget {
+  const _TitleBadge(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => _GradientBadge(
+    label: memberTitleLabel(title),
+    emoji: memberTitleEmoji(title),
+    colors: const [Color(0xFFE6EAF0), Color(0xFFAEB7C4)],
+    foreground: EncbaColors.navy,
+  );
+}
+
+/// 직책은 "🎸 밴드부장"처럼 이모지를 앞에 붙여 저장한다. 컬럼을 늘리지
+/// 않고도 각 직책이 제 얼굴을 가질 수 있다.
+const defaultMemberTitleEmoji = '🏷️';
+
+/// 직책 문자열 맨 앞의 이모지. 없으면 기본 이모지를 준다.
+String memberTitleEmoji(String title) {
+  final trimmed = title.trim();
+  if (trimmed.isEmpty) return defaultMemberTitleEmoji;
+  final runes = trimmed.runes.toList();
+  // 첫 글자가 한글·영문·숫자가 아니면 이모지로 본다.
+  final first = String.fromCharCode(runes.first);
+  if (RegExp(r'[0-9A-Za-z가-힣]').hasMatch(first)) {
+    return defaultMemberTitleEmoji;
+  }
+  // 변형 선택자·ZWJ로 이어지는 이모지는 통째로 가져온다.
+  final buffer = StringBuffer();
+  for (final rune in runes) {
+    final char = String.fromCharCode(rune);
+    if (RegExp(r'[0-9A-Za-z가-힣]').hasMatch(char) || char == ' ') break;
+    buffer.write(char);
+  }
+  final emoji = buffer.toString();
+  return emoji.isEmpty ? defaultMemberTitleEmoji : emoji;
+}
+
+/// 이모지를 뗀 직책 이름.
+String memberTitleLabel(String title) {
+  final trimmed = title.trim();
+  final emoji = memberTitleEmoji(trimmed);
+  if (!trimmed.startsWith(emoji)) return trimmed;
+  return trimmed.substring(emoji.length).trim();
+}
+
+/// 직책을 고를 때 보여 줄 이모지들. 동아리에서 실제로 쓰는 역할 위주로
+/// 골랐고, 목록에 없으면 직접 붙여 넣을 수 있다.
+const memberTitleEmojiChoices = <String>[
+  '🏷️', '🎸', '📣', '🏀', '📸', '🎬', '💰', '📝', '🍚', '🚌',
+  '🩺', '🎓', '🧢', '🛠️', '🎤', '🎉', '🧊', '📊', '🗝️', '⭐',
+];
 
 class _Avatar extends StatelessWidget {
   const _Avatar({
@@ -221,30 +336,22 @@ class _Avatar extends StatelessWidget {
 }
 
 class _SmallBadge extends StatelessWidget {
-  const _SmallBadge(this.text) : _tint = null, _ink = null;
-
-  /// 군복무처럼 상태를 뜻하는 배지. 학번·직책 배지(주황)와 구분되도록
-  /// 초록색으로 칠한다.
-  const _SmallBadge.military(this.text)
-    : _tint = EncbaColors.attending,
-      _ink = const Color(0xFF0F5A3A);
+  const _SmallBadge(this.text);
 
   final String text;
-  final Color? _tint;
-  final Color? _ink;
 
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
     decoration: BoxDecoration(
-      color: (_tint ?? EncbaColors.late).withValues(alpha: .12),
+      color: EncbaColors.late.withValues(alpha: .12),
       borderRadius: BorderRadius.circular(6),
     ),
     child: Text(
       text,
-      style: TextStyle(
+      style: const TextStyle(
         fontSize: 10,
-        color: _ink ?? const Color(0xFF995A00),
+        color: Color(0xFF995A00),
         fontWeight: FontWeight.w700,
       ),
     ),

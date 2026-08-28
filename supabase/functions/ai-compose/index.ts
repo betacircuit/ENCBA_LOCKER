@@ -5,9 +5,9 @@
 // 두고, 앱(브라우저)에는 절대 내려보내지 않는다.
 //
 // 필요한 환경변수
-//   GEMINI_API_KEY - Google AI Studio(aistudio.google.com/apikey)에서 발급한 키
-//   GEMINI_MODEL   - (선택) 쉼표로 여러 개를 적으면 앞에서부터 시도한다.
-//                    기본값은 아래 defaultModels.
+//   GROQ_API_KEY - console.groq.com 에서 발급한 키
+//   GROQ_MODEL   - (선택) 쉼표로 여러 개를 적으면 앞에서부터 시도한다.
+//                  기본값은 아래 defaultModels.
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY - 호출자 권한 확인용
 
 const corsHeaders = {
@@ -16,19 +16,17 @@ const corsHeaders = {
     'authorization, apikey, content-type, x-client-info',
 }
 
-// Gemini Interactions API. 예전 generateContent 대신 이 엔드포인트를 쓴다.
-const geminiEndpoint =
-  'https://generativelanguage.googleapis.com/v1beta/interactions'
-/// 무료 티어에서 쓸 수 있는 모델을 성능 순으로 늘어놓는다.
+// Groq은 OpenAI 호환 chat/completions 형식을 쓴다.
+const groqEndpoint = 'https://api.groq.com/openai/v1/chat/completions'
+
+/// 쓸 수 있는 모델을 성능 순으로 늘어놓는다.
 ///
-/// 무료 티어는 붐빌 때 500 "experiencing high demand"를 자주 뱉는다. 한
-/// 모델만 붙들고 있으면 그 시간대에는 기능이 통째로 죽으므로, 막히면
-/// 다음 모델로 자동으로 내려간다.
+/// 무료 한도는 붐빌 때 429·5xx를 자주 뱉는다. 한 모델만 붙들고 있으면 그
+/// 시간대에 기능이 통째로 죽으므로, 막히면 다음 모델로 자동으로 내려간다.
 const defaultModels = [
-  'gemini-3.7-flash',
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
-  'gemini-2.5-flash',
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+  'qwen/qwen3.8-27b',
 ]
 
 /// 다음 모델로 넘어가 볼 만한 상태 코드. 429는 한도, 5xx는 상류 혼잡,
@@ -49,15 +47,8 @@ Deno.serve(async (request) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-  const apiKey = Deno.env.get('GEMINI_API_KEY')
   if (!supabaseUrl || !serviceRoleKey) {
     return json({ error: '서버 설정이 완료되지 않았습니다.' }, 503)
-  }
-  if (!apiKey) {
-    return json(
-      { error: 'AI 채우기가 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.' },
-      503,
-    )
   }
 
   const adminId = await authenticateAdmin(request, supabaseUrl, serviceRoleKey)
@@ -82,51 +73,60 @@ Deno.serve(async (request) => {
   const context = isRecord(payload.context) ? payload.context : {}
   const schema = kind === 'events' ? eventSchema() : announcementSchema()
 
-  const configured = (Deno.env.get('GEMINI_MODEL') ?? '')
+  // 키는 반드시 환경변수에서만 읽는다. 소스에 적어 두면 이 저장소가
+  // 공개돼 있어 키가 그대로 새어 나간다.
+  const apiKey = Deno.env.get('GROQ_API_KEY')
+  if (!apiKey) {
+    return json(
+      { error: 'AI 채우기가 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.' },
+      503,
+    )
+  }
+  const configured = (Deno.env.get('GROQ_MODEL') ?? '')
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
   const candidates = configured.length > 0 ? configured : defaultModels
 
-  const body = {
-    system_instruction: [
-      kind === 'events' ? eventSystemPrompt() : announcementSystemPrompt(),
-      '',
-      '스키마를 정확히 따르는 JSON 객체 하나만 출력합니다.',
-      '설명, 인사말, 코드펜스는 붙이지 않습니다.',
-    ].join('\n'),
-    input: [
-      `오늘은 ${todayInKorea()} (한국 시간) 입니다.`,
-      `참고 정보: ${JSON.stringify(context)}`,
-      '',
-      '요청:',
-      prompt,
-    ].join('\n'),
-    // 스키마를 강제해도 드물게 군더더기가 섞여 오므로 parseJsonPayload가
-    // 앞뒤를 걷어내며 방어적으로 읽는다.
-    response_format: {
-      type: 'text',
-      mime_type: 'application/json',
-      schema,
-    },
-    // 대화를 서버에 남길 이유가 없다. 한 번 부르고 끝난다.
-    store: false,
-  }
+  const systemInstruction = [
+    kind === 'events' ? eventSystemPrompt() : announcementSystemPrompt(),
+    '',
+    '스키마를 정확히 따르는 JSON 객체 하나만 출력합니다.',
+    'JSON 객체는 다음 스키마를 따라야 합니다:',
+    JSON.stringify(schema, null, 2),
+    '설명, 인사말, 코드펜스는 붙이지 않습니다.',
+  ].join('\n')
 
-  // 붐비는 모델은 건너뛰고 다음 후보로 내려간다.
+  const userInput = [
+    `오늘은 ${todayInKorea()} (한국 시간) 입니다.`,
+    `참고 정보: ${JSON.stringify(context)}`,
+    '',
+    '요청:',
+    prompt,
+  ].join('\n')
+
   let response: Response | null = null
   let usedModel = candidates[0]
   let lastStatus = 0
   let lastDetail = ''
+
   for (const model of candidates) {
-    const attempt = await fetch(geminiEndpoint, {
+    const attempt = await fetch(groqEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
+        'Authorization': `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({ model, ...body }),
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: userInput }
+        ],
+        response_format: { type: 'json_object' },
+      }),
     })
+
     if (attempt.ok) {
       response = attempt
       usedModel = model
@@ -134,8 +134,7 @@ Deno.serve(async (request) => {
     }
     lastStatus = attempt.status
     lastDetail = await attempt.text().catch(() => '')
-    console.error('gemini request failed', model, attempt.status, lastDetail)
-    // 요청이 잘못됐거나 키 문제라면 모델을 바꿔도 결과는 같다.
+    console.error('groq request failed', model, attempt.status, lastDetail)
     if (!retryableStatuses.has(attempt.status)) break
   }
 
@@ -167,30 +166,17 @@ Deno.serve(async (request) => {
     )
   }
 
-  // Google은 본문을 그냥 객체로 줄 때도 있고 한 칸짜리 배열로 감싸 줄 때도
-  // 있다(오류 응답이 특히 그렇다). 둘 다 받아 준다.
+  // 오류 응답을 한 칸짜리 배열로 감싸 보내는 제공자가 있어 둘 다 받아 준다.
   const completion = unwrapBody(await response.json().catch(() => null))
   if (!isRecord(completion)) {
     return json({ error: 'AI 응답을 이해하지 못했습니다.' }, 502)
   }
   if (isRecord(completion.error)) {
-    console.error('gemini upstream error', completion.error)
+    console.error('ai upstream error', completion.error)
     return json(
       {
         error: `AI가 응답하지 못했습니다. ${upstreamReason(
           JSON.stringify(completion),
-        )}`,
-      },
-      502,
-    )
-  }
-  // 실패한 상호작용도 HTTP 200으로 온다. status를 먼저 본다.
-  if (completion.status === 'failed') {
-    console.error('gemini interaction failed', completion.error)
-    return json(
-      {
-        error: `AI가 응답하지 못했습니다. ${upstreamReason(
-          JSON.stringify(completion.error ?? ''),
         )}`,
       },
       502,
@@ -231,7 +217,8 @@ function eventSystemPrompt(): string {
     '- 장소는 "71동 종합체육관", "71-1동 신체육관", "900동 기숙사체육관" 중에서 고르고, 셋 다 아니면 들은 그대로 적습니다.',
     '- 공개 대상(targetTeam)은 전체 / ENCBA / BEN / 신입생 중 하나입니다.',
     '- 날짜와 시간은 한국 시간 기준 "YYYY-MM-DDTHH:mm" 형식으로만 씁니다.',
-    '- 요청에 없어서 지어내야 하는 값은 절대 채우지 말고 questions 목록에 물어볼 내용을 담습니다.',
+    '- 사용자가 "3시~5시" 등 새벽 시간(00:00~07:00)을 입력한 경우 자동으로 오후 시간(15:00~19:00)으로 처리하세요.',
+    '- 요청에 없어서 지어내야 하는 값은 빈 문자열("")로 남겨 두고 questions 목록에 물어볼 내용을 담습니다. 절대로 일정을 누락하지 말고, 알 수 있는 최대한의 정보로 events를 채워야 합니다.',
     '- questions의 field는 kind, title, start, end, place, targetTeam, memo 중 하나입니다.',
     '- 과거 날짜는 만들지 않습니다.',
   ].join('\n')
@@ -244,9 +231,9 @@ function announcementSystemPrompt(): string {
     '',
     '규칙:',
     '- 제목은 한 줄로 간결하게, 본문은 부원이 바로 행동할 수 있도록 일시·장소·준비물을 문단으로 적습니다.',
-    '- 문체는 정중한 한국어 존댓말입니다.',
+    '- 문체는 정중하고 아주 간결한 한국어 존댓말입니다. 군더더기 인사말은 생략하고 핵심만 짧게 씁니다.',
     '- 투표가 필요해 보일 때만 poll을 채우고, 그렇지 않으면 poll의 question과 options를 비웁니다.',
-    '- 요청에 없어서 지어내야 하는 값은 채우지 말고 questions 목록에 물어볼 내용을 담습니다.',
+    '- 요청에 없어서 지어내야 하는 값은 빈 문자열("")로 남겨 두고 questions 목록에 물어볼 내용을 담습니다. 공지 초안 작성을 포기하지 말고 최대한 작성해야 합니다.',
     '- questions의 field는 title, body, poll, pinned 중 하나입니다.',
   ].join('\n')
 }
@@ -342,28 +329,16 @@ function announcementSchema(): JsonRecord {
   }
 }
 
-/// Interactions API 응답에서 모델이 쓴 본문을 꺼낸다. 답은 steps 배열의
-/// model_output 안에 텍스트 블록으로 들어 있고 여러 조각으로 쪼개져 올 수
-/// 있어 이어 붙인다. 사고 과정 블록은 type이 text가 아니라 자연히 걸러진다.
+/// OpenAI/Groq Chat Completion API 응답에서 텍스트를 꺼낸다.
 function firstMessageText(completion: JsonRecord): string | null {
-  const steps = completion.steps
-  if (!Array.isArray(steps)) return null
-  let joined = ''
-  for (const step of steps) {
-    if (!isRecord(step) || step.type !== 'model_output') continue
-    const content = step.content
-    if (!Array.isArray(content)) continue
-    for (const block of content) {
-      if (
-        isRecord(block) &&
-        block.type === 'text' &&
-        typeof block.text === 'string'
-      ) {
-        joined += block.text
-      }
-    }
-  }
-  return joined.trim().length > 0 ? joined : null
+  const choices = completion.choices
+  if (!Array.isArray(choices) || choices.length === 0) return null
+  const firstChoice = choices[0]
+  if (!isRecord(firstChoice)) return null
+  const message = firstChoice.message
+  if (!isRecord(message)) return null
+  const content = message.content
+  return typeof content === 'string' && content.trim().length > 0 ? content : null
 }
 
 /// 코드펜스나 앞뒤 설명이 섞여 와도 JSON 객체만 골라 읽는다.

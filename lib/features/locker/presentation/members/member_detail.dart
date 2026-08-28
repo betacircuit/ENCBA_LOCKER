@@ -185,7 +185,7 @@ class _MemberDetailView extends ConsumerWidget {
                       runSpacing: 6,
                       alignment: WrapAlignment.end,
                       children: member.titles
-                          .map((title) => _SmallBadge(title))
+                          .map((title) => _TitleBadge(title))
                           .toList(),
                     ),
                   ),
