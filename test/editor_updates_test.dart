@@ -139,7 +139,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('✨ AI로 채우기'), findsOneWidget);
+    expect(find.text('AI로 채우기'), findsOneWidget);
     expect(find.text('매주 반복'), findsNothing);
   });
 
@@ -272,6 +272,31 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byTooltip('일정 수정'), findsOneWidget);
+  });
+
+  test('IB 운영 역할 이름 끝의 A·B는 코트로 읽는다', () {
+    expect(ibOperationCourt('3경기 운영 A'), 'A코트');
+    expect(ibOperationCourt('1경기 운영 B'), 'B코트');
+    // 심판은 코트가 정해져 있지 않다.
+    expect(ibOperationCourt('2경기 심판'), isNull);
+  });
+
+  test('IB 운영 일정은 종합체육관과 담당 코트를 함께 보여 준다', () {
+    final merged = mergedOperationPlannerEvents([
+      OperationAssignment(
+        id: 'a1',
+        title: '3경기 운영 A',
+        start: DateTime(2026, 4, 4, 15, 20),
+        end: DateTime(2026, 4, 4, 16, 20),
+        location: '',
+        memo: '',
+        assigneeName: '김민수',
+      ),
+    ]);
+
+    expect(merged.single.place, ibOperationVenue);
+    expect(merged.single.court, 'A코트');
+    expect(merged.single.fullPlace, '71동 종합체육관 · A코트');
   });
 
   testWidgets('비활성 계정 안내에서 관리자에게 활성화를 요청할 수 있다', (tester) async {

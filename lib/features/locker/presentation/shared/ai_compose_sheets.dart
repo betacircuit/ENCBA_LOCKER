@@ -23,7 +23,16 @@ class _AiFillButton extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
       textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
     ),
-    child: const Text('✨ AI로 채우기'),
+    // 이모지는 컬러 폰트라 흰색으로 못 칠한다. 같은 모양의 아이콘을 써야
+    // 파란 버튼 위에서 흰색으로 보인다.
+    child: const Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.auto_awesome_rounded, size: 16, color: Colors.white),
+        SizedBox(width: 6),
+        Text('AI로 채우기'),
+      ],
+    ),
   );
 }
 
@@ -191,7 +200,11 @@ class _AiEventComposerSheetState extends State<_AiEventComposerSheet> {
           children: [
             Row(
               children: [
-                const Text('✨', style: TextStyle(fontSize: 20)),
+                const Icon(
+                  Icons.auto_awesome_rounded,
+                  size: 20,
+                  color: EncbaColors.snuBlue,
+                ),
                 const SizedBox(width: 8),
                 Text('AI로 일정 채우기', style: Theme.of(context).textTheme.titleLarge),
               ],
@@ -212,18 +225,14 @@ class _AiEventComposerSheetState extends State<_AiEventComposerSheet> {
               enabled: !_busy,
             ),
             if (_error case final String message) _AiErrorText(message: message),
+            if (_busy) ...[
+              const SizedBox(height: 14),
+              const _AiProgressBar(label: 'AI가 일정을 만들고 있습니다'),
+            ],
             const SizedBox(height: 10),
             FilledButton.icon(
               onPressed: _busy ? null : _generate,
-              icon: _busy
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.auto_awesome_rounded),
+              icon: const Icon(Icons.auto_awesome_rounded),
               label: Text(
                 _busy
                     ? '만드는 중…'
@@ -482,7 +491,11 @@ class _AiAnnouncementComposerSheetState
           children: [
             Row(
               children: [
-                const Text('✨', style: TextStyle(fontSize: 20)),
+                const Icon(
+                  Icons.auto_awesome_rounded,
+                  size: 20,
+                  color: EncbaColors.snuBlue,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'AI로 공지 채우기',
@@ -506,18 +519,14 @@ class _AiAnnouncementComposerSheetState
               enabled: !_busy,
             ),
             if (_error case final String message) _AiErrorText(message: message),
+            if (_busy) ...[
+              const SizedBox(height: 14),
+              const _AiProgressBar(label: 'AI가 공지를 쓰고 있습니다'),
+            ],
             const SizedBox(height: 10),
             FilledButton.icon(
               onPressed: _busy ? null : _generate,
-              icon: _busy
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.auto_awesome_rounded),
+              icon: const Icon(Icons.auto_awesome_rounded),
               label: Text(
                 _busy
                     ? '쓰는 중…'
@@ -583,4 +592,97 @@ class _AiAnnouncementComposerSheetState
       ),
     );
   }
+}
+
+/// AI가 답을 만드는 동안 보여 주는 진행 막대.
+///
+/// 서버가 진행률을 알려 주지 않으므로(한 번 부르고 한 번 받는다) 실제
+/// 백분율은 알 수 없다. 그래서 지금까지 걸린 시간을 [expected]에 견줘
+/// 추정치를 그린다. 끝나갈수록 천천히 올라가고 95%에서 멈춰, 다 되기 전에
+/// 100%가 떠서 "다 됐는데 왜 안 넘어가지" 하는 오해를 만들지 않는다.
+class _AiProgressBar extends StatefulWidget {
+  const _AiProgressBar({required this.label});
+
+  final String label;
+
+  /// 보통 이 정도 걸린다고 보는 시간. 학기 전체를 펼치는 요청이 가장
+  /// 오래 걸려서 그쪽에 맞춰 잡았다.
+  static const expected = Duration(seconds: 18);
+
+  @override
+  State<_AiProgressBar> createState() => _AiProgressBarState();
+}
+
+class _AiProgressBarState extends State<_AiProgressBar> {
+  final _stopwatch = Stopwatch()..start();
+  Timer? _ticker;
+  double _progress = 0;
+
+  static const _ceiling = .95;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      if (!mounted) return;
+      final elapsed = _stopwatch.elapsedMilliseconds;
+      final expected = _AiProgressBar.expected.inMilliseconds;
+      // 1 - e^(-t/T): 처음엔 빠르게, 뒤로 갈수록 느리게 찬다.
+      final eased = 1 - math.exp(-elapsed / expected);
+      setState(() => _progress = (eased * _ceiling).clamp(0.0, _ceiling));
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    _stopwatch.stop();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              widget.label,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: EncbaColors.navy,
+              ),
+            ),
+          ),
+          Text(
+            '${(_progress * 100).round()}%',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: EncbaColors.snuBlue,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 6),
+      ClipRRect(
+        borderRadius: BorderRadius.circular(99),
+        child: LinearProgressIndicator(
+          value: _progress,
+          minHeight: 8,
+          color: EncbaColors.snuBlue,
+          backgroundColor: EncbaColors.line,
+        ),
+      ),
+      const SizedBox(height: 6),
+      Text(
+        _stopwatch.elapsed.inSeconds < 20
+            ? '요청을 읽고 있습니다…'
+            : '거의 다 됐습니다. 조금만 기다려 주세요…',
+        style: const TextStyle(color: EncbaColors.muted, fontSize: 11),
+      ),
+    ],
+  );
 }

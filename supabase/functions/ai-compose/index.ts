@@ -89,7 +89,6 @@ Deno.serve(async (request) => {
       mime_type: 'application/json',
       schema,
     },
-    generation_config: { max_output_tokens: 16000 },
     // 대화를 서버에 남길 이유가 없다. 한 번 부르고 끝난다.
     store: false,
   }
@@ -106,24 +105,51 @@ Deno.serve(async (request) => {
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
     console.error('gemini request failed', response.status, detail)
+    if (response.status === 429) {
+      return json(
+        { error: 'AI 무료 사용량을 넘었습니다. 잠시 뒤 다시 시도해 주세요.' },
+        502,
+      )
+    }
+    // 이 함수는 관리자만 부를 수 있다. 원인을 감추면 무엇을 고쳐야 할지
+    // 알 수 없어서, 서버가 준 사유를 그대로(길이만 잘라) 넘긴다.
     return json(
       {
-        error: response.status === 429
-          ? 'AI 무료 사용량을 넘었습니다. 잠시 뒤 다시 시도해 주세요.'
-          : 'AI가 응답하지 못했습니다. 잠시 뒤 다시 시도해 주세요.',
+        error: `AI가 응답하지 못했습니다. (${response.status}) ` +
+          `${upstreamReason(detail)}`,
       },
       502,
     )
   }
 
-  const completion = await response.json().catch(() => null)
+  // Google은 본문을 그냥 객체로 줄 때도 있고 한 칸짜리 배열로 감싸 줄 때도
+  // 있다(오류 응답이 특히 그렇다). 둘 다 받아 준다.
+  const completion = unwrapBody(await response.json().catch(() => null))
   if (!isRecord(completion)) {
     return json({ error: 'AI 응답을 이해하지 못했습니다.' }, 502)
+  }
+  if (isRecord(completion.error)) {
+    console.error('gemini upstream error', completion.error)
+    return json(
+      {
+        error: `AI가 응답하지 못했습니다. ${upstreamReason(
+          JSON.stringify(completion),
+        )}`,
+      },
+      502,
+    )
   }
   // 실패한 상호작용도 HTTP 200으로 온다. status를 먼저 본다.
   if (completion.status === 'failed') {
     console.error('gemini interaction failed', completion.error)
-    return json({ error: 'AI가 응답하지 못했습니다. 잠시 뒤 다시 시도해 주세요.' }, 502)
+    return json(
+      {
+        error: `AI가 응답하지 못했습니다. ${upstreamReason(
+          JSON.stringify(completion.error ?? ''),
+        )}`,
+      },
+      502,
+    )
   }
 
   const text = firstMessageText(completion)
@@ -351,6 +377,29 @@ async function authenticateAdmin(
     ? profile.leadership_role
     : ''
   return role === 'admin' || role === 'captain' ? user.id : null
+}
+
+/// 한 칸짜리 배열로 감싸 온 본문을 벗겨 낸다.
+function unwrapBody(value: unknown): unknown {
+  if (Array.isArray(value) && value.length > 0) return value[0]
+  return value
+}
+
+/// 상류(Google) 오류 본문에서 사람이 읽을 사유만 짧게 뽑는다.
+function upstreamReason(detail: string): string {
+  if (!detail) return ''
+  try {
+    const parsed = unwrapBody(JSON.parse(detail))
+    const message = isRecord(parsed) && isRecord(parsed.error)
+      ? parsed.error.message
+      : null
+    if (typeof message === 'string' && message.length > 0) {
+      return message.slice(0, 300)
+    }
+  } catch (_error) {
+    // JSON이 아니면 원문을 그대로 줄여 쓴다.
+  }
+  return detail.slice(0, 300)
 }
 
 function isRecord(value: unknown): value is JsonRecord {

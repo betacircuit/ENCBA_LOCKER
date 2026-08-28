@@ -271,6 +271,9 @@ class EventTicket extends ConsumerWidget {
                                 ],
                               ),
                               if (event.isCancelled) ...[
+                                // 분류 뱃지 바로 밑에 붙어 글자가 겹쳐
+                                // 보였다. 위아래 여백을 따로 준다.
+                                SizedBox(height: compact ? 9 : 12),
                                 Container(
                                   width: double.infinity,
                                   padding: const EdgeInsets.symmetric(
@@ -283,21 +286,36 @@ class EventTicket extends ConsumerWidget {
                                     ),
                                     borderRadius: BorderRadius.circular(11),
                                   ),
-                                  child: Text(
-                                    [
-                                      '일정이 취소되었습니다.',
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        '일정이 취소되었습니다.',
+                                        style: TextStyle(
+                                          color: EncbaColors.absent,
+                                          fontWeight: FontWeight.w800,
+                                          height: 1.35,
+                                        ),
+                                      ),
+                                      // 사유는 줄을 나눠 적는다. 한 줄로
+                                      // 이으면 길어질수록 읽기 어렵다.
                                       if (event.cancellationReason?.trim()
                                           case final String reason
-                                          when reason.isNotEmpty)
-                                        reason,
-                                    ].join(' '),
-                                    style: const TextStyle(
-                                      color: EncbaColors.absent,
-                                      fontWeight: FontWeight.w800,
-                                    ),
+                                          when reason.isNotEmpty) ...[
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          reason,
+                                          style: const TextStyle(
+                                            color: EncbaColors.absent,
+                                            fontSize: 13,
+                                            height: 1.4,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                 ),
-                                SizedBox(height: compact ? 9 : 12),
                               ],
                               SizedBox(height: compact ? 10 : 16),
                               _UniformCardForeground(

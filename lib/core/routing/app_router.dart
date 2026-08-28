@@ -27,6 +27,11 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
   ref.onDispose(authRevision.dispose);
 
+  // 앱을 새로 열면 언제나 홈에서 시작한다. 웹에서는 브라우저가 마지막
+  // 주소를 그대로 되살려서, 일정 탭을 보다 닫으면 다음에도 일정 탭이
+  // 열렸다. 알림·공유 링크로 들어온 상세 주소는 그대로 살려 둔다.
+  var didLandOnFirstRoute = false;
+
   return GoRouter(
     initialLocation: LockerTab.home.path,
     refreshListenable: authRevision,
@@ -38,6 +43,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isSigningIn = state.matchedLocation == _signInPath;
       if (!isSignedIn) return isSigningIn ? null : _signInPath;
       if (isSigningIn) return LockerTab.home.path;
+      if (!didLandOnFirstRoute) {
+        didLandOnFirstRoute = true;
+        // 탭 주소로 시작했다면 홈으로 돌린다. 상세 주소(/schedule/:id
+        // 같은 딥링크)는 일부러 열어 준 것이므로 건드리지 않는다.
+        final isTabPath = LockerTab.fromPath(state.matchedLocation) != null;
+        if (isTabPath && state.matchedLocation != LockerTab.home.path) {
+          return LockerTab.home.path;
+        }
+      }
       return null;
     },
     routes: [

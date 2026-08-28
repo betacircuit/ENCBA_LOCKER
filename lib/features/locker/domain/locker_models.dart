@@ -549,6 +549,7 @@ class OperationAssignment {
     start: start,
     end: end,
     place: location.trim().isEmpty ? ibOperationVenue : location.trim(),
+    court: ibOperationCourt(title),
     kind: EventKind.operations,
     memo: memo,
     targetTeam: '개인',
@@ -559,6 +560,13 @@ class OperationAssignment {
 
 /// IB 리그 운영이 열리는 곳. 운영표에는 장소 칸이 없어 항상 이곳이다.
 const ibOperationVenue = '71동 종합체육관';
+
+/// 운영 역할 이름 끝의 A·B는 맡는 코트를 뜻한다("3경기 운영 A" = A코트).
+/// 심판처럼 코트가 정해지지 않은 역할은 null이다.
+String? ibOperationCourt(String title) {
+  final match = RegExp(r'운영\s*([AB])\s*$').firstMatch(title.trim());
+  return match == null ? null : '${match.group(1)}코트';
+}
 
 /// 같은 시간·같은 역할(1경기 운영 A 등)에 배정된 사람이 여럿이면 운영표에는
 /// 사람 수만큼 행이 생긴다. 그대로 플래너에 펼치면 "1경기 운영 A"가 세 번,
@@ -602,6 +610,7 @@ List<LockerEvent> mergedOperationPlannerEvents(
         place: representative.location.trim().isEmpty
             ? ibOperationVenue
             : representative.location.trim(),
+        court: ibOperationCourt(representative.title),
         kind: EventKind.operations,
         memo: [
           if (roster.isNotEmpty) roster,
