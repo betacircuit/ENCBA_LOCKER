@@ -66,35 +66,18 @@ Future<void> scheduleReservationOpeningReminder({
       return;
     }
     final serverNow = await this.serverNow();
-    var opening = DateTime(
-      serverNow.year,
-      serverNow.month,
-      serverNow.day,
-      9,
-      30,
-    );
-    final daysUntilTuesday = (DateTime.tuesday - serverNow.weekday + 7) % 7;
-    opening = opening.add(Duration(days: daysUntilTuesday));
-    if (!opening.isAfter(serverNow)) {
-      opening = opening.add(const Duration(days: 7));
-    }
-    // 예약 담당자는 두 번 알림을 받는다. 전날 밤에 한 번 미리 알고,
-    // 당일 아침에 다시 확인한다. 5분 전 하나만 보내면 그 순간에 손이
-    // 비어 있어야만 잡을 수 있었다.
+    final opening = nextCourtReservationOpening(serverNow);
+    final times = courtReservationReminderTimes(opening);
     final reminders = <({String id, DateTime at, String title, String body})>[
       (
         id: 'encba-court-reservation-eve',
-        at: DateTime(
-          opening.year,
-          opening.month,
-          opening.day,
-        ).subtract(const Duration(hours: 2)),
+        at: times.eve,
         title: '내일 체육관 예약이 열립니다',
         body: '71동·71-1동 다음 주 예약이 내일 오전 9시 30분에 열려요.',
       ),
       (
         id: 'encba-court-reservation-morning',
-        at: DateTime(opening.year, opening.month, opening.day, 9),
+        at: times.morning,
         title: '오늘 체육관 예약이 열립니다',
         body: '오전 9시 30분에 71동·71-1동 다음 주 예약이 열려요.',
       ),

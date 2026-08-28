@@ -1174,3 +1174,31 @@ class AccountActivationRequest {
   /// 이름이 비어 있는 계정도 있어 메일 주소를 대신 보여 준다.
   String get displayName => name.trim().isEmpty ? email : name.trim();
 }
+
+
+/// 71동·71-1동 다음 주 예약이 열리는 시각. 매주 화요일 09:30이고, 이미
+/// 지났으면 다음 주 화요일을 준다.
+///
+/// 예약 화면의 카운트다운과 담당자 알림이 같은 정의를 써야 둘이 어긋나지
+/// 않는다.
+DateTime nextCourtReservationOpening(DateTime now) {
+  final startOfDay = DateTime(now.year, now.month, now.day);
+  final daysUntilTuesday = (DateTime.tuesday - now.weekday + 7) % 7;
+  var opening = startOfDay
+      .add(Duration(days: daysUntilTuesday))
+      .add(const Duration(hours: 9, minutes: 30));
+  if (!opening.isAfter(now)) opening = opening.add(const Duration(days: 7));
+  return opening;
+}
+
+/// 예약 담당자에게 보낼 알림 두 건의 시각.
+///
+/// 오픈 전날 밤 22시에 한 번(내일이라는 걸 미리 알도록), 당일 아침 9시에
+/// 한 번(오픈 30분 전) 울린다. 예전처럼 5분 전 하나만 보내면 마침 그
+/// 순간에 손이 비어 있어야만 잡을 수 있었다.
+({DateTime eve, DateTime morning}) courtReservationReminderTimes(
+  DateTime opening,
+) => (
+  eve: DateTime(opening.year, opening.month, opening.day - 1, 22),
+  morning: DateTime(opening.year, opening.month, opening.day, 9),
+);

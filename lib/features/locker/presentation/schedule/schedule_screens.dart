@@ -385,8 +385,13 @@ class _CourtReservationScreenState
           // 버튼을 누르게 되므로 둘을 떼어 놓지 않는다.
           _ReservationCountdownCard(
             eyebrow: '71 · 71-1 RESERVATION',
-            title: window.open ? '다음 주 예약 오픈 중' : '화요일 09:30 오픈',
-            countdown: '${_countdown(window.target.difference(now))} 남음',
+            title: window.open ? '지금 예약할 수 있습니다' : '화요일 09:30 오픈',
+            // 열려 있을 때와 닫혀 있을 때가 서로 다른 시각을 센다. 무엇까지
+            // 남은 시간인지 안 적으면 열린 동안에도 "오픈까지 남은 시간"으로
+            // 읽혀서, 실제로는 지금 예약할 수 있는데 기다리게 된다.
+            countdown: window.open
+                ? '마감까지 ${_countdown(window.target.difference(now))}'
+                : '오픈까지 ${_countdown(window.target.difference(now))}',
             serverTime: now,
             badge: user.isReservationManager,
           ),
@@ -402,7 +407,7 @@ class _CourtReservationScreenState
           _ReservationCountdownCard(
             eyebrow: '900 RESERVATION',
             title: '${DateFormat('M월 d일').format(dormDate)} 예약 오픈',
-            countdown: '${_countdown(dormOpening.difference(now))} 남음',
+            countdown: '오픈까지 ${_countdown(dormOpening.difference(now))}',
             serverTime: now,
             badge: user.isReservationManager,
           ),

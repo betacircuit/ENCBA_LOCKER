@@ -1838,7 +1838,12 @@ void main() {
 
     expect(find.text('71 · 71-1 RESERVATION'), findsOneWidget);
     expect(find.text('900 RESERVATION'), findsOneWidget);
-    expect(find.textContaining('남음'), findsNWidgets(2));
+    // 카운트다운은 무엇까지 남은 시간인지 밝힌다. 예약 창이 열려 있으면
+    // 마감까지, 닫혀 있으면 오픈까지를 센다.
+    expect(
+      find.textContaining(RegExp('(오픈까지|마감까지)')),
+      findsNWidgets(2),
+    );
     expect(find.text('71동 · 71-1동 예약하기'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('900동 예약하기'),
