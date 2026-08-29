@@ -16,19 +16,16 @@ class AuthScreen extends ConsumerStatefulWidget {
 
 class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _password = TextEditingController();
-  final _passwordConfirm = TextEditingController();
   final _phone = TextEditingController(text: '010-');
   final _jerseyNumber = TextEditingController();
   bool _signUp = false;
-  bool _obscure = true;
   String _position = 'PG';
   String _studentYearPick = studentYearPickerOptions.first;
   String _joinedYearPick = joinedYearPickerOptions.first;
 
   @override
   void dispose() {
-    for (final controller in [_password, _passwordConfirm, _phone, _jerseyNumber]) {
+    for (final controller in [_phone, _jerseyNumber]) {
       controller.dispose();
     }
     super.dispose();
@@ -99,8 +96,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 ),
                                 const SizedBox(height: 6),
                                 const Text(
-                                  'Google 계정은 학교 구성원 확인에만 사용합니다. 로그인 아이디는 '
-                                  '아래에 입력한 실명이며, 비밀번호를 정하면 Google 없이도 로그인할 수 있습니다.',
+                                  'Google 계정으로만 로그인합니다. 아래 정보는 명단 대조와 '
+                                  '부원 화면 표시에 쓰입니다.',
                                   style: TextStyle(
                                     color: EncbaColors.muted,
                                     fontSize: 12,
@@ -186,36 +183,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 ).hasMatch(value ?? '')
                                 ? null
                                 : '010-1234-5678 형식으로 입력해 주세요.',
-                          ),
-                          const SizedBox(height: 12),
-                          _Field(
-                            controller: _password,
-                            label: '비밀번호',
-                            hint: '8자 이상',
-                            obscureText: _obscure,
-                            autofillHints: const [AutofillHints.newPassword],
-                            suffix: IconButton(
-                              onPressed: () =>
-                                  setState(() => _obscure = !_obscure),
-                              icon: Icon(
-                                _obscure
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
-                              ),
-                            ),
-                            validator: (value) => (value?.length ?? 0) < 8
-                                ? '8자 이상 입력해 주세요.'
-                                : null,
-                          ),
-                          const SizedBox(height: 12),
-                          _Field(
-                            controller: _passwordConfirm,
-                            label: '비밀번호 확인',
-                            obscureText: _obscure,
-                            autofillHints: const [AutofillHints.newPassword],
-                            validator: (value) => value != _password.text
-                                ? '비밀번호가 서로 다릅니다.'
-                                : null,
                           ),
                           const SizedBox(height: 12),
                         ] else if (_signUp) ...[
@@ -421,7 +388,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         status: 'YB',
         teams: const ['ENCBA'],
       ),
-      password: _password.text,
     );
   }
 }
@@ -473,10 +439,7 @@ class _Field extends StatelessWidget {
     required this.label,
     this.hint,
     this.keyboardType,
-    this.obscureText = false,
     this.validator,
-    this.suffix,
-    this.autofillHints,
     this.inputFormatters,
   });
 
@@ -484,25 +447,16 @@ class _Field extends StatelessWidget {
   final String label;
   final String? hint;
   final TextInputType? keyboardType;
-  final bool obscureText;
   final String? Function(String?)? validator;
-  final Widget? suffix;
-  final Iterable<String>? autofillHints;
   final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) => TextFormField(
     controller: controller,
     keyboardType: keyboardType,
-    obscureText: obscureText,
     validator: validator,
-    autofillHints: autofillHints,
     inputFormatters: inputFormatters,
-    decoration: InputDecoration(
-      labelText: label,
-      hintText: hint,
-      suffixIcon: suffix,
-    ),
+    decoration: InputDecoration(labelText: label, hintText: hint),
   );
 }
 

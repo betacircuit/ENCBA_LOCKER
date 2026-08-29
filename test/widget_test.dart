@@ -294,7 +294,7 @@ void main() {
     expect(find.text('member@snu.ac.kr'), findsOneWidget);
     expect(find.text('로그인 아이디 (실명)'), findsOneWidget);
     expect(find.text('김멤버'), findsOneWidget);
-    expect(find.textContaining('로그인 아이디는 아래에 입력한 실명'), findsOneWidget);
+    expect(find.textContaining('Google 계정으로만 로그인합니다'), findsOneWidget);
     expect(
       find.text('학교 Google 계정에서 확인된 실명이며, 이 이름으로 로그인합니다.'),
       findsOneWidget,
@@ -311,9 +311,8 @@ void main() {
       '010-',
     );
     expect(find.text('정보 저장하고 가입 완료'), findsOneWidget);
-    // 학교 이메일은 인증에만 쓰고, 여기서 실명 아이디와 비밀번호를 만든다.
-    expect(find.text('비밀번호'), findsOneWidget);
-    expect(find.text('비밀번호 확인'), findsOneWidget);
+    // 로그인은 Google로만 하므로 비밀번호는 묻지 않는다.
+    expect(find.text('비밀번호'), findsNothing);
 
     await tester.ensureVisible(find.text('정보 저장하고 가입 완료'));
     await tester.tap(find.text('정보 저장하고 가입 완료'));
@@ -321,10 +320,11 @@ void main() {
     // 학번·가입년도는 휠 피커라 항상 유효한 값을 들고 있어 별도 오류가 없다.
     expect(find.text('010-1234-5678 형식으로 입력해 주세요.'), findsOneWidget);
     expect(find.text('0–99로 입력해 주세요.'), findsOneWidget);
-    expect(find.text('8자 이상 입력해 주세요.'), findsOneWidget);
   });
 
-  testWidgets('가입 단계의 비밀번호 확인은 서로 다를 때 막는다', (tester) async {
+  testWidgets('가입 화면에서는 비밀번호를 묻지 않는다', (tester) async {
+    // 로그인은 Google로만 한다. 쓰지도 않을 비밀번호를 받으면 가입이
+    // 길어지기만 한다. 계정의 비밀번호는 서버에서 무작위로 채운다.
     const registration = PendingGoogleRegistration(
       email: 'member@snu.ac.kr',
       suggestedName: '김멤버',
@@ -334,20 +334,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.widgetWithText(TextFormField, '비밀번호'),
-      'encba12345',
-    );
-    await tester.enterText(
-      find.widgetWithText(TextFormField, '비밀번호 확인'),
-      'encba54321',
-    );
-    await tester.ensureVisible(find.text('정보 저장하고 가입 완료'));
-    await tester.tap(find.text('정보 저장하고 가입 완료'));
-    await tester.pump();
-
-    expect(find.text('비밀번호가 서로 다릅니다.'), findsOneWidget);
-    expect(find.text('8자 이상 입력해 주세요.'), findsNothing);
+    expect(find.widgetWithText(TextFormField, '비밀번호'), findsNothing);
+    expect(find.widgetWithText(TextFormField, '비밀번호 확인'), findsNothing);
+    expect(find.text('정보 저장하고 가입 완료'), findsOneWidget);
   });
 
   test('서울대학교 본 도메인과 하위 도메인만 학교 계정으로 인정한다', () {

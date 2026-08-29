@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:encba_locker/core/storage/local_store.dart';
 import 'package:encba_locker/features/auth/domain/user_profile.dart';
@@ -154,9 +155,14 @@ class SupabaseAuthRepository {
     }
   }
 
+  /// Google 인증을 마친 사람의 회원 정보를 확정한다.
+  ///
+  /// [password]를 주지 않으면 아무도 모르는 무작위 비밀번호를 만들어 둔다.
+  /// 로그인은 Google로만 하기 때문에 가입할 때 비밀번호를 받지 않는다.
+  /// 계정에 비밀번호 자리는 있어야 해서 채워만 두는 값이다.
   Future<UserProfile> completeGoogleRegistration(
     UserProfile profile, {
-    required String password,
+    String? password,
   }) async {
     final registration = _pendingRegistrationFor(_client.auth.currentUser);
     if (registration == null) {
@@ -166,7 +172,10 @@ class SupabaseAuthRepository {
       await _client.auth.signOut();
       throw const EncbaAuthException('서울대학교 학교 계정으로 가입해 주세요.');
     }
-    if (password.length < 8) {
+    final resolvedPassword = password == null || password.isEmpty
+        ? _generatedPassword()
+        : password;
+    if (resolvedPassword.length < 8) {
       throw const EncbaAuthException('비밀번호는 8자 이상으로 입력해 주세요.');
     }
     final userId = _client.auth.currentUser!.id;
@@ -180,7 +189,7 @@ class SupabaseAuthRepository {
           'requested_phone': profile.phone,
           'requested_position': profile.position,
           'requested_jersey_number': profile.jerseyNumber,
-          'password': password,
+          'password': resolvedPassword,
         },
       );
       await _clearGoogleSignUpIntent();
@@ -561,6 +570,19 @@ class SupabaseAuthRepository {
       debugPrint('ENCBA activation request failed: $error\n$stackTrace');
       return false;
     }
+  }
+
+  /// 아무도 모르는 비밀번호. 가입 화면에서 비밀번호를 받지 않으므로
+  /// 계정의 빈자리를 채우는 용도로만 쓴다. 추측할 수 없어야 해서
+  /// 암호학적 난수로 만든다.
+  String _generatedPassword() {
+    const alphabet =
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    final random = Random.secure();
+    return List.generate(
+      32,
+      (_) => alphabet[random.nextInt(alphabet.length)],
+    ).join();
   }
 
   String _profileCacheKey(String userId) => 'encba.profile.$userId.v1';

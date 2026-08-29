@@ -212,7 +212,7 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<bool> completeGoogleRegistration(
     UserProfile profile, {
-    required String password,
+    String? password,
   }) async {
     state = state.copyWith(isBusy: true, clearError: true);
     try {
