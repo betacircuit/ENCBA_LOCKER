@@ -502,6 +502,7 @@ mixin VideosApi on RepoCore {
           uploader?['name'] as String? ??
           uploader?['display_name'] as String? ??
           'ENCBA',
+      uploaderId: row['uploaded_by'] as String?,
       accent: 0xFF00539B,
       likeCount: _databaseInt(row['like_count']) ?? 0,
       sourceType: row['source_type'] as String? ?? 'youtube',

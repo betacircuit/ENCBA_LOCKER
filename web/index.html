@@ -19,7 +19,7 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
-  <meta name="description" content="서울대학교 공대 농구 동아리 ENCBA 운영 앱">
+  <meta name="description" content="서울대학교 공대 농구동아리 ENCBA의 운영 앱. 공지와 일정, 참석 투표, 경기 복기를 한곳에서.">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -33,6 +33,29 @@
   <link rel="icon" type="image/png" href="favicon.png"/>
 
   <title>ENCBA LOCKER</title>
+  <link rel="canonical" href="https://encbalocker-mu.vercel.app/">
+
+  <!-- 링크 미리보기(카카오톡·슬랙·디스코드 등).
+       og:image는 반드시 절대 주소여야 하고, 미리보기를 만드는 서버는
+       로그인하지 않은 채로 가져가므로 공개 경로에 둔다. -->
+  <meta property="og:site_name" content="ENCBA LOCKER">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ko_KR">
+  <meta property="og:url" content="https://encbalocker-mu.vercel.app/">
+  <meta property="og:title" content="ENCBA LOCKER">
+  <meta property="og:description" content="서울대학교 공대 농구동아리 ENCBA의 운영 앱. 공지와 일정, 참석 투표, 경기 복기를 한곳에서.">
+  <meta property="og:image" content="https://encbalocker-mu.vercel.app/og-image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ENCBA LOCKER">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="ENCBA LOCKER">
+  <meta name="twitter:description" content="서울대학교 공대 농구동아리 ENCBA의 운영 앱. 공지와 일정, 참석 투표, 경기 복기를 한곳에서.">
+  <meta name="twitter:image" content="https://encbalocker-mu.vercel.app/og-image.png">
+
+  <meta name="theme-color" content="#071F4B">
   <link rel="manifest" href="manifest.json">
   <style>
     :root {
@@ -184,6 +207,8 @@
       var barEl = document.getElementById('encba-boot-bar-fill');
       var percentEl = document.getElementById('encba-boot-percent');
       var ESTIMATED_TOTAL_BYTES = 18 * 1024 * 1024;
+      // 첫 프레임 전에는 여기까지만 올라간다. 100%는 실제로 뜬 순간에만.
+      var CEILING_PERCENT = 92;
       var seen = {};
       var loadedBytes = 0;
       var visualPercent = 4;
@@ -192,19 +217,28 @@
       function render() {
         if (!barEl || !percentEl) return;
         var bytePercent = Math.round((loadedBytes / ESTIMATED_TOTAL_BYTES) * 100);
-        var percent = Math.max(4, Math.min(100, Math.max(bytePercent, visualPercent)));
+        // 바이트 추정치도 총량이 어림값이라 100%를 넘길 수 있다. 같이 눌러 둔다.
+        var percent = Math.max(
+          4,
+          Math.min(CEILING_PERCENT, Math.max(bytePercent, visualPercent))
+        );
         barEl.style.width = percent + '%';
         percentEl.textContent = percent + '%';
       }
 
-      // 캐시된 PWA에서는 transferSize가 0이라 실제로는 빠르게 준비 중이어도
-      // 진행률이 4%에 멈춰 보인다. 약 0.9초 동안 시각 진행률을 100%까지
-      // 채우되, Flutter 첫 프레임이 오기 전에는 로딩 화면 자체를 제거하지 않는다.
+      // 캐시된 PWA에서는 transferSize가 0이라 실제로는 준비 중이어도
+      // 진행률이 4%에 멈춰 보인다. 그래서 시간 기반 추정치를 함께 쓴다.
+      //
+      // 다만 이 추정치는 절대 100%에 닿지 않는다. 예전에는 0.9초면 100%가
+      // 돼서, 느린 회선에서는 "100%"를 띄운 채 한참 더 기다리게 만들었다.
+      // 다 됐다고 해 놓고 안 끝나는 진행률은 없느니만 못하다.
+      // 1 - e^(-t/T) 곡선이라 처음엔 빠르게 오르다 92%에 점점 가까워지기만
+      // 하고, 진짜 100%는 첫 프레임이 떴을 때만 찍힌다.
       var visualTimer = window.setInterval(function () {
         var elapsed = performance.now() - startedAt;
-        visualPercent = Math.min(100, 4 + Math.round((elapsed / 900) * 96));
+        var eased = 1 - Math.exp(-elapsed / 2200);
+        visualPercent = 4 + Math.round(eased * (CEILING_PERCENT - 4));
         render();
-        if (visualPercent >= 100) window.clearInterval(visualTimer);
       }, 45);
 
       if (window.PerformanceObserver) {
@@ -227,6 +261,7 @@
       // 짧게 보여준 뒤(작은 도파민 보상) 화면을 없앤다.
       window.addEventListener('flutter-first-frame', function () {
         window.clearInterval(visualTimer);
+        // 여기서만 100%를 찍는다. 화면이 실제로 그려진 순간이다.
         if (barEl && percentEl) {
           barEl.style.width = '100%';
           percentEl.textContent = '100%';

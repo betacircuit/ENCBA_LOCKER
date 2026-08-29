@@ -478,15 +478,41 @@ class SupabaseAuthRepository {
 
   bool _hasGoogleIdentity(supabase.User user) {
     final providers = user.appMetadata['providers'];
+    // identities가 가장 정확하다. app_metadata의 provider는 계정에 여러
+    // 로그인 수단이 붙으면 마지막 것만 남거나 'email'로 굳어 버려서, 실제로
+    // Google로 들어온 사람을 아니라고 판정하는 일이 있었다.
+    final identities = user.identities;
+    if (identities != null &&
+        identities.any((identity) => identity.provider == 'google')) {
+      return true;
+    }
     return user.appMetadata['provider'] == 'google' ||
         (providers is List && providers.contains('google'));
   }
 
+  /// 이 사람이 Google로 인증한 학교 메일.
+  ///
+  /// user.email은 실명 로그인용 가상 주소일 수 있다. 그 주소는 학교
+  /// 도메인이 아니라서, 명단에 있는 부원인데도 "학교 계정으로 가입해
+  /// 주세요"라는 엉뚱한 안내가 떴다. Google identity에 붙어 있는 메일을
+  /// 먼저 보고, 없을 때만 계정 메일로 물러선다.
+  String? _googleEmailFor(supabase.User user) {
+    for (final identity in user.identities ?? const []) {
+      if (identity.provider != 'google') continue;
+      final email = identity.identityData?['email'];
+      if (email is String && email.contains('@')) return email;
+    }
+    final email = user.email;
+    return email != null && email.contains('@') ? email : null;
+  }
+
   PendingGoogleRegistration? _pendingRegistrationFor(supabase.User? user) {
-    if (user == null || user.email == null) return null;
+    if (user == null) return null;
     if (!_hasGoogleIdentity(user)) return null;
+    final email = _googleEmailFor(user);
+    if (email == null) return null;
     return PendingGoogleRegistration(
-      email: user.email!,
+      email: email,
       suggestedName: googleRealNameFromMetadata(user.userMetadata),
     );
   }

@@ -993,6 +993,7 @@ class VideoItem {
     this.audienceType = 'all',
     this.audienceValues = const [],
     this.reviewPlayers = const [],
+    this.uploaderId,
   });
 
   final String id;
@@ -1003,6 +1004,9 @@ class VideoItem {
   final String youtubeId;
   final DateTime uploadedAt;
   final String uploader;
+
+  /// 올린 사람의 프로필 ID. 이름은 겹칠 수 있어 권한 판정에는 이 값을 쓴다.
+  final String? uploaderId;
   final int accent;
   final int likeCount;
   final String sourceType;
@@ -1042,6 +1046,7 @@ class VideoItem {
     List<VideoTaggedMember>? reviewPlayers,
     DateTime? uploadedAt,
     String? uploader,
+    String? uploaderId,
   }) => VideoItem(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -1059,6 +1064,7 @@ class VideoItem {
     audienceType: audienceType ?? this.audienceType,
     audienceValues: audienceValues ?? this.audienceValues,
     reviewPlayers: reviewPlayers ?? this.reviewPlayers,
+    uploaderId: uploaderId ?? this.uploaderId,
   );
 
   Map<String, dynamic> toJson() => {

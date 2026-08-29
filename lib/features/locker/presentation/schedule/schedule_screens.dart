@@ -383,15 +383,14 @@ class _CourtReservationScreenState
         children: [
           // 시설마다 남은 시간과 예약 링크를 붙여 둔다. 시간을 보고 바로 아래
           // 버튼을 누르게 되므로 둘을 떼어 놓지 않는다.
+          // 예약은 매주 화요일 09:30에 열린다. 그 한 가지만 세면 된다.
+          // 열려 있는 동안 마감까지를 세면 "오픈까지 얼마"를 알고 싶은
+          // 사람에게 엉뚱한 숫자가 보인다.
           _ReservationCountdownCard(
             eyebrow: '71 · 71-1 RESERVATION',
             title: window.open ? '지금 예약할 수 있습니다' : '화요일 09:30 오픈',
-            // 열려 있을 때와 닫혀 있을 때가 서로 다른 시각을 센다. 무엇까지
-            // 남은 시간인지 안 적으면 열린 동안에도 "오픈까지 남은 시간"으로
-            // 읽혀서, 실제로는 지금 예약할 수 있는데 기다리게 된다.
-            countdown: window.open
-                ? '마감까지 ${_countdown(window.target.difference(now))}'
-                : '오픈까지 ${_countdown(window.target.difference(now))}',
+            countdown:
+                '오픈까지 ${_countdown(nextCourtReservationOpening(now).difference(now))}',
             serverTime: now,
             badge: user.isReservationManager,
           ),
@@ -647,7 +646,8 @@ class _WeekStrip extends StatelessWidget {
                 onTap: () => onSelected(day),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  // 칸 하나의 가로가 좁아서 세로 여백이 크면 길쭉해 보인다.
+                  padding: const EdgeInsets.symmetric(vertical: 6),
                   decoration: BoxDecoration(
                     color: selected ? EncbaColors.navy : Colors.white,
                     borderRadius: BorderRadius.circular(13),
@@ -668,15 +668,17 @@ class _WeekStrip extends StatelessWidget {
                           color: selected ? Colors.white70 : EncbaColors.muted,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 1),
                       Text(
                         '${day.day}',
                         style: TextStyle(
+                          fontSize: 15,
+                          height: 1.1,
                           color: selected ? Colors.white : EncbaColors.ink,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 3),
                       Container(
                         width: 4,
                         height: 4,

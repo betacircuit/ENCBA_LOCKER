@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:encba_locker/core/config/app_config.dart';
+import 'package:encba_locker/core/platform/url_strategy.dart';
 import 'package:flutter/material.dart';
 import 'package:encba_locker/core/widgets/gentle_scroll_behavior.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -12,6 +13,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 주소를 경로로 쓴다. Supabase.initialize보다 먼저 불러야 OAuth
+  // 리디렉트로 돌아온 주소를 해시 전략이 먼저 건드리지 않는다.
+  useEncbaUrlStrategy();
   if (!AppConfig.hasSupabase) {
     runApp(const _ConfigurationMissingApp());
     return;

@@ -792,10 +792,18 @@ bool _canCreateVideoCategory(UserProfile user, String category) {
   return category == '복기' || category == '공유';
 }
 
+/// 영상을 고치거나 지울 수 있는 사람.
+///
+/// 관리자는 언제나, 그 밖에는 올린 본인만이다. 예전에는 복기 영상이면
+/// 누구나 남의 영상을 지울 수 있었다.
 bool _canManageVideo(UserProfile? user, VideoItem video) {
   if (user == null) return false;
-  if (video.category == '하이라이트') {
-    return user.canManageHighlights || user.canAdminister;
+  if (user.canAdminister) return true;
+  final uploaderId = video.uploaderId;
+  if (uploaderId != null && uploaderId == user.id) return true;
+  // 올린 사람을 알 수 없는 예전 영상은 하이라이트 권한자에게만 연다.
+  if (uploaderId == null && video.category == '하이라이트') {
+    return user.canManageHighlights;
   }
-  return video.category == '복기' || video.category == '공유';
+  return false;
 }

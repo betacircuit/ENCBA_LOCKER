@@ -37,13 +37,13 @@ const _videoSelection =
     'id,title,category,source_url,youtube_id,source_type,'
     'quarter_1_url,quarter_2_url,quarter_3_url,quarter_4_url,'
     'audience_type,audience_values,duration_seconds,created_at,like_count,'
-    'recorded_on,video_links(id,quarter_number,url,sort_order),'
+    'recorded_on,uploaded_by,video_links(id,quarter_number,url,sort_order),'
     'profiles!videos_uploaded_by_fkey(name,display_name)';
 const _legacyVideoSelection =
     'id,title,category,source_url,youtube_id,source_type,'
     'quarter_1_url,quarter_2_url,quarter_3_url,quarter_4_url,'
     'audience_type,audience_values,duration_seconds,created_at,like_count,'
-    'profiles!videos_uploaded_by_fkey(name,display_name)';
+    'uploaded_by,profiles!videos_uploaded_by_fkey(name,display_name)';
 
 const _encbaUtcOffset = Duration(hours: 9);
 
