@@ -18,7 +18,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _formKey = GlobalKey<FormState>();
   final _phone = TextEditingController(text: '010-');
   final _jerseyNumber = TextEditingController();
-  bool _signUp = false;
   String _position = 'PG';
   String _studentYearPick = studentYearPickerOptions.first;
   String _joinedYearPick = joinedYearPickerOptions.first;
@@ -51,15 +50,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   Text(
                     pendingRegistration != null
                         ? '회원 정보 입력'
-                        : _signUp
-                        ? 'Google로 가입하기'
                         : 'Welcome to ENCBA',
                     style: Theme.of(context).textTheme.displaySmall?.copyWith(
                       fontFamily: encbaFontFor(
                         pendingRegistration != null
                             ? '회원 정보 입력'
-                            : _signUp
-                            ? 'Google로 가입하기'
                             : 'Welcome to ENCBA',
                         display: true,
                       ),
@@ -185,40 +180,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 : '010-1234-5678 형식으로 입력해 주세요.',
                           ),
                           const SizedBox(height: 12),
-                        ] else if (_signUp) ...[
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(18),
-                            decoration: BoxDecoration(
-                              color: EncbaColors.highlight,
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: const Column(
-                              children: [
-                                Icon(
-                                  Icons.school_outlined,
-                                  color: EncbaColors.snuBlue,
-                                  size: 34,
-                                ),
-                                SizedBox(height: 10),
-                                Text(
-                                  '서울대학교 Google 계정으로 인증해 주세요.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(fontWeight: FontWeight.w700),
-                                ),
-                                SizedBox(height: 6),
-                                Text(
-                                  'snu.ac.kr 계열 학교 계정과 ENCBA 가입 명단을 모두 확인한 뒤 회원정보를 입력합니다.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: EncbaColors.muted,
-                                    fontSize: 13,
-                                    height: 1.5,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
                         ] else ...[
                           // 아이디·비밀번호 로그인은 당분간 비활성화했다.
                           // 실사용은 전부 Google 로그인뿐이라 그 버튼을 이
@@ -246,20 +207,29 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           const SizedBox(height: 12),
                           SizedBox(
                             width: double.infinity,
+                            // 곧바로 Google 계정 선택으로 보낸다. 중간에
+                            // 안내 화면을 한 번 더 거치면 같은 버튼을 두 번
+                            // 누르는 셈이라 가입만 길어졌다.
                             child: FilledButton.icon(
                               onPressed: auth.isBusy
                                   ? null
-                                  : () => setState(() {
-                                      _signUp = true;
+                                  : () {
                                       _formKey.currentState?.reset();
-                                    }),
+                                      ref
+                                          .read(authControllerProvider.notifier)
+                                          .startGoogleSignIn(forSignUp: true);
+                                    },
                               style: FilledButton.styleFrom(
                                 backgroundColor: EncbaColors.snuBlue,
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(vertical: 17),
                               ),
                               icon: const Icon(Icons.school_outlined),
-                              label: const Text('처음이라면 Google 회원가입'),
+                              label: Text(
+                                auth.isBusy
+                                    ? 'Google 연결 중…'
+                                    : '처음이라면 Google 회원가입',
+                              ),
                             ),
                           ),
                         ],
@@ -290,29 +260,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     ),
                   ],
                   const SizedBox(height: 12),
-                  if (_signUp && pendingRegistration == null) ...[
-                    FilledButton.icon(
-                      onPressed: auth.isBusy
-                          ? null
-                          : () => ref
-                                .read(authControllerProvider.notifier)
-                                .startGoogleSignIn(forSignUp: true),
-                      icon: const Icon(Icons.login_rounded),
-                      label: Text(
-                        auth.isBusy ? 'Google 연결 중…' : 'Google 계정으로 계속',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: auth.isBusy
-                          ? null
-                          : () => setState(() {
-                              _signUp = false;
-                              _formKey.currentState?.reset();
-                            }),
-                      child: const Text('이미 계정이 있어요'),
-                    ),
-                  ] else if (pendingRegistration != null) ...[
+                  if (pendingRegistration != null) ...[
                     FilledButton(
                       onPressed: auth.isBusy ? null : _submit,
                       child: AnimatedSwitcher(
@@ -337,10 +285,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       onPressed: auth.isBusy
                           ? null
                           : () async {
-                              await ref
-                                  .read(authControllerProvider.notifier)
-                                  .cancelGoogleRegistration();
-                              if (mounted) setState(() => _signUp = true);
+                              final controller = ref.read(
+                                authControllerProvider.notifier,
+                              );
+                              await controller.cancelGoogleRegistration();
+                              // 곧바로 계정 선택으로 되돌려 보낸다.
+                              await controller.startGoogleSignIn(
+                                forSignUp: true,
+                              );
                             },
                       child: const Text('다른 Google 계정 사용'),
                     ),

@@ -255,12 +255,12 @@ void main() {
     expect(find.text('Google 계정으로 로그인'), findsOneWidget);
     expect(find.text('처음이라면 Google 회원가입'), findsOneWidget);
 
+    // 회원가입을 누르면 중간 안내 없이 곧바로 Google 계정 선택으로 간다.
+    // 안내 화면을 한 번 더 거치면 같은 버튼을 두 번 누르는 셈이었다.
     await tester.tap(find.text('처음이라면 Google 회원가입'));
-    await tester.pumpAndSettle();
-    expect(find.text('Google로 가입하기'), findsOneWidget);
-    expect(find.text('Google 계정으로 계속'), findsOneWidget);
-    expect(find.textContaining('snu.ac.kr 계열 학교 계정'), findsOneWidget);
-    expect(find.text('실명'), findsNothing);
+    await tester.pump();
+    expect(find.text('Google 계정으로 계속'), findsNothing);
+    expect(find.textContaining('snu.ac.kr 계열 학교 계정'), findsNothing);
     expect(find.text('비밀번호'), findsNothing);
   });
 
