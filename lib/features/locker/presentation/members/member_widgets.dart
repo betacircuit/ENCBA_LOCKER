@@ -14,7 +14,8 @@ class _MemberTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Card(
     child: ListTile(
-      onTap: onTap,
+      onTap: () => unawaited(encbaTapThen(onTap)),
+      splashColor: EncbaColors.snuBlue.withValues(alpha: .12),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       leading: _Avatar(
         name: member.name,

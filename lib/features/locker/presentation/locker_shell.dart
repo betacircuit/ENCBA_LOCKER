@@ -17,6 +17,7 @@ import 'package:encba_locker/features/locker/services/notification_category_pref
 import 'package:encba_locker/features/locker/services/calendar_service.dart';
 import 'package:encba_locker/features/locker/services/notification_history_service.dart';
 import 'package:encba_locker/features/locker/services/announcement_read_store.dart';
+import 'package:encba_locker/features/locker/services/app_update_service.dart';
 import 'package:encba_locker/features/locker/services/attendance_report_service.dart';
 import 'package:encba_locker/features/locker/services/ai_compose_service.dart';
 import 'package:encba_locker/features/locker/services/web_notification_service.dart';
@@ -151,15 +152,20 @@ class _LockerShellState extends ConsumerState<LockerShell> {
                     ref.read(lockerControllerProvider.notifier).reload(),
               ),
             Expanded(
-              child: IndexedStack(
-                index: selectedTab.index,
-                children: [
-                  for (var index = 0; index < pages.length; index++)
-                    if (_visitedTabs.contains(index))
-                      pages[index]
-                    else
-                      const SizedBox.shrink(),
-                ],
+              child: _TabSwipeArea(
+                selectedIndex: selectedTab.index,
+                tabCount: pages.length,
+                onSelected: (index) => context.go(LockerTab.values[index].path),
+                child: IndexedStack(
+                  index: selectedTab.index,
+                  children: [
+                    for (var index = 0; index < pages.length; index++)
+                      if (_visitedTabs.contains(index))
+                        pages[index]
+                      else
+                        const SizedBox.shrink(),
+                  ],
+                ),
               ),
             ),
           ],
@@ -312,5 +318,84 @@ class _SlidingNavigationBar extends StatelessWidget {
         ),
       ),
     ),
+  );
+}
+
+
+/// 탭 사이를 손가락으로 옮겨 다니게 해 주는 영역.
+///
+/// 왼쪽으로 밀면 탭 막대에서 왼쪽에 있는 탭(홈→경기→영상), 오른쪽으로
+/// 밀면 오른쪽에 있는 탭(홈→일정→개인)으로 간다. 탭 막대에 보이는 순서와
+/// 손이 가는 방향이 같아야 헷갈리지 않는다.
+///
+/// 화면 왼쪽 가장자리에서 시작한 손짓은 건드리지 않는다. 거기서 오른쪽으로
+/// 미는 건 브라우저 뒤로가기라서, 우리가 가로채면 두 동작이 싸운다.
+class _TabSwipeArea extends StatefulWidget {
+  const _TabSwipeArea({
+    required this.selectedIndex,
+    required this.tabCount,
+    required this.onSelected,
+    required this.child,
+  });
+
+  final int selectedIndex;
+  final int tabCount;
+  final ValueChanged<int> onSelected;
+  final Widget child;
+
+  /// 브라우저 뒤로가기 제스처에 양보할 왼쪽 가장자리 폭.
+  static const _edgeGuard = 32.0;
+
+  /// 이만큼은 밀어야 탭이 넘어간다. 스크롤하다 손이 살짝 틀어진 것까지
+  /// 탭 이동으로 받으면 읽던 화면이 제멋대로 바뀐다.
+  static const _distanceThreshold = 64.0;
+
+  /// 짧게 튕겨도 넘어가도록 속도에도 문턱을 둔다.
+  static const _velocityThreshold = 320.0;
+
+  @override
+  State<_TabSwipeArea> createState() => _TabSwipeAreaState();
+}
+
+class _TabSwipeAreaState extends State<_TabSwipeArea> {
+  double _dragged = 0;
+  bool _ignoring = false;
+
+  void _start(DragStartDetails details) {
+    _dragged = 0;
+    _ignoring = details.globalPosition.dx <= _TabSwipeArea._edgeGuard;
+  }
+
+  void _update(DragUpdateDetails details) {
+    if (_ignoring) return;
+    _dragged += details.delta.dx;
+  }
+
+  void _end(DragEndDetails details) {
+    if (_ignoring) return;
+    final velocity = details.velocity.pixelsPerSecond.dx;
+    final movedEnough =
+        _dragged.abs() >= _TabSwipeArea._distanceThreshold ||
+        velocity.abs() >= _TabSwipeArea._velocityThreshold;
+    if (!movedEnough) return;
+    // 손가락이 간 방향과 부호가 같다. 왼쪽으로 밀면 음수다.
+    final goingLeft = (_dragged.abs() >= _TabSwipeArea._distanceThreshold)
+        ? _dragged < 0
+        : velocity < 0;
+    final next = widget.selectedIndex + (goingLeft ? -1 : 1);
+    if (next < 0 || next >= widget.tabCount) return;
+    unawaited(HapticFeedback.selectionClick());
+    widget.onSelected(next);
+  }
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    // 가로 손짓만 가져간다. 세로 스크롤과 안쪽의 가로 스크롤 목록은
+    // 제스처 경합에서 더 안쪽 위젯이 이기므로 그대로 동작한다.
+    behavior: HitTestBehavior.translucent,
+    onHorizontalDragStart: _start,
+    onHorizontalDragUpdate: _update,
+    onHorizontalDragEnd: _end,
+    child: widget.child,
   );
 }

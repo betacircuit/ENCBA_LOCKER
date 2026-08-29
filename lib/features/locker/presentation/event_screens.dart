@@ -181,6 +181,9 @@ class EventTicket extends ConsumerWidget {
   final VoidCallback onTap;
   final bool compact;
 
+  /// 물결이 그려질 틈을 준 뒤 이동한다.
+  void _tap() => unawaited(encbaTapThen(onTap));
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final accent = _kindColor(event.kind);
@@ -196,7 +199,7 @@ class EventTicket extends ConsumerWidget {
           borderRadius: BorderRadius.circular(18),
           child: InkWell(
             borderRadius: BorderRadius.circular(18),
-            onTap: onTap,
+            onTap: _tap,
             child: Padding(
               padding: const EdgeInsets.all(18),
               child: Row(
@@ -249,7 +252,7 @@ class EventTicket extends ConsumerWidget {
                   '${event.title}, ${event.start.month}월 ${event.start.day}일, ${time(event.start)}부터 ${time(event.end)}까지, ${event.fullPlace}',
               excludeSemantics: true,
               child: InkWell(
-                onTap: onTap,
+                onTap: _tap,
                 child: IntrinsicHeight(
                   child: Row(
                     children: [

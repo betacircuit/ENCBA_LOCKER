@@ -118,6 +118,10 @@ class _AdminSection extends ConsumerStatefulWidget {
 class _AdminSectionState extends ConsumerState<_AdminSection> {
   bool _operationsImporting = false;
 
+  /// 알림이 켜져 있는지. 꺼져 있으면 알림 테스트 메뉴를 잠근다 - 눌러도
+  /// 아무 알림이 안 오는 메뉴를 열어 두면 고장으로 오해한다.
+  bool _notificationsEnabled = false;
+
   // 홈커밍 가져오기/내보내기 버튼은 모달 바텀시트 안에 있다. 바텀시트는
   // Navigator 오버레이에 별도로 올라가는 라우트라 이 State의 setState로는
   // 다시 그려지지 않는다. ValueNotifier + ValueListenableBuilder로 만들어
@@ -128,6 +132,7 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadNotificationState());
     // 홈커밍 캠페인 관리는 이 섹션에서 바로 응답 엑셀/다시 잠그기를
     // 실행할 수 있어야 하므로, 부원처럼 홈커밍 화면을 먼저 열지 않아도
     // 연락망을 미리 읽어 둔다.
@@ -214,11 +219,32 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
         _MenuTile(
           icon: Icons.notifications_active_outlined,
           title: '알림 테스트',
-          subtitle: '10초 뒤 도착하는 알림으로 기기 설정을 확인',
+          subtitle: _notificationsEnabled
+              ? '10초 뒤 도착하는 알림으로 기기 설정을 확인'
+              : '홈 화면 종 아이콘에서 알림을 먼저 켜 주세요',
+          locked: !_notificationsEnabled,
           onTap: _testNotification,
+        ),
+        _MenuTile(
+          icon: Icons.system_update_alt_rounded,
+          title: '업데이트 내역',
+          subtitle: '마지막 배포 시각과 바뀐 내용',
+          onTap: () => _showUpdateHistory(context),
         ),
       ],
     );
+  }
+
+  Future<void> _loadNotificationState() async {
+    // 기기 저장소를 못 읽는 자리에서는 꺼진 것으로 본다. 메뉴가 잠기고
+    // 이유가 함께 적히므로 눌러도 아무 일이 없는 상태보다는 낫다.
+    var enabled = false;
+    try {
+      enabled = await WebNotificationService().isEnabled();
+    } on Object {
+      enabled = false;
+    }
+    if (mounted) setState(() => _notificationsEnabled = enabled);
   }
 
   /// 알림이 실제로 기기에 도착하는지 확인하는 용도. 앱을 나가 있어야 알림이
@@ -1155,8 +1181,10 @@ class _MenuTile extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget tile = Card(
       child: ListTile(
-        onTap: locked ? null : onTap,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
+        // 곧바로 넘어가면 눌린 티가 안 난다. 물결이 보일 만큼만 기다린다.
+        onTap: locked ? null : () => unawaited(encbaTapThen(onTap)),
+        splashColor: EncbaColors.snuBlue.withValues(alpha: .12),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
         leading: Icon(
           icon,
           color: locked ? EncbaColors.muted : EncbaColors.snuBlue,
@@ -1716,6 +1744,115 @@ class _NotificationLogRow extends StatelessWidget {
         const SizedBox(height: 5),
         Text(
           '받는 사람 ${entry.recipientName} · ${_relativeTime(entry.createdAt)}',
+          style: const TextStyle(color: EncbaColors.muted, fontSize: 12),
+        ),
+      ],
+    ),
+  );
+}
+
+
+/// 관리자용 업데이트 내역. 깃허브의 최근 커밋을 그대로 보여 준다.
+///
+/// 서버에 따로 기록을 남기지 않아도 "언제 무엇이 바뀌었나"를 확인할 수
+/// 있는 가장 정확한 자리다.
+Future<void> _showUpdateHistory(BuildContext context) async {
+  final entriesFuture = AppUpdateService().loadRecent();
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: FractionallySizedBox(
+        heightFactor: .85,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: FutureBuilder<List<AppUpdateEntry>>(
+            future: entriesFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                final error = snapshot.error;
+                return Center(
+                  child: Text(
+                    error is AppUpdateException
+                        ? error.message
+                        : '배포 내역을 불러오지 못했습니다.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: EncbaColors.muted),
+                  ),
+                );
+              }
+              final entries = snapshot.data ?? const <AppUpdateEntry>[];
+              if (entries.isEmpty) {
+                return const Center(
+                  child: Text(
+                    '배포 내역이 없습니다.',
+                    style: TextStyle(color: EncbaColors.muted),
+                  ),
+                );
+              }
+              final latest = entries.first;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '업데이트 내역',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '마지막 배포 ${_relativeTime(latest.committedAt)}',
+                    style: const TextStyle(
+                      color: EncbaColors.snuBlue,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: entries.length,
+                      separatorBuilder: (context, index) =>
+                          const Divider(height: 1, color: EncbaColors.line),
+                      itemBuilder: (context, index) =>
+                          _UpdateRow(entry: entries[index]),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _UpdateRow extends StatelessWidget {
+  const _UpdateRow({required this.entry});
+
+  final AppUpdateEntry entry;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 11),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          entry.summary,
+          style: const TextStyle(fontWeight: FontWeight.w700, height: 1.4),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          [
+            _relativeTime(entry.committedAt),
+            if (entry.author.isNotEmpty) entry.author,
+            entry.shortSha,
+          ].join(' · '),
           style: const TextStyle(color: EncbaColors.muted, fontSize: 12),
         ),
       ],

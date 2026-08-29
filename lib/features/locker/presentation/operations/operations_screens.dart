@@ -794,8 +794,9 @@ class _TaskTile extends StatelessWidget {
     padding: const EdgeInsets.only(bottom: 10),
     child: Card(
       child: ListTile(
-        onTap: onTap,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+        onTap: onTap == null ? null : () => unawaited(encbaTapThen(onTap!)),
+        splashColor: EncbaColors.snuBlue.withValues(alpha: .12),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
         leading: Container(
           width: 48,
           height: 48,

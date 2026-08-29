@@ -1,5 +1,19 @@
 part of '../locker_shell.dart';
 
+/// 눌린 느낌이 남도록 잠깐 기다렸다가 화면을 옮긴다.
+///
+/// 곧바로 이동하면 잉크 물결이 그려지기 전에 화면이 갈아 끼워져서, 눌러도
+/// 아무 반응 없이 순간이동한 것처럼 보인다. 짧게 한 박자 두면 손끝의
+/// 진동과 물결이 눈에 남는다. 사람이 '눌렀다'고 느끼는 데 필요한 최소한의
+/// 시간이라 답답하지는 않다.
+const encbaTapFeedbackDelay = Duration(milliseconds: 130);
+
+Future<void> encbaTapThen(VoidCallback action) async {
+  unawaited(HapticFeedback.selectionClick());
+  await Future<void>.delayed(encbaTapFeedbackDelay);
+  action();
+}
+
 class _Page extends StatelessWidget {
   const _Page({
     required this.header,
