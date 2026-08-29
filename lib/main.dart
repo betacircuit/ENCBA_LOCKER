@@ -7,7 +7,6 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:encba_locker/core/theme/app_theme.dart';
 import 'package:encba_locker/core/routing/app_router.dart';
-import 'package:encba_locker/features/locker/application/locker_controller.dart';
 import 'package:encba_locker/features/locker/services/push_notification_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -79,20 +78,16 @@ class _RoutedApp extends ConsumerWidget {
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
-        // 목록 맨 위에서 아래로 당기면 새로고침한다. 앱 전체를 감싸 두어야
-        // 탭 화면과 상세 화면 어디서든 같은 손짓이 통한다.
-        // 당겨서 새로고침은 그대로 두되 화면 가운데 위에 뜨던 동그란
-        // 표시는 감춘다. 진행 상황은 상단의 동기화 띠가 이미 알려 준다.
-        final refreshableChild = RefreshIndicator(
-          onRefresh: () => ref.read(lockerControllerProvider.notifier).reload(),
-          color: Colors.transparent,
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          displacement: 0,
-          child: DefaultTextStyle.merge(
-            style: const TextStyle(fontFamilyFallback: encbaFontFallback),
-            child: child,
-          ),
+        // 당겨서 새로고침은 뺐다.
+        //
+        // 표시를 감춘 뒤로는 손짓이 걸려도 아무것도 안 보이는데 뒤에서는
+        // 전체 데이터를 다시 받아, 화면이 끊기고 흔들리는 것처럼만 보였다.
+        // 뒤로가기 손짓처럼 가로로 밀 때도 세로 성분이 조금만 섞이면
+        // 걸려서 특히 성가셨다. 새로고침이 필요하면 상단 동기화 띠의
+        // '다시 시도'로 명시적으로 한다.
+        final refreshableChild = DefaultTextStyle.merge(
+          style: const TextStyle(fontFamilyFallback: encbaFontFallback),
+          child: child,
         );
         return LayoutBuilder(
           builder: (context, constraints) {
