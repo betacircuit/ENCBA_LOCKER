@@ -452,6 +452,42 @@ void main() {
     expect(find.text('다시 잠그기'), findsOneWidget);
   });
 
+  testWidgets('활성 IB 운영은 주장에게 다시 잠그기를 제공한다', (tester) async {
+    final assignment = OperationAssignment(
+      id: 'operation-active',
+      title: 'IB 운영 1경기',
+      start: DateTime(2026, 9, 13, 13),
+      end: DateTime(2026, 9, 13, 14),
+      location: '종합체육관',
+      memo: '',
+    );
+    await tester.pumpWidget(
+      _signedInApp(
+        const ProfileScreen(),
+        user: testUser.copyWith(isAdmin: false, leadershipRole: 'captain'),
+        lockerState: LockerState(
+          isReady: true,
+          // 본인 배정이 없어도 전체 운영표가 있으면 활성 상태다.
+          allOperations: [assignment],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.text('IB 운영 관리'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(find.text('IB 운영 관리'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('IB 운영 관리'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('운영표 다시 가져오기'), findsOneWidget);
+    expect(find.text('다시 잠그기'), findsOneWidget);
+  });
+
   testWidgets('오류 제보는 개인 탭 아래에서 시트로 열린다', (tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -1692,6 +1728,38 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('피드백 선수 선택창이 열리면 YouTube 플랫폼 뷰를 내린다', (tester) async {
+    const playerKey = ValueKey('test-youtube-platform-view');
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: VideoPlatformViewGuard(
+          modalOpen: false,
+          player: SizedBox(key: playerKey),
+        ),
+      ),
+    );
+    expect(find.byKey(playerKey), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('video-player-modal-placeholder')),
+      findsNothing,
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: VideoPlatformViewGuard(
+          modalOpen: true,
+          player: SizedBox(key: playerKey),
+        ),
+      ),
+    );
+
+    expect(find.byKey(playerKey), findsNothing);
+    expect(
+      find.byKey(const ValueKey('video-player-modal-placeholder')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('인원 제한 슬라이더는 2~20명 범위이고 끝까지 끌어도 안전하다', (tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -1827,6 +1895,7 @@ void main() {
 
     expect(find.text('71 · 71-1 RESERVATION'), findsOneWidget);
     expect(find.text('900 RESERVATION'), findsOneWidget);
+    expect(find.text('지금 예약할 수 있습니다'), findsNothing);
     // 카운트다운은 무엇까지 남은 시간인지 밝힌다. 예약 창이 열려 있으면
     // 마감까지, 닫혀 있으면 오픈까지를 센다.
     expect(

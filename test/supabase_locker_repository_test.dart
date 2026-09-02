@@ -200,6 +200,28 @@ void main() {
       ],
     );
   });
+
+  test('IB 운영 비활성화는 전용 RPC 결과를 반환한다', () async {
+    final httpClient = MockClient((request) async {
+      expect(request.method, 'POST');
+      expect(request.url.path, '/rest/v1/rpc/deactivate_ib_operations');
+      return http.Response(
+        'true',
+        200,
+        headers: {'content-type': 'application/json'},
+        request: request,
+      );
+    });
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'test-anon-key',
+      httpClient: httpClient,
+    );
+    addTearDown(client.dispose);
+    final repository = SupabaseLockerRepository(client, LocalStore());
+
+    expect(await repository.deactivateOperations(), isTrue);
+  });
 }
 
 String _testJwt(String userId) {

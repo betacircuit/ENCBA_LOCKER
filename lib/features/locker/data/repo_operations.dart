@@ -154,6 +154,11 @@ mixin OperationsApi on RepoCore {
     );
   }
 
+  Future<bool> deactivateOperations() async {
+    final result = await _client.rpc('deactivate_ib_operations');
+    return result as bool? ?? false;
+  }
+
   /// 관리자가 학기 전체 IB 운영 배정을 볼 때 쓴다. RLS가 부원에게는
   /// 자기 배정만, 관리자에게는 전체를 허용하므로 화면에서 권한을 가린다.
   Future<List<OperationAssignment>> loadAllOperations() async {
@@ -163,6 +168,7 @@ mixin OperationsApi on RepoCore {
           'id,title,starts_at,ends_at,location,memo,assignee_name,'
           'profiles!operation_assignments_profile_id_fkey(name,display_name)',
         )
+        .eq('is_active', true)
         .order('starts_at')
         .limit(500);
     final assignments = (rows as List<dynamic>)

@@ -341,7 +341,8 @@ class LockerController extends StateNotifier<LockerState>
       allOperations: allOperations,
     );
     final title = record['title'] as String?;
-    if (record['profile_id'] == Supabase.instance.client.auth.currentUser?.id) {
+    if (record['is_active'] != false &&
+        record['profile_id'] == Supabase.instance.client.auth.currentUser?.id) {
       await _notifyIfEnabled(
         NotificationCategory.events,
         'IB 운영 일정이 등록됐습니다',

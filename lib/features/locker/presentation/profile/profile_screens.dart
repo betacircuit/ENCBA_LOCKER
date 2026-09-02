@@ -16,13 +16,14 @@ class ProfileScreen extends ConsumerWidget {
         (state) => state.operationsState.homecomingCampaign,
       ),
     );
-    // IB 운영표가 올라오기 전에는 IB 메뉴가 잠긴다.
-    final ibLocked =
-        ref.watch(
+    // 개인 배정 유무가 아니라 전체 운영표의 활성 상태로 메뉴를 잠근다.
+    final ibLocked = ref
+        .watch(
           lockerControllerProvider.select(
-            (state) => state.operationsState.operations,
+            (state) => state.operationsState.allOperations,
           ),
-        ).isEmpty;
+        )
+        .isEmpty;
     return _Page(
       header: _Header(
         eyebrow: 'MY LOCKER',
@@ -156,11 +157,13 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
         (state) => (
           campaign: state.operationsState.homecomingCampaign,
           contacts: state.operationsState.homecomingContacts,
+          operationsActive: state.operationsState.allOperations.isNotEmpty,
         ),
       ),
     );
     final campaign = homecomingState.campaign;
     final contacts = homecomingState.contacts;
+    final operationsActive = homecomingState.operationsActive;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -199,10 +202,22 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
           onTap: () => context.push('/error-reports'),
         ),
         _MenuTile(
-          icon: Icons.upload_file_outlined,
-          title: _operationsImporting ? 'IB 운영표 가져오는 중…' : 'IB 운영표 가져오기',
-          subtitle: '학기 초 엑셀로 운영 배정을 새로 등록',
-          onTap: _operationsImporting ? () {} : _importOperations,
+          icon: operationsActive
+              ? Icons.assignment_outlined
+              : Icons.upload_file_outlined,
+          title: operationsActive
+              ? 'IB 운영 관리'
+              : _operationsImporting
+              ? 'IB 운영표 가져오는 중…'
+              : 'IB 운영표 가져오기',
+          subtitle: operationsActive
+              ? '운영표 다시 가져오기 · 다시 잠그기'
+              : '학기 초 엑셀로 운영 배정을 새로 등록',
+          onTap: operationsActive
+              ? _showOperationsAdmin
+              : _operationsImporting
+              ? () {}
+              : _importOperations,
         ),
         _MenuTile(
           icon: campaign == null
@@ -309,6 +324,85 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
     } finally {
       if (mounted) setState(() => _operationsImporting = false);
     }
+  }
+
+  Future<void> _showOperationsAdmin() => showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'IB 운영 관리',
+              style: Theme.of(sheetContext).textTheme.headlineMedium,
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              '현재 등록된 운영표를 교체하거나 부원에게서 숨길 수 있습니다.',
+              style: TextStyle(color: EncbaColors.muted),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: _operationsImporting
+                  ? null
+                  : () {
+                      Navigator.pop(sheetContext);
+                      unawaited(_importOperations());
+                    },
+              icon: const Icon(Icons.upload_file_outlined),
+              label: const Text('운영표 다시 가져오기'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(sheetContext);
+                unawaited(_lockOperations());
+              },
+              icon: const Icon(Icons.lock_outline_rounded),
+              label: const Text('다시 잠그기'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _lockOperations() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('IB 운영을 다시 잠글까요?'),
+        content: const Text(
+          '기존 배정 기록은 삭제되지 않으며, 관리자가 운영표를 다시 올리기 전까지 IB 운영 일정과 교환 기능이 숨겨집니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('잠그기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final locked = await ref
+        .read(lockerControllerProvider.notifier)
+        .deactivateOperations();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(locked ? 'IB 운영 일정을 잠갔습니다.' : 'IB 운영을 잠그지 못했습니다.'),
+        ),
+      );
   }
 
   Future<Set<String>?> _selectOperationAssignees(

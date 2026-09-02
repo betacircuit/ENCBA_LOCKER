@@ -35,6 +35,27 @@ mixin OperationsApi on StateNotifier<LockerState>, ControllerCore {
     }
   }
 
+  Future<bool> deactivateOperations() async {
+    final repository = _repository;
+    if (repository == null) return false;
+    try {
+      final deactivated = await repository.deactivateOperations();
+      if (!deactivated) return false;
+      state = state.copyWith(
+        operations: const [],
+        allOperations: const [],
+        operationExchangeBoard: const [],
+        operationSwapRequests: const [],
+        clearError: true,
+      );
+      return true;
+    } on Object catch (error, stackTrace) {
+      debugPrint('ENCBA operation deactivate failed: $error\n$stackTrace');
+      state = state.copyWith(error: 'IB 운영을 비활성화하지 못했습니다.');
+      return false;
+    }
+  }
+
   /// 관리자용: 학기 전체 IB 운영 배정을 읽어 온다.
   Future<List<OperationAssignment>> loadAllOperations() async {
     final repository = _repository;

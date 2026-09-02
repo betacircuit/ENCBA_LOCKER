@@ -95,6 +95,11 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
   final Set<String> _commentTargetIds = <String>{};
   bool _savingComment = false;
 
+  /// iOS의 YouTube 플랫폼 뷰는 모달보다 위에서 터치를 받을 수 있다. 선수
+  /// 선택 시트가 열린 동안에는 플랫폼 뷰를 트리에서 내려 X/완료 버튼이
+  /// 확실히 터치를 받게 한다.
+  bool _memberChecklistOpen = false;
+
   /// "@"를 입력하는 중일 때만 채워지는 멤버 자동완성 후보.
   ///
   /// [ValueNotifier]로 들고 있어 값이 바뀔 때 댓글 입력창 아래 후보 목록만
@@ -506,13 +511,16 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    YoutubePlayer(
-                      key: ValueKey(
-                        'video-${video.id}-${selectedLink?.id ?? selectedLink?.url ?? ''}',
+                    VideoPlatformViewGuard(
+                      modalOpen: _memberChecklistOpen,
+                      player: YoutubePlayer(
+                        key: ValueKey(
+                          'video-${video.id}-${selectedLink?.id ?? selectedLink?.url ?? ''}',
+                        ),
+                        controller: player,
+                        aspectRatio: 16 / 9,
+                        backgroundColor: EncbaColors.navy,
                       ),
-                      controller: player,
-                      aspectRatio: 16 / 9,
-                      backgroundColor: EncbaColors.navy,
                     ),
                     Positioned.fill(
                       child: IgnorePointer(
@@ -666,6 +674,11 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
                     ..clear()
                     ..addAll(value);
                 }),
+                onModalVisibilityChanged: (visible) {
+                  if (mounted) {
+                    setState(() => _memberChecklistOpen = visible);
+                  }
+                },
               ),
               if (_commentTargetIds.isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -947,29 +960,65 @@ class _MentionText extends StatelessWidget {
   }
 }
 
+/// 플랫폼 뷰는 일부 iOS 조합에서 Flutter 오버레이보다 앞에서 그려지고
+/// 터치를 받을 수 있다. 모달 중에는 [player]를 숨기는 수준이 아니라 아예
+/// 트리에서 제거해야 한다.
+class VideoPlatformViewGuard extends StatelessWidget {
+  const VideoPlatformViewGuard({
+    super.key,
+    required this.modalOpen,
+    required this.player,
+  });
+
+  final bool modalOpen;
+  final Widget player;
+
+  @override
+  Widget build(BuildContext context) => modalOpen
+      ? const AspectRatio(
+          key: ValueKey('video-player-modal-placeholder'),
+          aspectRatio: 16 / 9,
+          child: ColoredBox(color: EncbaColors.navy),
+        )
+      : player;
+}
+
 class _MemberChecklistButton extends StatelessWidget {
   const _MemberChecklistButton({
     required this.label,
     required this.members,
     required this.selectedIds,
     required this.onChanged,
+    this.onModalVisibilityChanged,
   });
 
   final String label;
   final List<VideoTaggedMember> members;
   final Set<String> selectedIds;
   final ValueChanged<Set<String>> onChanged;
+  final ValueChanged<bool>? onModalVisibilityChanged;
 
   @override
   Widget build(BuildContext context) => OutlinedButton.icon(
     onPressed: () async {
-      final selected = await _showMemberChecklist(
-        context,
-        title: label,
-        members: members,
-        initialSelection: selectedIds,
-      );
-      if (selected != null) onChanged(selected);
+      final hidesPlatformView = onModalVisibilityChanged != null;
+      onModalVisibilityChanged?.call(true);
+      if (hidesPlatformView) {
+        // 플랫폼 뷰가 실제로 제거된 프레임 뒤에 모달을 올린다.
+        await WidgetsBinding.instance.endOfFrame;
+      }
+      try {
+        if (!context.mounted) return;
+        final selected = await _showMemberChecklist(
+          context,
+          title: label,
+          members: members,
+          initialSelection: selectedIds,
+        );
+        if (selected != null) onChanged(selected);
+      } finally {
+        onModalVisibilityChanged?.call(false);
+      }
     },
     icon: const Icon(Icons.group_outlined),
     label: Text(

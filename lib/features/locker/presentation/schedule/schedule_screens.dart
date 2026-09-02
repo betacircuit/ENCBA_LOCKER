@@ -388,7 +388,7 @@ class _CourtReservationScreenState
           // 사람에게 엉뚱한 숫자가 보인다.
           _ReservationCountdownCard(
             eyebrow: '71 · 71-1 RESERVATION',
-            title: window.open ? '지금 예약할 수 있습니다' : '화요일 09:30 오픈',
+            title: window.open ? null : '화요일 09:30 오픈',
             countdown:
                 '오픈까지 ${_countdown(nextCourtReservationOpening(now).difference(now))}',
             serverTime: now,
@@ -434,7 +434,7 @@ class _ReservationCountdownCard extends StatelessWidget {
   });
 
   final String eyebrow;
-  final String title;
+  final String? title;
   final String countdown;
   final DateTime serverTime;
   final bool badge;
@@ -464,16 +464,19 @@ class _ReservationCountdownCard extends StatelessWidget {
             if (badge) const _ReservationRoleBadge(),
           ],
         ),
-        const SizedBox(height: 14),
-        Text(
-          title,
-          style: const TextStyle(
-            fontFamily: 'Jua',
-            color: Colors.white,
-            fontSize: 25,
+        if (title case final title?) ...[
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: const TextStyle(
+              fontFamily: 'Jua',
+              color: Colors.white,
+              fontSize: 25,
+            ),
           ),
-        ),
-        const SizedBox(height: 6),
+          const SizedBox(height: 6),
+        ] else
+          const SizedBox(height: 14),
         FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
