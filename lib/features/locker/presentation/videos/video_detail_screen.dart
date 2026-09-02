@@ -465,6 +465,11 @@ class _VideoDetailScreenState extends ConsumerState<_VideoDetailScreen> {
                       ref,
                       displayed.category,
                       existing: displayed,
+                      onMemberChecklistVisibilityChanged: (visible) {
+                        if (mounted) {
+                          setState(() => _memberChecklistOpen = visible);
+                        }
+                      },
                     ),
                     icon: const Icon(Icons.edit_outlined),
                   ),

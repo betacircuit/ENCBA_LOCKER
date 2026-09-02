@@ -5,17 +5,27 @@ void _showVideoEditor(
   WidgetRef ref,
   String category, {
   VideoItem? existing,
+  ValueChanged<bool>? onMemberChecklistVisibilityChanged,
 }) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
   showDragHandle: true,
-  builder: (_) => _VideoEditorSheet(category: category, existing: existing),
+  builder: (_) => _VideoEditorSheet(
+    category: category,
+    existing: existing,
+    onMemberChecklistVisibilityChanged: onMemberChecklistVisibilityChanged,
+  ),
 );
 
 class _VideoEditorSheet extends ConsumerStatefulWidget {
-  const _VideoEditorSheet({required this.category, this.existing});
+  const _VideoEditorSheet({
+    required this.category,
+    this.existing,
+    this.onMemberChecklistVisibilityChanged,
+  });
   final String category;
   final VideoItem? existing;
+  final ValueChanged<bool>? onMemberChecklistVisibilityChanged;
 
   @override
   ConsumerState<_VideoEditorSheet> createState() => _VideoEditorSheetState();
@@ -430,6 +440,8 @@ class _VideoEditorSheetState extends ConsumerState<_VideoEditorSheet> {
                     onChanged: (value) => setState(() {
                       _reviewPlayerIds = value;
                     }),
+                    onModalVisibilityChanged:
+                        widget.onMemberChecklistVisibilityChanged,
                   ),
                   const SizedBox(height: 12),
                 ],

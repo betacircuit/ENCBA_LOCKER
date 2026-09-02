@@ -1728,7 +1728,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('피드백 선수 선택창이 열리면 YouTube 플랫폼 뷰를 내린다', (tester) async {
+  testWidgets('선수 선택창이 열리면 YouTube 플랫폼 뷰를 내린다', (tester) async {
     const playerKey = ValueKey('test-youtube-platform-view');
     await tester.pumpWidget(
       const MaterialApp(
