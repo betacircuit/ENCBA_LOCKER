@@ -561,10 +561,58 @@ class OperationAssignment {
 /// IB 리그 운영이 열리는 곳. 운영표에는 장소 칸이 없어 항상 이곳이다.
 const ibOperationVenue = '71동 종합체육관';
 
-/// 운영 역할 이름 끝의 A·B는 맡는 코트를 뜻한다("3경기 운영 A" = A코트).
-/// 심판처럼 코트가 정해지지 않은 역할은 null이다.
+class IbGameSlot {
+  const IbGameSlot(this.gameNumber, this.startHour);
+
+  final int gameNumber;
+  final int startHour;
+  int get startMinute => 0;
+  int get endHour => startHour + 1;
+  int get endMinute => 0;
+
+  String get label {
+    String time(int hour, int minute) =>
+        '${hour.toString().padLeft(2, '0')}:'
+        '${minute.toString().padLeft(2, '0')}';
+    return '$gameNumber경기 · '
+        '${time(startHour, startMinute)}–${time(endHour, endMinute)}';
+  }
+}
+
+/// 2026-2부터 쓰는 IB 1~7경기 시간표. 오전 9시부터 매시 정각에 시작하며
+/// 경기당 한 시간이다. 운영표 가져오기와 수동 IB 일정 등록이 같은 기준을 쓴다.
+const ibGameSlots = <IbGameSlot>[
+  IbGameSlot(1, 9),
+  IbGameSlot(2, 10),
+  IbGameSlot(3, 11),
+  IbGameSlot(4, 12),
+  IbGameSlot(5, 13),
+  IbGameSlot(6, 14),
+  IbGameSlot(7, 15),
+];
+
+IbGameSlot ibGameSlot(int gameNumber) => ibGameSlots.firstWhere(
+  (slot) => slot.gameNumber == gameNumber,
+  orElse: () => ibGameSlots.first,
+);
+
+int ibGameNumberAt(DateTime start) {
+  for (final slot in ibGameSlots) {
+    if (start.hour == slot.startHour && start.minute == slot.startMinute) {
+      return slot.gameNumber;
+    }
+  }
+  if (start.hour >= ibGameSlots.first.startHour &&
+      start.hour <= ibGameSlots.last.startHour) {
+    return start.hour - ibGameSlots.first.startHour + 1;
+  }
+  return ibGameSlots.first.gameNumber;
+}
+
+/// 역할 이름 끝의 A·B는 맡는 코트를 뜻한다. 새 양식은 운영과 심판 모두
+/// A·B 코트를 구분한다("3경기 심판 B" = B코트).
 String? ibOperationCourt(String title) {
-  final match = RegExp(r'운영\s*([AB])\s*$').firstMatch(title.trim());
+  final match = RegExp(r'(?:운영|심판)\s*([AB])\s*$').firstMatch(title.trim());
   return match == null ? null : '${match.group(1)}코트';
 }
 

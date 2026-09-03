@@ -952,7 +952,7 @@ void main() {
     expect(find.byType(CupertinoPicker), findsNWidgets(3));
   });
 
-  testWidgets('IB 일정은 1·2·3경기 고정 시간만 선택한다', (tester) async {
+  testWidgets('IB 일정은 1~7경기 고정 시간만 선택한다', (tester) async {
     await tester.pumpWidget(_signedInApp(const EventEditorScreen()));
     await tester.pumpAndSettle();
 
@@ -966,7 +966,12 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
 
-    expect(find.text('1경기 · 13:00–14:00'), findsOneWidget);
+    expect(find.text('1경기 · 09:00–10:00'), findsOneWidget);
+    await tester.tap(find.text('1경기 · 09:00–10:00'));
+    await tester.pumpAndSettle();
+    expect(find.text('7경기 · 15:00–16:00').last, findsOneWidget);
+    await tester.tap(find.text('7경기 · 15:00–16:00').last);
+    await tester.pumpAndSettle();
     // IB는 경기 슬롯이 시간을 정하므로 시작·종료 휠을 열지 않는다.
     expect(find.text('시작'), findsNothing);
   });

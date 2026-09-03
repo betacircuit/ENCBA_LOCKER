@@ -502,7 +502,7 @@ class _AdminSectionState extends ConsumerState<_AdminSection> {
                   ),
                 ),
                 const Text(
-                  '선택한 멤버의 일정만 계정에 등록합니다. 같은 학기의 기존 엑셀 배정은 선택 결과로 교체됩니다. 1경기 13:00–14:00, 2경기 14:10–15:10, 3경기 15:20–16:20으로 고정됩니다.',
+                  '선택한 멤버의 일정만 계정에 등록합니다. 같은 학기의 기존 엑셀 배정은 선택 결과로 교체됩니다. 1~7경기는 09:00부터 매시 정각에 시작하며 경기당 1시간입니다.',
                   style: TextStyle(color: EncbaColors.muted, fontSize: 12),
                 ),
               ],

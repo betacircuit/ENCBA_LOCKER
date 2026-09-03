@@ -277,7 +277,8 @@ void main() {
   test('IB 운영 역할 이름 끝의 A·B는 코트로 읽는다', () {
     expect(ibOperationCourt('3경기 운영 A'), 'A코트');
     expect(ibOperationCourt('1경기 운영 B'), 'B코트');
-    // 심판은 코트가 정해져 있지 않다.
+    expect(ibOperationCourt('2경기 심판 A'), 'A코트');
+    // 이전 양식의 심판 역할에는 코트 표기가 없었다.
     expect(ibOperationCourt('2경기 심판'), isNull);
   });
 

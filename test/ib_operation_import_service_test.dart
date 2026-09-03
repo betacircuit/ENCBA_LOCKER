@@ -98,6 +98,55 @@ void main() {
     expect(result.explicitTimeCount, 0);
   });
 
+  test('새 양식의 1~7경기와 코트별 운영·심판을 읽는다', () {
+    final workbook = Excel.createExcel();
+    final sheet = workbook[workbook.getDefaultSheet()!];
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 0)).value =
+        TextCellValue('9월 6일(일)');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 1)).value =
+        TextCellValue('1경기 운영 A');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 1)).value =
+        TextCellValue('김민수');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 19)).value =
+        TextCellValue('7경기 운영 B');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 19)).value =
+        TextCellValue('이준호');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 20)).value =
+        TextCellValue('엔크바');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 46)).value =
+        TextCellValue('심판');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 47)).value =
+        TextCellValue('1경기 심판 A');
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 47)).value =
+        TextCellValue('박서준');
+
+    final result = IbOperationImportService().parseBytes(
+      fileName: '26-2 IB리그 운영표.xlsx',
+      bytes: workbook.encode()!,
+    );
+
+    expect(result.rows, hasLength(3));
+    expect(
+      {
+        for (final row in result.rows)
+          row['title']: [row['starts_at'], row['ends_at']],
+      },
+      {
+        '1경기 운영 A': ['2026-09-06T00:00:00.000Z', '2026-09-06T01:00:00.000Z'],
+        '1경기 심판 A': ['2026-09-06T00:00:00.000Z', '2026-09-06T01:00:00.000Z'],
+        '7경기 운영 B': ['2026-09-06T06:00:00.000Z', '2026-09-06T07:00:00.000Z'],
+      },
+    );
+    expect(
+      result.rows.map((row) => row['assignee_name']),
+      isNot(contains('엔크바')),
+    );
+    expect(
+      result.rows.map((row) => row['assignee_name']),
+      isNot(contains('심판')),
+    );
+  });
+
   test('제공된 실제 IB 운영표 양식을 읽는다', () {
     const path = r'C:\Users\Jaewon\Downloads\26-1 IB리그 운영표.xlsx';
     final file = File(path);
@@ -141,6 +190,43 @@ void main() {
     expect(june22ThirdGameA.map((row) => row['ends_at']).toSet(), {
       '2026-06-22T07:20:00.000Z',
     });
+  });
+
+  test('제공된 26-2 새 운영표 양식을 읽는다', () {
+    const path = r'C:\Users\Jaewon\Downloads\26-2 IB리그 운영표.xlsx';
+    final file = File(path);
+    if (!file.existsSync()) return;
+    final result = IbOperationImportService().parseBytes(
+      fileName: '26-2 IB리그 운영표.xlsx',
+      bytes: file.readAsBytesSync(),
+    );
+
+    expect(result.dateCount, 7);
+    expect(result.rows, hasLength(51));
+    final counts = <String, int>{};
+    for (final row in result.rows) {
+      counts.update(
+        row['assignee_name'] as String,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
+    expect(counts, hasLength(22));
+    expect(counts['임준호'], 3);
+    expect(counts['이승민'], 3);
+    expect(counts, isNot(contains('엔크바')));
+    expect(counts, isNot(contains('심판')));
+    expect(
+      result.rows
+          .where((row) => row['title'] == '1경기 운영 A')
+          .map((row) => DateTime.parse(row['starts_at'] as String).hour)
+          .toSet(),
+      {0},
+    );
+    expect(
+      result.rows.map((row) => row['title']).toSet(),
+      containsAll(<String>{'1경기 심판 A', '2경기 심판 B', '5경기 운영 B'}),
+    );
   });
 
   test('학기가 없는 파일명은 기존 학기 자료를 지우기 전에 거부한다', () {

@@ -155,7 +155,9 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
         existing?.end ??
         DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 15);
     _deadlineCustomized = existing?.responseDeadlineOverride != null;
-    _ibGameNumber = _inferIbGameNumber(_start);
+    _ibGameNumber = existing != null && _isIbKind(_kind)
+        ? _inferIbGameNumber(_start)
+        : ibGameSlots.first.gameNumber;
     if (_isIbKind(_kind)) _applyIbGameSlot(_ibGameNumber);
     _responseEnabled = true;
     _starterIds = existing?.starterProfileIds.toSet() ?? <String>{};
@@ -322,20 +324,14 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
                     DropdownButtonFormField<int>(
                       initialValue: _ibGameNumber,
                       decoration: const InputDecoration(labelText: '경기 시간 *'),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 1,
-                          child: Text('1경기 · 13:00–14:00'),
-                        ),
-                        DropdownMenuItem(
-                          value: 2,
-                          child: Text('2경기 · 14:10–15:10'),
-                        ),
-                        DropdownMenuItem(
-                          value: 3,
-                          child: Text('3경기 · 15:20–16:20'),
-                        ),
-                      ],
+                      items: ibGameSlots
+                          .map(
+                            (slot) => DropdownMenuItem(
+                              value: slot.gameNumber,
+                              child: Text(slot.label),
+                            ),
+                          )
+                          .toList(growable: false),
                       onChanged: (value) => setState(() {
                         _ibGameNumber = value!;
                         _applyIbGameSlot(value);
@@ -732,19 +728,10 @@ class _EventEditorFormState extends ConsumerState<_EventEditorForm> {
   static bool _isIbKind(EventKind kind) =>
       kind == EventKind.ibDivision1 || kind == EventKind.ibDivision2;
 
-  int _inferIbGameNumber(DateTime start) =>
-      switch ((start.hour, start.minute)) {
-        (14, 10) => 2,
-        (15, 20) => 3,
-        _ => 1,
-      };
+  int _inferIbGameNumber(DateTime start) => ibGameNumberAt(start);
 
   void _applyIbGameSlot(int gameNumber) {
-    final slot = switch (gameNumber) {
-      2 => (startHour: 14, startMinute: 10, endHour: 15, endMinute: 10),
-      3 => (startHour: 15, startMinute: 20, endHour: 16, endMinute: 20),
-      _ => (startHour: 13, startMinute: 0, endHour: 14, endMinute: 0),
-    };
+    final slot = ibGameSlot(gameNumber);
     _start = DateTime(
       _start.year,
       _start.month,

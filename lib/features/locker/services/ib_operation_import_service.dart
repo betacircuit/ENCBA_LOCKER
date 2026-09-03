@@ -1,3 +1,4 @@
+import 'package:encba_locker/features/locker/domain/locker_models.dart';
 import 'package:encba_locker/features/locker/services/homecoming_file_picker.dart'
     as platform_picker;
 import 'package:excel_plus/excel_plus.dart';
@@ -45,7 +46,7 @@ class IbOperationImportService {
         .whereType<_IbSheetLayout>()
         .toList();
     if (layouts.isEmpty) {
-      throw const FormatException('운영 날짜와 1·2·3경기 배정표를 함께 찾지 못했습니다.');
+      throw const FormatException('운영 날짜와 1~7경기 배정표를 함께 찾지 못했습니다.');
     }
     layouts.sort((a, b) => b.score.compareTo(a.score));
     final layout = layouts.first;
@@ -73,6 +74,10 @@ class IbOperationImportService {
       // 아니라 가운데 열들에서 시작하기도 해서, 행 전체를 보고 끊어야
       // 통계 표의 이름과 머리글이 배정으로 딸려 들어오지 않는다.
       if (_isSummaryRow(row)) break;
+      if (_isSectionRow(row)) {
+        currentTitle = null;
+        continue;
+      }
       if (_isAssignmentTitle(first)) currentTitle = _normalizeTitle(first);
       final title = currentTitle;
       if (title == null) continue;
@@ -123,7 +128,10 @@ class IbOperationImportService {
         duplicateKeys.add(semanticKey);
         continue;
       }
-      final slot = _fixedGameSlot(item.title);
+      final slot = _fixedGameSlot(
+        item.title,
+        legacyThreeGameSchedule: layout.legacyThreeGameSchedule,
+      );
       defaultTimeCount++;
       final start = _koreaTimeAsUtc(
         item.date,
@@ -208,16 +216,23 @@ class IbOperationImportService {
       if (dateColumns.isEmpty) continue;
       final assignmentTitleCount = sheet.rows
           .skip(headerRow + 1)
-          .take(30)
+          .take(80)
           .where((candidate) => _isAssignmentTitle(_valueAt(candidate, 0)))
           .length;
       if (assignmentTitleCount == 0) continue;
+      final legacyThreeGameSchedule = !sheet.rows
+          .skip(headerRow + 1)
+          .take(80)
+          .map((candidate) => _valueAt(candidate, 0))
+          .where(_isAssignmentTitle)
+          .any(_usesSevenGameSchedule);
       final candidate = _IbSheetLayout(
         sheetName: entry.key,
         sheet: sheet,
         headerRow: headerRow,
         dateColumns: dateColumns,
         headerValues: headerValues,
+        legacyThreeGameSchedule: legacyThreeGameSchedule,
         score: dateColumns.length * 10 + assignmentTitleCount,
       );
       if (best == null || candidate.score > best.score) best = candidate;
@@ -307,18 +322,50 @@ class IbOperationImportService {
   }) => DateTime.utc(date.year, date.month, date.day, hour - 9, minute);
 
   ({int startHour, int startMinute, int endHour, int endMinute}) _fixedGameSlot(
-    String title,
-  ) => switch (title[0]) {
-    '1' => (startHour: 13, startMinute: 0, endHour: 14, endMinute: 0),
-    '2' => (startHour: 14, startMinute: 10, endHour: 15, endMinute: 10),
-    _ => (startHour: 15, startMinute: 20, endHour: 16, endMinute: 20),
-  };
+    String title, {
+    required bool legacyThreeGameSchedule,
+  }) {
+    final gameNumber = int.parse(
+      RegExp(r'^(\d+)경기').firstMatch(title)!.group(1)!,
+    );
+    if (legacyThreeGameSchedule) {
+      return switch (gameNumber) {
+        1 => (startHour: 13, startMinute: 0, endHour: 14, endMinute: 0),
+        2 => (startHour: 14, startMinute: 10, endHour: 15, endMinute: 10),
+        _ => (startHour: 15, startMinute: 20, endHour: 16, endMinute: 20),
+      };
+    }
+    final slot = ibGameSlot(gameNumber);
+    return (
+      startHour: slot.startHour,
+      startMinute: slot.startMinute,
+      endHour: slot.endHour,
+      endMinute: slot.endMinute,
+    );
+  }
 
   String _normalizeTitle(String value) =>
       value.trim().replaceAll(RegExp(r'\s+'), ' ');
 
-  bool _isAssignmentTitle(String value) =>
-      RegExp(r'^[123]경기\s+(운영\s+[AB]|심판)\s*$').hasMatch(value.trim());
+  bool _isAssignmentTitle(String value) => RegExp(
+    r'^[1-7]경기\s+(?:운영\s+[AB]|심판(?:\s+[AB])?)\s*$',
+  ).hasMatch(value.trim());
+
+  bool _usesSevenGameSchedule(String title) {
+    final normalized = _normalizeTitle(title);
+    final gameNumber = int.tryParse(
+      RegExp(r'^(\d+)경기').firstMatch(normalized)?.group(1) ?? '',
+    );
+    return (gameNumber ?? 0) > 3 || RegExp(r'심판\s+[AB]$').hasMatch(normalized);
+  }
+
+  bool _isSectionRow(List<Data?> row) {
+    final values = <String>[
+      for (var column = 0; column < row.length; column++)
+        _valueAt(row, column).replaceAll(' ', ''),
+    ];
+    return values.any((value) => value == '심판');
+  }
 
   /// 배정표가 끝나고 집계 표가 시작되는 행인지 본다.
   static const _summaryMarkers = [
@@ -343,6 +390,9 @@ class IbOperationImportService {
     final normalized = value.replaceAll(' ', '').toLowerCase();
     return normalized.isEmpty ||
         normalized == 'x' ||
+        normalized == '엔크바' ||
+        normalized == 'encba' ||
+        normalized == '심판' ||
         normalized.contains('경기시작') ||
         normalized.contains('경기사작') ||
         normalized.contains('인원제외') ||
@@ -384,6 +434,7 @@ class _IbSheetLayout {
     required this.headerRow,
     required this.dateColumns,
     required this.headerValues,
+    required this.legacyThreeGameSchedule,
     required this.score,
   });
 
@@ -392,5 +443,6 @@ class _IbSheetLayout {
   final int headerRow;
   final Map<int, DateTime> dateColumns;
   final Map<int, String> headerValues;
+  final bool legacyThreeGameSchedule;
   final int score;
 }
